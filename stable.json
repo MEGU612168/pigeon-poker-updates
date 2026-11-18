@@ -2,10 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.2",
-  "published_at": "2026-11-18T21:12:00+09:00",
-  "release_notes": "初回導入用のアプリ内アップデーターを追加。以後はSettingsのCHECK FOR UPDATESから更新できます。Wallet、勉強記録、ポーカー履歴、戦略DB、設定ファイルは更新対象外です。",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.2/payload.zip",
-  "payload_sha256": "9265176af2d29471de69bfadb6bf9d02b511f406a1f1ffb2ab7c663c63f01974",
-  "payload_size": 157656
+  "version": "1.3.4",
+  "published_at": "2026-11-18T14:31:57Z",
+  "release_notes": "自動更新基盤を安定化。アプリ内のUPDATE NOWを押すと、更新確認・取得・SHA-256検証・安全な適用・自動再起動まで行います。Wallet、ポーカー履歴、勉強記録、CPU設定、GTO+戦略DB、設定ファイルは更新対象外です。",
+  "package_mode": "updater-only",
+  "payload_encoding": "base64",
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.4/payload-updater.zip.b64",
+  "payload_sha256": "1b2c4e087fb628f73995117855092a2bc83f91b39589ff2c18ef908b555a4ffb",
+  "payload_size": 6165
 }
