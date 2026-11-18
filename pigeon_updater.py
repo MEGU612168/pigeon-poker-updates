@@ -374,3 +374,5 @@ def start_update_check(app_root: Path, app_pid: int, on_status: StatusCallback,
 
 if __name__ == "__main__":
     raise SystemExit(_helper_main(sys.argv))
+
+# Release trigger: v1.3.4
