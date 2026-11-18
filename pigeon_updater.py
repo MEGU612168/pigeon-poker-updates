@@ -34,6 +34,7 @@ EXPECTED_PAYLOAD_PREFIX = (
     "https://raw.githubusercontent.com/MEGU612168/"
     "pigeon-poker-updates/main/releases/"
 )
+EXPECTED_CODELOAD_PREFIX = "https://codeload.github.com/MEGU612168/pigeon-poker-updates/zip/"
 MAX_COMPRESSED_BYTES = 18 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 18 * 1024 * 1024
 MAX_FILES = 500
@@ -104,11 +105,20 @@ def _fetch_manifest() -> dict[str, Any]:
         raise ValueError("The update manifest is for an unsupported product or channel.")
     _version_tuple(str(data.get("version", "")).strip())
     url = str(data.get("payload_url", ""))
-    if not url.startswith(EXPECTED_PAYLOAD_PREFIX):
+    is_raw = url.startswith(EXPECTED_PAYLOAD_PREFIX)
+    is_codeload = url.startswith(EXPECTED_CODELOAD_PREFIX)
+    if not (is_raw or is_codeload):
         raise ValueError("The update package URL is not on the trusted Pigeon Poker update channel.")
     parsed = urllib.parse.urlparse(url)
-    if parsed.scheme != "https" or parsed.hostname != "raw.githubusercontent.com":
+    host = "raw.githubusercontent.com" if is_raw else "codeload.github.com"
+    if parsed.scheme != "https" or parsed.hostname != host:
         raise ValueError("The update package must be served from the trusted HTTPS host.")
+    if is_codeload:
+        commit_sha = url[len(EXPECTED_CODELOAD_PREFIX):].strip("/")
+        if not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
+            raise ValueError("The codeload package must be pinned to an immutable commit SHA.")
+        if data.get("package_mode") != "updater-only":
+            raise ValueError("The codeload package must explicitly declare updater-only mode.")
     if not re.fullmatch(r"[0-9a-f]{64}", str(data.get("payload_sha256", "")).lower()):
         raise ValueError("The update manifest has an invalid SHA-256 digest.")
     try:
@@ -136,6 +146,35 @@ def _is_allowed_member(name: str) -> bool:
     )
 
 
+def _normalised_archive_members(archive: zipfile.ZipFile) -> list[tuple[zipfile.ZipInfo, str]]:
+    """Validate archive members and strip only a single GitHub codeload root."""
+    infos = [info for info in archive.infolist() if not info.is_dir()]
+    if not infos or len(infos) > MAX_FILES:
+        raise ValueError("The update contains an invalid number of files.")
+    raw_names = [info.filename for info in infos]
+    if all(_is_allowed_member(name) for name in raw_names):
+        members = [(info, info.filename) for info in infos]
+    else:
+        parts_list = [PurePosixPath(name).parts for name in raw_names]
+        roots = {parts[0] for parts in parts_list if parts}
+        if len(roots) == 1 and all(len(parts) >= 2 for parts in parts_list):
+            members = [
+                (info, PurePosixPath(*parts[1:]).as_posix())
+                for info, parts in zip(infos, parts_list)
+            ]
+        else:
+            members = [(info, info.filename) for info in infos]
+    seen: set[str] = set()
+    for _, relative in members:
+        if not _is_allowed_member(relative):
+            raise ValueError(f"The update contains a disallowed file: {relative}")
+        folded = relative.casefold()
+        if folded in seen:
+            raise ValueError(f"The update contains a duplicate file path: {relative}")
+        seen.add(folded)
+    return members
+
+
 def _validate_and_extract(payload: bytes, manifest: dict[str, Any], destination: Path) -> list[str]:
     if len(payload) != int(manifest["payload_size"]):
         raise ValueError("The downloaded update size does not match the manifest.")
@@ -148,27 +187,20 @@ def _validate_and_extract(payload: bytes, manifest: dict[str, Any], destination:
         with zipfile.ZipFile(BytesIO(payload), "r") as archive:
             if archive.testzip() is not None:
                 raise ValueError("The update ZIP failed its integrity check.")
-            infos, seen = archive.infolist(), set()
-            if not infos or len(infos) > MAX_FILES:
-                raise ValueError("The update contains an invalid number of files.")
-            for info in infos:
-                if info.is_dir() or not _is_allowed_member(info.filename):
-                    raise ValueError(f"The update contains a disallowed file: {info.filename}")
-                folded = info.filename.casefold()
-                if folded in seen:
-                    raise ValueError(f"The update contains a duplicate file path: {info.filename}")
-                seen.add(folded)
+            members = _normalised_archive_members(archive)
+            for info, relative in members:
                 total += info.file_size
                 if total > MAX_UNCOMPRESSED_BYTES:
                     raise ValueError("The uncompressed update exceeds the size limit.")
-                target = destination.joinpath(*PurePosixPath(info.filename).parts)
+                target = destination.joinpath(*PurePosixPath(relative).parts)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(info, "r") as source, target.open("wb") as output:
                     shutil.copyfileobj(source, output, length=64 * 1024)
-                if PurePosixPath(info.filename).suffix.lower() in {".py", ".pyw"}:
-                    ast.parse(target.read_text(encoding="utf-8"), filename=info.filename)
-                extracted.append(info.filename)
-        if not _ALLOWED_ROOT.issubset(set(extracted)):
+                if PurePosixPath(relative).suffix.lower() in {".py", ".pyw"}:
+                    ast.parse(target.read_text(encoding="utf-8"), filename=relative)
+                extracted.append(relative)
+        required = {"pigeon_updater.py", "VERSION.txt"} if manifest.get("package_mode") == "updater-only" else _ALLOWED_ROOT
+        if not required.issubset(set(extracted)):
             raise ValueError("The update is missing one or more required application files.")
         bundled_version = (destination / "VERSION.txt").read_text(encoding="utf-8").strip()
         if bundled_version != str(manifest["version"]):
@@ -243,7 +275,7 @@ def _apply_helper(zip_path: Path, app_root: Path, parent_pid: int, expected_sha2
     def log(message: str) -> None:
         try:
             with log_path.open("a", encoding="utf-8") as handle:
-                handle.write(f"{datetime.now(timezone.utc).isoformat()} {message}\n")
+                handle.write(f"{datetime.now(timezone.utc).isoformat()} {message}\\n")
         except OSError:
             pass
     parent_closed = False
@@ -257,14 +289,13 @@ def _apply_helper(zip_path: Path, app_root: Path, parent_pid: int, expected_sha2
         if hashlib.sha256(zip_path.read_bytes()).hexdigest() != expected_sha256:
             raise ValueError("The staged update ZIP changed after verification; no files were changed.")
         with zipfile.ZipFile(zip_path, "r") as archive:
-            names = [info.filename for info in archive.infolist()]
-        if not names or any(not _is_allowed_member(name) for name in names):
-            raise ValueError("The staged ZIP contains a disallowed path.")
+            members = _normalised_archive_members(archive)
+        names = [relative for _, relative in members]
         staging = Path(tempfile.mkdtemp(prefix="pigeon-update-stage-", dir=str(_user_data_root())))
         try:
             with zipfile.ZipFile(zip_path, "r") as archive:
-                for info in archive.infolist():
-                    target = staging.joinpath(*PurePosixPath(info.filename).parts)
+                for info, relative in _normalised_archive_members(archive):
+                    target = staging.joinpath(*PurePosixPath(relative).parts)
                     target.parent.mkdir(parents=True, exist_ok=True)
                     with archive.open(info, "r") as source, target.open("wb") as output:
                         shutil.copyfileobj(source, output, length=64 * 1024)

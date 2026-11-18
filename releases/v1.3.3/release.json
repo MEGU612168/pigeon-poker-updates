@@ -1,8 +1,0 @@
-{
-  "schema_version": 1,
-  "product": "pigeon-poker",
-  "channel": "stable",
-  "version": "1.3.3",
-  "published_at": "2026-11-18T21:30:00+09:00",
-  "release_notes": "SettingsのUPDATE NOWを1回押すだけで、更新確認・ダウンロード・SHA-256検証・適用・再起動まで自動化。Wallet、勉強記録、ポーカー履歴、戦略DB、設定は更新対象外。"
-}
