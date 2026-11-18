@@ -20,14 +20,17 @@ jobs:
         run: |
           set -euo pipefail
           dir="releases/v1.3.2"
-          cat "$dir"/payload.part-* > "$RUNNER_TEMP/payload.zip.b64"
-          base64 --decode "$RUNNER_TEMP/payload.zip.b64" > "$dir/payload.zip"
-          expected="$(python -c 'import json; print(json.load(open("stable.json", encoding="utf-8"))["payload_sha256"])')"
-          expected_size="$(python -c 'import json; print(json.load(open("stable.json", encoding="utf-8"))["payload_size"])')"
-          actual="$(sha256sum "$dir/payload.zip" | cut -d' ' -f1)"
-          actual_size="$(wc -c < "$dir/payload.zip" | tr -d ' ')"
-          test "$actual" = "$expected"
-          test "$actual_size" = "$expected_size"
+          cat "$dir"/payload.b64part-* > /tmp/payload.zip.b64
+          python - <<'PY'
+          import base64, hashlib, json, pathlib
+          root = pathlib.Path("releases/v1.3.2")
+          encoded = pathlib.Path("/tmp/payload.zip.b64").read_bytes()
+          manifest = json.loads(pathlib.Path("stable.json").read_text(encoding="utf-8"))
+          payload = base64.b64decode(encoded, validate=True)
+          assert len(payload) == manifest["payload_size"], (len(payload), manifest["payload_size"])
+          assert hashlib.sha256(payload).hexdigest() == manifest["payload_sha256"], "SHA-256 mismatch"
+          (root / "payload.zip").write_bytes(payload)
+          PY
           unzip -t "$dir/payload.zip"
 
       - name: Publish binary payload to the update repository
