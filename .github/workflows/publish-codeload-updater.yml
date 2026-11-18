@@ -1,0 +1,101 @@
+name: Publish codeload Pigeon Poker updater
+
+on:
+  push:
+    branches:
+      - "release-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out stable manifest branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Download, validate and hash immutable release archive
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import hashlib
+          import json
+          import os
+          import re
+          import urllib.request
+          import zipfile
+          from io import BytesIO
+          from pathlib import PurePosixPath
+
+          sha = os.environ["RELEASE_SHA"].lower()
+          if not re.fullmatch(r"[0-9a-f]{40}", sha):
+              raise SystemExit("Release ref is not a full commit SHA.")
+          url = f"https://codeload.github.com/{os.environ['GITHUB_REPOSITORY']}/zip/{sha}"
+          request = urllib.request.Request(url, headers={"User-Agent": "PigeonPoker-ReleasePublisher/1.0"})
+          with urllib.request.urlopen(request, timeout=90) as response:
+              if not response.geturl().startswith("https://"):
+                  raise SystemExit("Codeload redirected away from HTTPS.")
+              payload = response.read(18 * 1024 * 1024 + 1)
+          if not payload or len(payload) > 18 * 1024 * 1024:
+              raise SystemExit("Release archive is empty or exceeds the 18 MiB limit.")
+
+          with zipfile.ZipFile(BytesIO(payload), "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Codeload ZIP integrity check failed.")
+              infos = [info for info in archive.infolist() if not info.is_dir()]
+              if not infos or len(infos) > 20:
+                  raise SystemExit("Unexpected release file count.")
+              parts = [PurePosixPath(info.filename).parts for info in infos]
+              roots = {p[0] for p in parts if p}
+              if len(roots) != 1 or any(len(p) != 2 for p in parts):
+                  raise SystemExit("Release archive must contain exactly one wrapper folder and root files only.")
+              files = {p[1]: info for p, info in zip(parts, infos)}
+              if set(files) != {"pigeon_updater.py", "VERSION.txt"}:
+                  raise SystemExit("Release must contain only pigeon_updater.py and VERSION.txt.")
+              version = archive.read(files["VERSION.txt"]).decode("utf-8").strip()
+              if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+                  raise SystemExit("Invalid release version.")
+              source = archive.read(files["pigeon_updater.py"]).decode("utf-8")
+              ast.parse(source, filename="pigeon_updater.py")
+
+          manifest = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": version,
+              "package_mode": "updater-only",
+              "published_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+              "release_notes": "アプリ内UPDATE NOWの更新基盤を安定化。以後の更新はアプリ内ボタン1回で適用・再起動します。Wallet、ポーカー履歴、勉強記録、GTO+戦略DB、設定は更新対象外です。",
+              "payload_url": url,
+              "payload_sha256": hashlib.sha256(payload).hexdigest(),
+              "payload_size": len(payload),
+          }
+          output = os.path.join(os.environ["RUNNER_TEMP"], "stable.json")
+          with open(output, "w", encoding="utf-8") as handle:
+              json.dump(manifest, handle, ensure_ascii=False, indent=2)
+              handle.write("\n")
+          print(json.dumps({"version": version, "size": len(payload), "sha256": manifest["payload_sha256"], "url": url}, ensure_ascii=False))
+          PY
+
+      - name: Publish stable manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/stable.json" stable.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stable.json
+          if git diff --cached --quiet; then
+            echo "Stable manifest is already current."
+            exit 0
+          fi
+          git commit -m "Publish stable Pigeon Poker updater"
+          git push origin HEAD:main
