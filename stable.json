@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.2",
+  "published_at": "2026-11-18T21:12:00+09:00",
+  "release_notes": "初回導入用のアプリ内アップデーターを追加。以後はSettingsのCHECK FOR UPDATESから更新できます。Wallet、勉強記録、ポーカー履歴、戦略DB、設定ファイルは更新対象外です。",
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.2/payload.zip",
+  "payload_sha256": "6bbad26d05b21d6cac41d7175f7015353f535a6aba79e449e72b937c840c1754",
+  "payload_size": 153071
+}
