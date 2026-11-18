@@ -1,4 +1,4 @@
-name: Assemble Pigeon Poker update payload
+name: Assemble and publish Pigeon Poker update
 
 on:
   push:
@@ -14,35 +14,89 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Decode and verify payload
+      - name: Assemble, validate, hash and publish
         shell: bash
         run: |
           set -euo pipefail
-          dir="releases/v1.3.2"
-          cat "$dir"/payload.b64part-* > /tmp/payload.zip.b64
           python - <<'PY'
-          import base64, hashlib, json, pathlib
-          root = pathlib.Path("releases/v1.3.2")
-          encoded = pathlib.Path("/tmp/payload.zip.b64").read_bytes()
-          manifest = json.loads(pathlib.Path("stable.json").read_text(encoding="utf-8"))
+          import base64, hashlib, json, os, pathlib, subprocess, sys, zipfile
+          root = pathlib.Path(".")
+          event = json.loads(pathlib.Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+          head = event.get("head_commit") or {}
+          changed = list(head.get("added", [])) + list(head.get("modified", []))
+          markers = sorted(p for p in changed if p.startswith("releases/") and p.endswith("/payload.ready"))
+          if not markers:
+              print("No new or modified payload.ready marker; nothing to publish.")
+              raise SystemExit(0)
+          if len(markers) != 1:
+              raise SystemExit(f"Expected one release marker, found: {markers}")
+          marker = pathlib.PurePosixPath(markers[0])
+          release_dir = root.joinpath(*marker.parts[:-1])
+          meta_path = release_dir / "release.json"
+          if not meta_path.is_file():
+              raise SystemExit(f"Missing release metadata: {meta_path}")
+          meta = json.loads(meta_path.read_text(encoding="utf-8"))
+          if meta.get("schema_version") != 1 or meta.get("product") != "pigeon-poker" or meta.get("channel") != "stable":
+              raise SystemExit("Invalid release metadata.")
+          version = str(meta.get("version", "")).strip()
+          if not version or release_dir.name not in {version, "v" + version}:
+              raise SystemExit("Release directory and version do not match.")
+          parts = sorted(release_dir.glob("payload.b64part-*"))
+          if not parts:
+              raise SystemExit("No payload.b64part-* files found.")
+          encoded = b"".join(p.read_bytes() for p in parts)
           payload = base64.b64decode(encoded, validate=True)
-          assert len(payload) == manifest["payload_size"], (len(payload), manifest["payload_size"])
-          assert hashlib.sha256(payload).hexdigest() == manifest["payload_sha256"], "SHA-256 mismatch"
-          (root / "payload.zip").write_bytes(payload)
+          if not payload or len(payload) > 18 * 1024 * 1024:
+              raise SystemExit("Payload size is empty or exceeds the 18 MiB limit.")
+          from io import BytesIO
+          with zipfile.ZipFile(BytesIO(payload)) as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("ZIP integrity test failed.")
+              names, seen, total = [], set(), 0
+              for info in archive.infolist():
+                  if info.is_dir():
+                      raise SystemExit("Explicit directory entries are not allowed.")
+                  name = info.filename
+                  path = pathlib.PurePosixPath(name)
+                  if "\\\\" in name or "\\x00" in name or path.is_absolute() or ".." in path.parts or "." in path.parts or path.as_posix() != name:
+                      raise SystemExit(f"Unsafe ZIP path: {name}")
+                  allowed_root = name in {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
+                  parts_path = path.parts
+                  allowed_module = len(parts_path) >= 2 and parts_path[0] in {"pigeon_poker", "pigeon_gto_plus"} and path.suffix.lower() == ".py" and not any(p.startswith(".") or p == "__pycache__" for p in parts_path)
+                  if not (allowed_root or allowed_module):
+                      raise SystemExit(f"Update contains a non-allow-listed file: {name}")
+                  folded = name.casefold()
+                  if folded in seen:
+                      raise SystemExit(f"Duplicate file path: {name}")
+                  seen.add(folded)
+                  names.append(name)
+                  total += info.file_size
+                  if len(names) > 500 or total > 18 * 1024 * 1024:
+                      raise SystemExit("Update file count or uncompressed size limit exceeded.")
+              if not {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}.issubset(names):
+                  raise SystemExit("Required update files are missing.")
+              bundled_version = archive.read("VERSION.txt").decode("utf-8").strip()
+              if bundled_version != version:
+                  raise SystemExit("VERSION.txt does not match release.json.")
+          payload_path = release_dir / "payload.zip"
+          payload_path.write_bytes(payload)
+          manifest = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": version,
+              "published_at": str(meta.get("published_at", "")),
+              "release_notes": str(meta.get("release_notes", "修正と改善")),
+              "payload_url": f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/main/{release_dir.as_posix()}/payload.zip",
+              "payload_sha256": hashlib.sha256(payload).hexdigest(),
+              "payload_size": len(payload),
+          }
+          (root / "stable.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+          print(json.dumps({"version": version, "size": len(payload), "sha256": manifest["payload_sha256"], "files": names}, ensure_ascii=False))
           PY
-          unzip -t "$dir/payload.zip"
-
-      - name: Publish binary payload to the update repository
-        shell: bash
-        run: |
-          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add releases/v1.3.2/payload.zip
-          if git diff --cached --quiet; then
-            echo "Payload already published"
-            exit 0
-          fi
-          git commit -m "Publish Pigeon Poker v1.3.2 update payload"
+          git add stable.json "$(python -c 'import json,os,pathlib; e=json.load(open(os.environ["GITHUB_EVENT_PATH"])); h=e.get("head_commit") or {}; p=[x for x in h.get("added",[])+h.get("modified",[]) if x.startswith("releases/") and x.endswith("/payload.ready")][0]; print(str(pathlib.PurePosixPath(p).parent)+"/payload.zip")')"
+          git diff --cached --quiet && exit 0
+          git commit -m "Publish verified Pigeon Poker update"
           git push
