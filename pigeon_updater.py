@@ -376,3 +376,5 @@ if __name__ == "__main__":
     raise SystemExit(_helper_main(sys.argv))
 
 # Release trigger: v1.3.4
+
+# GitHub Actions release trigger for v1.3.4
