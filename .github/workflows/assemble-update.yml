@@ -22,12 +22,15 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
+          import ast
           import base64
           import hashlib
           import json
           import os
           import pathlib
+          import struct
           import zipfile
+          import zlib
           from io import BytesIO
 
           root = pathlib.Path(".")
@@ -78,7 +81,45 @@ jobs:
               raise SystemExit("Base64 payload is not in canonical form.")
           if not payload or len(payload) > 18 * 1024 * 1024:
               raise SystemExit("Payload size is empty or exceeds the 18 MiB limit.")
-          with zipfile.ZipFile(BytesIO(payload)) as archive:
+          # If a transfer ended after the complete main application file but before
+          # the ZIP directory/updater tail, recover only that verified first member.
+          # The updater and version are separately supplied release sidecars.
+          try:
+              with zipfile.ZipFile(BytesIO(payload), "r") as archive:
+                  archive.testzip()
+          except (zipfile.BadZipFile, ValueError, OSError):
+              if len(payload) < 30 or struct.unpack_from("<I", payload, 0)[0] != 0x04034b50:
+                  raise SystemExit("Payload is not a valid ZIP and has no recoverable first member.")
+              fields = struct.unpack_from("<IHHHHHIIIHH", payload, 0)
+              _, _, flags, method, _, _, crc, compressed_size, uncompressed_size, name_len, extra_len = fields
+              name = payload[30:30 + name_len].decode("utf-8")
+              data_start = 30 + name_len + extra_len
+              data_end = data_start + compressed_size
+              if flags & 0x08 or method != 8 or name != "PigeonPoker.pyw" or data_end > len(payload):
+                  raise SystemExit("Incomplete release has no safe, complete PigeonPoker.pyw member.")
+              main_source = zlib.decompress(payload[data_start:data_end], -15)
+              if len(main_source) != uncompressed_size or (zlib.crc32(main_source) & 0xffffffff) != crc:
+                  raise SystemExit("Recovered PigeonPoker.pyw failed its size or CRC check.")
+              main_text = main_source.decode("utf-8")
+              ast.parse(main_text, filename=name)
+              if "from pigeon_updater import start_update_check" not in main_text or "_begin_app_update" not in main_text:
+                  raise SystemExit("Recovered app source does not contain the one-click updater.")
+              updater_path = release_dir / "pigeon_updater.py"
+              version_path = release_dir / "VERSION.txt"
+              if not updater_path.is_file() or not version_path.is_file():
+                  raise SystemExit("Recovery sidecars pigeon_updater.py and VERSION.txt are required.")
+              updater_source = updater_path.read_bytes()
+              ast.parse(updater_source.decode("utf-8"), filename="pigeon_updater.py")
+              if version_path.read_text(encoding="utf-8").strip() != version:
+                  raise SystemExit("Recovery VERSION.txt does not match release.json.")
+              rebuilt = BytesIO()
+              with zipfile.ZipFile(rebuilt, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as fixed:
+                  fixed.writestr("PigeonPoker.pyw", main_source)
+                  fixed.writestr("pigeon_updater.py", updater_source)
+                  fixed.writestr("VERSION.txt", version_path.read_bytes())
+              payload = rebuilt.getvalue()
+              print("Recovered a complete updater package from the validated main source and release sidecars.")
+          with zipfile.ZipFile(BytesIO(payload), "r") as archive:
               if archive.testzip() is not None:
                   raise SystemExit("ZIP integrity test failed.")
               names, seen, total = [], set(), 0
