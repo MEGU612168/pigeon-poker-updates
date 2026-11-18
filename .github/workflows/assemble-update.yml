@@ -39,7 +39,7 @@ jobs:
           if not candidates:
               print("No completed release marker found; nothing to publish.")
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-                  out.write("publish=false\\n")
+                  out.write("publish=false\n")
               raise SystemExit(0)
           if len(candidates) != 1:
               raise SystemExit("Expected exactly one payload.ready release marker; found: " + ", ".join(map(str, candidates)))
@@ -123,8 +123,8 @@ jobs:
           }
           (root / "stable.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-              out.write("publish=true\\n")
-              out.write("release_dir=" + release_dir.as_posix() + "\\n")
+              out.write("publish=true\n")
+              out.write("release_dir=" + release_dir.as_posix() + "\n")
           print(json.dumps({"version": version, "size": len(payload), "sha256": manifest["payload_sha256"], "files": names}, ensure_ascii=False))
           PY
 
