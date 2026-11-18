@@ -58,7 +58,7 @@ jobs:
                       raise SystemExit("Explicit directory entries are not allowed.")
                   name = info.filename
                   path = pathlib.PurePosixPath(name)
-                  if "\\\\" in name or "\\x00" in name or path.is_absolute() or ".." in path.parts or "." in path.parts or path.as_posix() != name:
+                  if chr(92) in name or chr(0) in name or path.is_absolute() or ".." in path.parts or "." in path.parts or path.as_posix() != name:
                       raise SystemExit(f"Unsafe ZIP path: {name}")
                   allowed_root = name in {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
                   parts_path = path.parts
@@ -91,7 +91,7 @@ jobs:
               "payload_sha256": hashlib.sha256(payload).hexdigest(),
               "payload_size": len(payload),
           }
-          (root / "stable.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+          (root / "stable.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
           print(json.dumps({"version": version, "size": len(payload), "sha256": manifest["payload_sha256"], "files": names}, ensure_ascii=False))
           PY
           git config user.name "github-actions[bot]"
