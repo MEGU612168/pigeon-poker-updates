@@ -27,7 +27,7 @@ jobs:
           python - <<'PY'
           import base64, hashlib, io, json, pathlib, urllib.request, zipfile
           m=json.loads(urllib.request.urlopen("https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/stable.json",timeout=60).read())
-          if m.get("version")!="1.3.48": raise SystemExit("unexpected base version: "+str(m.get("version")))
+          if m.get("version")!="1.3.49": raise SystemExit("unexpected base version: "+str(m.get("version")))
           b=base64.b64decode(urllib.request.urlopen(m["payload_url"],timeout=90).read(),validate=True)
           if len(b)!=int(m["payload_size"]): raise SystemExit("base payload size mismatch")
           if hashlib.sha256(b).hexdigest()!=m["payload_sha256"]: raise SystemExit("base payload sha256 mismatch")
