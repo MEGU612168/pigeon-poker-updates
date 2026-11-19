@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.33",
-  "published_at": "2026-11-19T02:42:00Z",
-  "release_notes": "v1.3.31の安全な所有ポップアップ探索移行を保持したうえで、GTO+ OOP Source欄のフォーカス先・キャレット位置をGetGUIThreadInfoで読み取る診断を追加。クリック後の観測だけを行い、AA入力・Done確定・Board・Stack・Tree・Solverの操作はしません。ui_probe.pyは既知の基準SHAに一致する場合だけバックアップ後に更新します。Windows実機でのAA確定は未検証です。",
-  "package_mode": "updater-only",
+  "version": "1.3.34",
+  "published_at": "2026-11-19T03:42:34Z",
+  "release_notes": "v1.3.30 psutil_freeを基準に、最大同時卓数2卓、テーブル外観の選択統合、HUポストフロップのGTO+戦略照合厳格化、読み取り専用フォーカス診断を統合。UPDATE NOWから適用可能なフルアプリ更新。Windows実機の通しプレイ、GTO+ AA確定、新規ツリー作成・Solver自動実行は未検証。",
+  "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.33/payload-updater.zip.b64",
-  "payload_sha256": "c3659e8520a57559246312b8a13a489da4305415586024382a0ad2f85c6563b5",
-  "payload_size": 34955
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.34/payload-full.zip.b64",
+  "payload_sha256": "f78b6113becd584e56d2c88fbd17c5dfd3ef257315442d76ebe646db5227c534",
+  "payload_size": 122587
 }
