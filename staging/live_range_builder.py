@@ -178,7 +178,7 @@ def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_
             else: amount=0
         except (TypeError,ValueError): amount=0
         paid[pid]=paid.get(pid,0)+amount
-        postflop_line.append({k:e.get(k) for k in ("player","action","target","paid","amount","street","street_contribution_before","current_bet_before","to_call_before","pot_before","full_raise") if k in e})
+        postflop_line.append({"type":"action", **{k:e.get(k) for k in ("player","action","target","paid","amount","street","street_contribution_before","current_bet_before","to_call_before","pot_before","full_raise") if k in e}})
     stacks={pid:int(getattr(by_id[pid],"stack",0))+paid.get(pid,0) for pid in (oop,ip)}
     bb=int(getattr(hand,"big_blind",0) or 0)
     effective=min(stacks.values())
