@@ -1,16 +1,17 @@
-"""Safe, read-only discovery of the embedded GTO+ 1.9.1 setup dialogs.
+"""Calibrated, read-only discovery of embedded GTO+ 1.9.1 setup UI.
 
-This probe only opens the already-calibrated OOP range editor and Build Tree
-setup dialog, captures their actual UI, and dismisses them with Escape after
-verifying keyboard focus belongs to the exact GTO+ process hosted by Pigeon.
-It never enters text, commits a range, changes board/pot/stack/rake, builds a
-tree, runs Solver, or selects another GTO.exe process.
+The range editor is closed with its measured on-screen X button, not Escape:
+the embedded GTO window has no keyboard focus while Pigeon's Tk child owns it.
+The Build Tree dialog is captured and is only dismissed with Escape when the
+GTO process itself owns keyboard focus. Every close is visually verified
+against the baseline screenshot before the next click is allowed.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import struct
 import sys
 import time
 import zipfile
@@ -20,13 +21,14 @@ from typing import Any
 
 from . import ui_probe as probe
 
-# Measured from the user's actual embedded GTO+ 1.9.1 client screenshot
-# gto_plus_ui_20261119_174018_window_primary.bmp: 665 x 570 client pixels.
 _REFERENCE_SIZE = (665, 570)
 _OOP_MATRIX_RECT = (27, 88, 82, 144)
 _OOP_MATRIX_CENTER = (54, 116)
+_OOP_CLOSE_RECT = (488, 66, 504, 84)
+_OOP_CLOSE_CENTER = (496, 75)
 _BUILD_TREE_RECT = (24, 253, 85, 276)
 _BUILD_TREE_CENTER = (54, 265)
+_DIALOG_ROI = (100, 60, 515, 460)
 
 
 def _client_geometry(user32, hwnd: int, RECT) -> tuple[int, int]:
@@ -36,24 +38,60 @@ def _client_geometry(user32, hwnd: int, RECT) -> tuple[int, int]:
     return int(client.right-client.left), int(client.bottom-client.top)
 
 
+def _bmp_region_difference_ratio(path_a: str | Path, path_b: str | Path,
+                                 roi: tuple[int, int, int, int] = _DIALOG_ROI) -> dict[str, Any]:
+    """Compare actual 32-bit BMP pixels in a client-relative ROI."""
+    a = Path(path_a).read_bytes()
+    b = Path(path_b).read_bytes()
+
+    def layout(data: bytes):
+        if len(data) < 54 or data[:2] != b"BM":
+            raise ValueError("capture is not a Windows BMP")
+        offset = struct.unpack_from("<I", data, 10)[0]
+        width, signed_height, planes, bpp, compression = struct.unpack_from("<iiHHI", data, 18)
+        height = abs(signed_height)
+        if width <= 0 or height <= 0 or planes != 1 or bpp != 32 or compression != 0:
+            raise ValueError("capture is not an uncompressed 32-bit BMP")
+        stride = ((width*bpp+31)//32)*4
+        if offset + stride*height > len(data):
+            raise ValueError("BMP pixel data is truncated")
+        return offset, width, height, signed_height, stride
+
+    la, lb = layout(a), layout(b)
+    if la[1:3] != lb[1:3]:
+        raise ValueError(f"capture dimensions differ: {la[1:3]} vs {lb[1:3]}")
+    x0, y0, x1, y1 = roi
+    if not (0 <= x0 < x1 <= la[1] and 0 <= y0 < y1 <= la[2]):
+        raise ValueError(f"ROI outside capture dimensions: {roi}")
+    changed = total = 0
+    for y in range(y0, y1):
+        ya = y if la[3] < 0 else la[2]-1-y
+        yb = y if lb[3] < 0 else lb[2]-1-y
+        row_a = la[0] + ya*la[4]
+        row_b = lb[0] + yb*lb[4]
+        for x in range(x0, x1):
+            ia = row_a + x*4
+            ib = row_b + x*4
+            total += 1
+            if a[ia:ia+3] != b[ib:ib+3]:
+                changed += 1
+    return {"changed_pixels": changed, "total_pixels": total,
+            "ratio": changed/total if total else 1.0, "roi": list(roi)}
+
+
 def _capture_related_windows(user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
                              root_hwnd: int, root_pid: int, output_dir: Path,
                              stem: str, stage: str) -> list[dict[str, Any]]:
     host = probe._top_level_ancestor(user32, root_hwnd)
     roots, _ = probe._all_hwnds(user32, EnumWindowsProc, EnumChildProc)
-    # The embedded solver window is commonly a child of Pigeon's host and
-    # therefore is NOT returned by EnumWindows. Always include that exact
-    # integration HWND explicitly before enumerating GTO-owned top-level dialogs.
     candidates = [int(root_hwnd)] + [int(hwnd) for hwnd in roots if int(hwnd) != int(root_hwnd)]
     captured: list[dict[str, Any]] = []
     seen: set[int] = set()
     for hwnd in candidates:
         hwnd = int(hwnd)
-        if hwnd in seen:
+        if hwnd in seen or not hwnd or not user32.IsWindow(probe.wintypes.HWND(hwnd)):
             continue
         seen.add(hwnd)
-        if not hwnd or not user32.IsWindow(probe.wintypes.HWND(hwnd)):
-            continue
         if probe._window_pid(user32, hwnd) != int(root_pid):
             continue
         if not user32.IsWindowVisible(probe.wintypes.HWND(hwnd)):
@@ -81,9 +119,27 @@ def _capture_related_windows(user32, EnumWindowsProc, EnumChildProc, RECT, POINT
     return captured
 
 
+def _root_capture_path(windows: list[dict[str, Any]], stage: str) -> str:
+    root = next((w for w in windows if w.get("is_embedded_root")), None)
+    if not root:
+        raise RuntimeError(f"{stage}: exact embedded GTO window was not captured")
+    capture = root.get("capture") or {}
+    path = capture.get("screenshot")
+    if not path or capture.get("capture_error"):
+        raise RuntimeError(f"{stage}: embedded GTO screenshot failed: {capture.get('capture_error')}")
+    return str(path)
+
+
 def _click_exact_client(user32, root_hwnd: int, root_pid: int,
                         RECT, POINT, point: tuple[int, int], *,
                         label: str) -> dict[str, Any]:
+    allowed = {
+        "open_oop_range_editor": _OOP_MATRIX_RECT,
+        "close_oop_range_editor": _OOP_CLOSE_RECT,
+        "open_build_tree_setup": _BUILD_TREE_RECT,
+    }
+    if label not in allowed:
+        raise ValueError(f"{label}: no calibrated click target is registered")
     width, height = _client_geometry(user32, root_hwnd, RECT)
     ref_w, ref_h = _REFERENCE_SIZE
     if abs(width-ref_w) > 12 or abs(height-ref_h) > 12:
@@ -94,10 +150,9 @@ def _click_exact_client(user32, root_hwnd: int, root_pid: int,
     if probe._window_pid(user32, root_hwnd) != int(root_pid):
         raise RuntimeError(f"{label}: embedded HWND PID changed; no click sent")
     x, y = point
-    x0, y0, x1, y1 = (_OOP_MATRIX_RECT if label == "open_oop_range_editor"
-                      else _BUILD_TREE_RECT)
+    x0, y0, x1, y1 = allowed[label]
     if not (x0 <= x <= x1 and y0 <= y <= y1 and 0 <= x < width and 0 <= y < height):
-        raise RuntimeError(f"{label}: click point is outside its measured button/matrix; no click sent")
+        raise RuntimeError(f"{label}: click point is outside its measured target; no click sent")
 
     screen = POINT(int(x), int(y))
     if not user32.ClientToScreen(probe.wintypes.HWND(root_hwnd), probe.ctypes.byref(screen)):
@@ -150,49 +205,27 @@ def _click_exact_client(user32, root_hwnd: int, root_pid: int,
     }
 
 
-def _press_escape_if_exact_gto_focus(user32, RECT, POINT,
-                                     root_hwnd: int, root_pid: int) -> dict[str, Any]:
+def _send_escape_only_to_gto_focused_thread(user32, RECT, POINT,
+                                             root_hwnd: int, root_pid: int) -> dict[str, Any]:
+    """Never send Escape to Pigeon's host thread; only a focused GTO-owned HWND qualifies."""
     host = probe._top_level_ancestor(user32, root_hwnd)
     foreground = int(user32.GetForegroundWindow() or 0)
-    focus = probe._gui_thread_focus_snapshot(
-        user32, RECT, POINT, root_hwnd, host
-    )
-    focus_hwnds: list[int] = []
+    focus = probe._gui_thread_focus_snapshot(user32, RECT, POINT, root_hwnd, host)
+    gto_focus = []
     for thread in focus.get("threads", []):
         handle = int((thread.get("handles") or {}).get("focus") or 0)
-        if handle:
-            focus_hwnds.append(handle)
-    verified_focus = False
-    for handle in focus_hwnds:
-        if probe._window_pid(user32, handle) == int(root_pid):
-            verified_focus = True
-            break
-        if probe._window_is_related_to_embedded_target(user32, handle, root_hwnd, host):
-            verified_focus = True
-            break
-    foreground_related = (
-        foreground == int(host)
-        or foreground == int(root_hwnd)
-        or probe._window_is_related_to_embedded_target(user32, foreground, root_hwnd, host)
-    )
-    if not (verified_focus and foreground_related):
-        return {
-            "status": "skipped_focus_not_proven",
-            "foreground_hwnd": foreground,
-            "focus_hwnds": focus_hwnds,
-            "focus_snapshot": focus,
-            "escape_sent": False,
-        }
+        if handle and probe._window_pid(user32, handle) == int(root_pid):
+            gto_focus.append(handle)
+    if not gto_focus:
+        return {"status": "skipped_no_gto_owned_keyboard_focus",
+                "foreground_hwnd": foreground, "gto_focus_hwnds": [],
+                "focus_snapshot": focus, "escape_sent": False}
     user32.keybd_event(0x1B, 0, 0, 0)
     user32.keybd_event(0x1B, 0, 0x0002, 0)
     time.sleep(0.45)
-    return {
-        "status": "escape_sent_to_verified_gto_focus",
-        "foreground_hwnd": foreground,
-        "focus_hwnds": focus_hwnds,
-        "focus_snapshot": focus,
-        "escape_sent": True,
-    }
+    return {"status": "escape_sent_to_gto_owned_focus",
+            "foreground_hwnd": foreground, "gto_focus_hwnds": gto_focus,
+            "focus_snapshot": focus, "escape_sent": True}
 
 
 def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: int) -> Path:
@@ -219,11 +252,11 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         )
 
     host = probe._top_level_ancestor(user32, target_hwnd)
-    initial_dialogs = _capture_related_windows(
+    initial_windows = _capture_related_windows(
         user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
         target_hwnd, target_pid, output_dir, stem, "initial"
     )
-    extra_initial = [w for w in initial_dialogs if not w["is_embedded_root"]]
+    extra_initial = [w for w in initial_windows if not w["is_embedded_root"]]
     preexisting_source_edits = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
     if extra_initial or preexisting_source_edits:
         raise RuntimeError(
@@ -234,11 +267,16 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     actions: list[dict[str, Any]] = []
     stages: list[dict[str, Any]] = []
     all_captures: list[dict[str, Any]] = []
-    baseline = probe._batch_capture(user32, target_hwnd, RECT, POINT, output_dir, stem, "baseline")
-    all_captures.append(baseline)
+    baseline_windows = _capture_related_windows(
+        user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+        target_hwnd, target_pid, output_dir, stem, "baseline"
+    )
+    baseline_path = _root_capture_path(baseline_windows, "baseline")
+    all_captures.extend(w["capture"] for w in baseline_windows)
     main_controls = probe._batch_child_controls(user32, RECT, target_hwnd)
 
-    # Stage 1: open the OOP range editor only to inspect its real field/dialog.
+    # Stage 1: open the OOP editor, confirm that it visibly appeared, then close
+    # it via its measured X control (Escape belongs to Pigeon's Tk thread here).
     oop_click = _click_exact_client(
         user32, target_hwnd, target_pid, RECT, POINT, _OOP_MATRIX_CENTER,
         label="open_oop_range_editor"
@@ -249,91 +287,115 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
         target_hwnd, target_pid, output_dir, stem, "oop_editor_open"
     )
+    oop_open_path = _root_capture_path(oop_windows, "oop_editor_open")
+    oop_appearance = _bmp_region_difference_ratio(baseline_path, oop_open_path)
     all_captures.extend(w["capture"] for w in oop_windows)
-    oop_focus = probe._gui_thread_focus_snapshot(user32, RECT, POINT, target_hwnd, host)
-    oop_escape = _press_escape_if_exact_gto_focus(user32, RECT, POINT, target_hwnd, target_pid)
-    oop_closed = _capture_related_windows(
-        user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
-        target_hwnd, target_pid, output_dir, stem, "oop_editor_after_escape"
+    if oop_appearance["ratio"] < 0.05:
+        raise RuntimeError(
+            "OOP editor click did not produce the calibrated visible overlay; "
+            "no close click or Build Tree click was sent."
+        )
+
+    close_click = _click_exact_client(
+        user32, target_hwnd, target_pid, RECT, POINT, _OOP_CLOSE_CENTER,
+        label="close_oop_range_editor"
     )
-    all_captures.extend(w["capture"] for w in oop_closed)
-    if not oop_escape["escape_sent"]:
-        raise RuntimeError(
-            "The OOP editor was opened, but GTO+ keyboard focus could not be proven. "
-            "No further clicks were sent; review the saved screenshot and close the dialog manually."
-        )
-    if any(not w["is_embedded_root"] for w in oop_closed):
-        raise RuntimeError(
-            "The OOP editor did not close after Escape. The probe stopped before opening Build Tree."
-        )
+    actions.append(close_click)
+    oop_closed_windows = _capture_related_windows(
+        user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+        target_hwnd, target_pid, output_dir, stem, "oop_editor_after_x"
+    )
+    oop_closed_path = _root_capture_path(oop_closed_windows, "oop_editor_after_x")
+    oop_close_check = _bmp_region_difference_ratio(baseline_path, oop_closed_path)
+    all_captures.extend(w["capture"] for w in oop_closed_windows)
+    oop_closed_ok = oop_close_check["ratio"] <= 0.01
     stages.append({
         "stage": "oop_range_editor",
-        "status": "opened_captured_and_escape_closed",
-        "click": oop_click,
-        "windows_open": oop_windows,
-        "focus_before_escape": oop_focus,
-        "escape": oop_escape,
-        "windows_after_escape": oop_closed,
+        "status": "opened_and_closed_by_measured_x" if oop_closed_ok else "close_not_verified",
+        "open_click": oop_click,
+        "open_windows": oop_windows,
+        "open_overlay_difference": oop_appearance,
+        "close_click": close_click,
+        "windows_after_x": oop_closed_windows,
+        "baseline_difference_after_x": oop_close_check,
+        "visually_closed": oop_closed_ok,
         "range_text_changed": False,
         "range_committed": False,
     })
 
-    # Stage 2: open the Build Tree setup dialog, capture its true controls,
-    # and dismiss it. The Build Tree button itself is not pressed.
-    build_click = _click_exact_client(
-        user32, target_hwnd, target_pid, RECT, POINT, _BUILD_TREE_CENTER,
-        label="open_build_tree_setup"
-    )
-    actions.append(build_click)
-    time.sleep(0.75)
-    build_windows = _capture_related_windows(
-        user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
-        target_hwnd, target_pid, output_dir, stem, "build_tree_open"
-    )
-    all_captures.extend(w["capture"] for w in build_windows)
-    build_focus = probe._gui_thread_focus_snapshot(user32, RECT, POINT, target_hwnd, host)
-    build_escape = _press_escape_if_exact_gto_focus(user32, RECT, POINT, target_hwnd, target_pid)
-    build_closed = _capture_related_windows(
-        user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
-        target_hwnd, target_pid, output_dir, stem, "build_tree_after_escape"
-    )
-    all_captures.extend(w["capture"] for w in build_closed)
-    if not build_escape["escape_sent"]:
-        raise RuntimeError(
-            "The Build Tree dialog was opened, but GTO+ focus could not be proven. "
-            "No Solver or Build Tree action was sent; review the screenshot and close the dialog manually."
+    # Stage 2 is permitted only after pixel-level confirmation that the OOP
+    # editor is gone. Otherwise stop here instead of clicking beneath a modal.
+    build_tree_result = None
+    manual_close_required = False
+    if oop_closed_ok:
+        build_click = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT, _BUILD_TREE_CENTER,
+            label="open_build_tree_setup"
         )
-    if any(not w["is_embedded_root"] for w in build_closed):
-        raise RuntimeError("Build Tree setup did not close after Escape; no Build/Solver command was sent.")
-    stages.append({
-        "stage": "build_tree_setup",
-        "status": "opened_captured_and_escape_closed",
-        "click": build_click,
-        "windows_open": build_windows,
-        "focus_before_escape": build_focus,
-        "escape": build_escape,
-        "windows_after_escape": build_closed,
-        "settings_changed": False,
-        "tree_built": False,
-        "solver_run": False,
-    })
+        actions.append(build_click)
+        time.sleep(0.75)
+        build_windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, "build_tree_open"
+        )
+        build_open_path = _root_capture_path(build_windows, "build_tree_open")
+        build_appearance = _bmp_region_difference_ratio(baseline_path, build_open_path)
+        all_captures.extend(w["capture"] for w in build_windows)
+        build_focus = probe._gui_thread_focus_snapshot(user32, RECT, POINT, target_hwnd, host)
+        escape_result = _send_escape_only_to_gto_focused_thread(
+            user32, RECT, POINT, target_hwnd, target_pid
+        )
+        build_closed_check = None
+        build_closed_windows = []
+        if escape_result["escape_sent"]:
+            build_closed_windows = _capture_related_windows(
+                user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                target_hwnd, target_pid, output_dir, stem, "build_tree_after_gto_escape"
+            )
+            build_closed_path = _root_capture_path(build_closed_windows, "build_tree_after_gto_escape")
+            build_closed_check = _bmp_region_difference_ratio(baseline_path, build_closed_path)
+            all_captures.extend(w["capture"] for w in build_closed_windows)
+        build_closed_ok = bool(build_closed_check and build_closed_check["ratio"] <= 0.01)
+        manual_close_required = not build_closed_ok
+        build_tree_result = {
+            "stage": "build_tree_setup",
+            "status": "opened_and_visually_closed" if build_closed_ok else "opened_captured_manual_close_required",
+            "open_click": build_click,
+            "open_windows": build_windows,
+            "visible_overlay_difference": build_appearance,
+            "focus_before_escape": build_focus,
+            "escape_attempt": escape_result,
+            "after_escape_windows": build_closed_windows,
+            "baseline_difference_after_escape": build_closed_check,
+            "visually_closed": build_closed_ok,
+            "manual_close_required": manual_close_required,
+            "settings_changed": False,
+            "tree_built": False,
+            "solver_run": False,
+        }
+        stages.append(build_tree_result)
+    else:
+        manual_close_required = True
 
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "read_only_gto_plus_setup_dialog_discovery",
+        "probe": "verified_visual_gto_plus_setup_dialog_discovery",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "coordinate_reference": {
             "client_size": list(_REFERENCE_SIZE),
             "oop_matrix_rect": list(_OOP_MATRIX_RECT),
             "oop_matrix_center": list(_OOP_MATRIX_CENTER),
+            "oop_close_rect": list(_OOP_CLOSE_RECT),
+            "oop_close_center": list(_OOP_CLOSE_CENTER),
             "build_tree_button_rect": list(_BUILD_TREE_RECT),
             "build_tree_button_center": list(_BUILD_TREE_CENTER),
-            "source": "user's 2026-11-19 17:40:18 embedded GTO+ screenshot",
+            "visual_verification_roi": list(_DIALOG_ROI),
+            "source": "gto_auto_solve_ui_20261119_223035 uploaded diagnostic screenshot",
         },
         "main_window_controls_before": main_controls,
-        "initial_windows": initial_dialogs,
+        "initial_windows": initial_windows,
         "stages": stages,
         "actions": actions,
         "all_captures": all_captures,
@@ -348,30 +410,43 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "tree_built": False,
             "solver_run": False,
             "other_gto_processes_touched": False,
+            "build_tree_dialog_left_open": manual_close_required and build_tree_result is not None,
+            "manual_close_required": manual_close_required,
         },
         "notes": [
             "Only the exact Pigeon-embedded GTO+ HWND/PID was operated.",
-            "OOP range editor and Build Tree setup were opened for screenshots, then dismissed with Escape.",
-            "No input was typed, no range committed, and no board/pot/stack/rake/tree/Solver settings were changed.",
-            "Every action was gated by the calibrated 665x570 client geometry and verified GTO+ keyboard focus.",
+            "The OOP editor close is verified against baseline pixels in the calibrated dialog ROI.",
+            "Escape is sent only when the focused HWND belongs to the exact GTO.exe PID; Pigeon's Tk host focus is never accepted.",
+            "Build Tree dialog is captured without entering settings or building a tree. If it cannot be closed with verified GTO keyboard focus, the report marks manual_close_required and stops.",
+            "No range text, board, pot, stack, rake, tree or Solver setting is changed.",
         ],
     }
     json_path = output_dir / f"{stem}.json"
     txt_path = output_dir / f"{stem}.txt"
     json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    txt_path.write_text(
-        "PIGEON POKER — SAFE GTO+ AUTO-SOLVE SETUP PROBE\n"
-        f"Created: {report['created_at']}\n"
-        f"Target: PID={target_pid} HWND={target_hwnd}\n"
-        f"Client: {width}x{height}\n"
-        "Range text changed: no\nBoard/pot/stack/rake changed: no\nTree built: no\nSolver run: no\n\n"
-        + "\n".join(
-            f"{stage['stage']}: {stage['status']}\n"
-            f"open windows: {[{'title':w['title'],'rect':w['rect_screen'],'controls':w['controls']} for w in stage['windows_open']]}"
-            for stage in stages
-        ),
-        encoding="utf-8",
-    )
+    lines = [
+        "PIGEON POKER — VISUALLY VERIFIED GTO+ AUTO-SOLVE SETUP PROBE",
+        f"Created: {report['created_at']}",
+        f"Target: PID={target_pid} HWND={target_hwnd}",
+        f"Client: {width}x{height}",
+        f"OOP editor closed by X: {stages[0]['visually_closed']}",
+        f"Build Tree dialog captured: {build_tree_result is not None}",
+        f"Build Tree dialog visually closed: {bool(build_tree_result and build_tree_result['visually_closed'])}",
+        f"Manual close required: {manual_close_required}",
+        "Range/board/pot/stack/rake changed: no",
+        "Tree built: no",
+        "Solver run: no",
+        "",
+    ]
+    for stage in stages:
+        lines.append(f"{stage['stage']}: {stage['status']}")
+        if "visible_overlay_difference" in stage:
+            lines.append(f"Build Tree overlay pixel ratio: {stage['visible_overlay_difference']['ratio']:.4f}")
+        if "baseline_difference_after_escape" in stage and stage["baseline_difference_after_escape"]:
+            lines.append(f"After Escape baseline pixel ratio: {stage['baseline_difference_after_escape']['ratio']:.4f}")
+        if "baseline_difference_after_x" in stage:
+            lines.append(f"After X baseline pixel ratio: {stage['baseline_difference_after_x']['ratio']:.4f}")
+    txt_path.write_text("\n".join(lines), encoding="utf-8")
     zip_path = output_dir / f"{stem}.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.write(json_path, json_path.name)
@@ -384,7 +459,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Safe read-only GTO+ 1.9.1 setup dialog discovery")
+    parser = argparse.ArgumentParser(description="Visually verified GTO+ 1.9.1 setup dialog discovery")
     parser.add_argument("--output", default=str(Path(__file__).resolve().parents[1] / "diagnostics"))
     parser.add_argument("--target-pid", type=int, required=True)
     parser.add_argument("--target-hwnd", type=int, required=True)
@@ -393,14 +468,12 @@ def main() -> int:
         path = run_setup_dialog_probe(
             Path(args.output), target_pid=int(args.target_pid), target_hwnd=int(args.target_hwnd)
         )
-        print(f"Safe GTO+ setup diagnostic created: {path}")
+        print(f"Visually verified GTO+ setup diagnostic created: {path}")
         return 0
     except Exception as exc:
-        print(f"Safe GTO+ setup diagnostic stopped: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"GTO+ setup diagnostic stopped safely: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-# Build marker: read-only calibrated UI probe; no setup fields or solver commands are changed.
