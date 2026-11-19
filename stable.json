@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.37",
-  "published_at": "2026-11-19T07:10:00Z",
-  "release_notes": "v1.3.36ベース。ロビー・キャッシャー・PokerCraftの全Notebookタブにも個別スクロールを追加。一時離席は自動フォールドせず現在のハンドを最後まで進行し、終了後に休止。離席中は自分だけの空テーブル（他プレイヤー・手札・ボード・ポットなし）を表示し、そこからの退席確認は省略。スペードを濃紺、クラブを緑にして視認性を改善。初回配札演出を2倍速、全効果音を低減し配札・着地音はさらに低減。カードスクイーズUIと自動起動を削除。ウォレット同期と各レートのテーブルボタンは維持。",
+  "version": "1.3.38",
+  "published_at": "2026-11-19T07:47:37Z",
+  "release_notes": "v1.3.37の全機能を維持。スクロール用Canvas内のページフレームをウィンドウ表示領域まで拡張し、Notebookと各ページが画面いっぱいに表示されるよう修正。長いページは従来どおりスクロール可能。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.37/payload-full.zip.b64",
-  "payload_sha256": "e2955402f371ad87bd31f2efb5a69e1ed5085030d13fdb0d87349d322cbbde5b",
-  "payload_size": 673496
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.38/payload-updater.zip.b64",
+  "payload_sha256": "1c1b9569d4ea2d0c5e11b0cbee5ec6713df70718f5327dc519c8d2126c88038b",
+  "payload_size": 674631
 }
