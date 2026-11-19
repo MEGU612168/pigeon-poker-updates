@@ -31,7 +31,7 @@ jobs:
           b=base64.b64decode(urllib.request.urlopen(m["payload_url"],timeout=90).read(),validate=True)
           if len(b)!=int(m["payload_size"]): raise SystemExit("base payload size mismatch")
           if hashlib.sha256(b).hexdigest()!=m["payload_sha256"]: raise SystemExit("base payload sha256 mismatch")
-          out=pathlib.Path("staging/base_v1_3_50.zip");out.parent.mkdir(parents=True,exist_ok=True);out.write_bytes(b)
+          out=pathlib.Path("staging/base_v1_3_51.zip");out.parent.mkdir(parents=True,exist_ok=True);out.write_bytes(b)
           print("Verified base",m["version"],"bytes",len(b))
           with zipfile.ZipFile(io.BytesIO(b)) as z: print("Base files",z.namelist())
           PY
@@ -40,7 +40,7 @@ jobs:
           python - <<'PY'
           import ast, base64, io, pathlib, shutil, urllib.request, zipfile
           from tempfile import TemporaryDirectory
-          base=pathlib.Path("staging/base_v1_3_50.zip")
+          base=pathlib.Path("staging/base_v1_3_51.zip")
           module=pathlib.Path("staging/live_range_builder.py").read_text(encoding="utf-8")
           ui_module=pathlib.Path("staging/auto_solve_ui.py").read_text(encoding="utf-8")
           ast.parse(module,filename="live_range_builder.py")
@@ -172,7 +172,7 @@ jobs:
           assert "or not ip_closed_ok" in ui_source
           assert "_temporary_source_field_window_adjustment" in ui_source
           assert "_source_field_occlusion_shift" in ui_source
-          assert '"probe": "verified_gto_plus_oop_aa_commit_roundtrip_and_clear_restore_v10"' in ui_source
+          assert '"probe": "verified_gto_plus_oop_aa_commit_roundtrip_and_clear_restore_v11_cell_centers"' in ui_source
           assert "_source_field_underlay_is_verified_gto_view" in ui_source
           assert "_click_verified_gto_hit_target" in ui_source
           assert "WM_LBUTTONDOWN" in ui_source
@@ -195,7 +195,7 @@ jobs:
           with tempfile.TemporaryDirectory() as td:
               pkg=pathlib.Path(td)/"probe_pkg";pkg.mkdir()
               (pkg/"__init__.py").write_text("",encoding="utf-8")
-              base_zip=pathlib.Path("staging/base_v1_3_50.zip")
+              base_zip=pathlib.Path("staging/base_v1_3_51.zip")
               # ui_probe.py is explicitly included in this candidate, so test that exact bundled source.
               (pkg/"ui_probe.py").write_text(probe_source,encoding="utf-8")
               (pkg/"auto_solve_ui.py").write_text(ui_source,encoding="utf-8")
