@@ -1,0 +1,160 @@
+name: Build and publish Pigeon Poker v1.3.37
+
+on:
+  push:
+    branches:
+      - chatgpt/publish-v1-3-37
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout patch and release tooling
+        uses: actions/checkout@v4
+
+      - name: Patch v1.3.36, validate package, publish stable update
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git worktree add /tmp/pigeon-main origin/main
+
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import subprocess
+          import zipfile
+          from datetime import datetime, timezone
+
+          workspace = pathlib.Path(".").resolve()
+          repo = pathlib.Path("/tmp/pigeon-main")
+          manifest_path = repo / "stable.json"
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          if manifest.get("version") != "1.3.36":
+              raise SystemExit("Expected stable base v1.3.36, found " + str(manifest.get("version")))
+          if manifest.get("product") != "pigeon-poker" or manifest.get("channel") != "stable":
+              raise SystemExit("Unexpected product/channel in stable manifest.")
+
+          encoded_path = repo / "releases/v1.3.36/payload-full.zip.b64"
+          encoded = encoded_path.read_text(encoding="ascii")
+          payload = base64.b64decode(encoded, validate=True)
+          if hashlib.sha256(payload).hexdigest() != manifest["payload_sha256"]:
+              raise SystemExit("The v1.3.36 base package SHA-256 does not match stable.json.")
+          if len(payload) != int(manifest["payload_size"]):
+              raise SystemExit("The v1.3.36 base package size does not match stable.json.")
+
+          original = io.BytesIO(payload)
+          patch_parts = sorted((workspace / "tools").glob("v137.patch.*"))
+          if len(patch_parts) != 4:
+              raise SystemExit("Expected exactly four ordered patch parts.")
+          patch_text = "".join(part.read_text(encoding="utf-8") for part in patch_parts)
+
+          work = pathlib.Path("/tmp/pigeon-v137-package")
+          work.mkdir(parents=True, exist_ok=True)
+          with zipfile.ZipFile(original, "r") as source:
+              bad = source.testzip()
+              if bad:
+                  raise SystemExit("The base ZIP failed CRC validation: " + bad)
+              for info in source.infolist():
+                  target = work / info.filename
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(source.read(info.filename))
+
+          subprocess.run(
+              ["patch", "--batch", "--forward", "-p1"],
+              input=patch_text, text=True, cwd=work, check=True
+          )
+
+          app_path = work / "PigeonPoker.pyw"
+          app_source = app_path.read_text(encoding="utf-8")
+          parsed = ast.parse(app_source, filename="PigeonPoker.pyw")
+          methods = {node.name: node for node in ast.walk(parsed)
+                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+          sitout_src = ast.get_source_segment(app_source, methods["_request_table_sitout"])
+          if "_cash_human_action" in sitout_src or '"fold"' in sitout_src:
+              raise SystemExit("Sit-out handler still contains a poker action.")
+          cpu_src = ast.get_source_segment(app_source, methods["_start_cash_cpu_chain_if_needed"])
+          if "cash_sitout_pending" in cpu_src:
+              raise SystemExit("CPU coordinator still contains a pending-sitout auto-action.")
+          if 'text="カードスクイーズ"' in app_source:
+              raise SystemExit("The squeeze control is still visible.")
+          if "DEALING / SQUEEZE" in app_source:
+              raise SystemExit("An obsolete squeeze status label remains.")
+          (work / "VERSION.txt").write_text("1.3.37\\n", encoding="utf-8")
+
+          output = io.BytesIO()
+          with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as target:
+              with zipfile.ZipFile(original, "r") as source:
+                  for info in source.infolist():
+                      data = (app_path.read_bytes() if info.filename == "PigeonPoker.pyw"
+                              else (b"1.3.37\\n" if info.filename == "VERSION.txt"
+                                    else source.read(info.filename)))
+                      target.writestr(info, data)
+          final_payload = output.getvalue()
+          final_zip = io.BytesIO(final_payload)
+          with zipfile.ZipFile(final_zip, "r") as check:
+              bad = check.testzip()
+              if bad:
+                  raise SystemExit("The v1.3.37 ZIP failed CRC validation: " + bad)
+              names = set(check.namelist())
+              required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
+              if not required.issubset(names):
+                  raise SystemExit("Required update files are missing.")
+              if check.read("VERSION.txt").decode("utf-8").strip() != "1.3.37":
+                  raise SystemExit("Package VERSION.txt does not match 1.3.37.")
+              ast.parse(check.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
+
+          release_dir = repo / "releases/v1.3.37"
+          release_dir.mkdir(parents=True, exist_ok=True)
+          encoded_final = base64.b64encode(final_payload).decode("ascii")
+          (release_dir / "payload-updater.zip.b64").write_text(encoded_final, encoding="ascii")
+          (release_dir / "payload-full.zip.b64").write_text(encoded_final, encoding="ascii")
+          published_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+          final_hash = hashlib.sha256(final_payload).hexdigest()
+          release_notes = (
+              "一時離席の予約をハンド終了後に適用し、予約操作による自動フォールドを撤去。"
+              "離席中は自分の席だけを表示し、確認なしで退席可能に。スクロール改善、"
+              "スペード/クラブの視認性向上、初回配札2倍速、効果音の全体音量低減、"
+              "スクイーズ機能削除。"
+          )
+          new_manifest = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": "1.3.37",
+              "published_at": published_at,
+              "release_notes": release_notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.37/payload-updater.zip.b64",
+              "payload_sha256": final_hash,
+              "payload_size": len(final_payload),
+          }
+          manifest_path.write_text(json.dumps(new_manifest, ensure_ascii=False, indent=2) + "\\n",
+                                   encoding="utf-8")
+          (release_dir / "release.json").write_text(
+              json.dumps(new_manifest, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8"
+          )
+          print(json.dumps({
+              "version": "1.3.37",
+              "base_version": "1.3.36",
+              "payload_size": len(final_payload),
+              "payload_sha256": final_hash,
+              "files": sorted(names),
+              "published_at": published_at,
+          }, ensure_ascii=False))
+          PY
+
+          cd /tmp/pigeon-main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stable.json releases/v1.3.37
+          git commit -m "Publish Pigeon Poker v1.3.37"
+          git push origin HEAD:main
