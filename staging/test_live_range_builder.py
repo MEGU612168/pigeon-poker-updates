@@ -18,8 +18,9 @@ def chart():
     return {"rows":rows}
 
 
-def hand(events, active, dealer=0, current_pot=500):
+def hand(events, active, dealer=0, current_pot=500, dealt_count=6):
     players=[SimpleNamespace(player_id=f"p{i}",eligible=f"p{i}" in active,
+                             hole_cards=(["As","Ah"] if i < dealt_count else []),
                              stack=9000 if f"p{i}" in active else 0) for i in range(6)]
     return SimpleNamespace(players=players,dealer_index=dealer,big_blind=1000,
                            events=events,street="flop",board=["As","Kd","7c"],pot=current_pot)
@@ -59,6 +60,17 @@ class LiveAutoSolveRangeTests(unittest.TestCase):
         r=build_live_hu_solver_setup(hand(events,{"p2","p3"}),self.chart,rake_pct=5)
         self.assertTrue(r["supported"],r)
         self.assertEqual((r["root"]["oop_player_id"],r["root"]["ip_player_id"]),("p2","p3"))
+
+    def test_short_handed_table_is_rejected_not_mapped_to_six_max_positions(self):
+        events=[
+            {"type":"action","street":"preflop","player":"p0","action":"raise","target":2500},
+            {"type":"action","street":"preflop","player":"p1","action":"call"},
+            {"type":"street","street":"flop","board":["As","Kd","7c"]},
+        ]
+        r=build_live_hu_solver_setup(
+            hand(events,{"p0","p1"},dealt_count=2),self.chart,rake_pct=5)
+        self.assertFalse(r["supported"])
+        self.assertIn("six dealt players",r["reason"])
 
     def test_three_bet_is_explicitly_rejected(self):
         events=[
