@@ -8,7 +8,7 @@ against the baseline screenshot before the next click is allowed.
 """
 from __future__ import annotations
 
-# Build marker: OOP 50% weighted roundtrip; v1.3.52 base patch is idempotent, schema v13.
+# Build marker: exact GTO+ [50%]AA[/50%] normalization is recognized for safe restore; schema v14.
 
 import argparse
 import json
@@ -45,6 +45,7 @@ _BUILD_TREE_CENTER = (54, 265)
 _DIALOG_ROI = (100, 60, 515, 460)
 # Exclude left-side hover tooltips while keeping most of the range editor panel.
 _RANGE_EDITOR_VERIFY_ROI = (240, 60, 515, 460)
+_GTO_PLUS_HALF_WEIGHT_AA_SOURCE = "[50%]AA[/50%]"
 
 
 def _client_geometry(user32, hwnd: int, RECT) -> tuple[int, int]:
@@ -992,6 +993,9 @@ def _run_oop_aa_commit_roundtrip(
         "weight_display_capture_path": None,
         "weight_display_capture_saved": False,
         "weight_display_expected_percent": 50,
+        "expected_gto_plus_source_text": _GTO_PLUS_HALF_WEIGHT_AA_SOURCE,
+        "restore_source_text_readback": None,
+        "restore_source_text_accepted": False,
         "weight_display_roi": [414, 343, 476, 376],
         "range_committed_temporarily": False,
         "range_restored": False,
@@ -1198,13 +1202,17 @@ def _run_oop_aa_commit_roundtrip(
         ):
             raise RuntimeError("Could not uniquely re-identify OOP Source Edit for restoration")
         current_text = probe._read_native_edit_text(user32, restore_edit)
-        if current_text in {"AA", report["test_range"]}:
+        report["restore_source_text_readback"] = current_text
+        expected_test_source_texts = {"AA", report["test_range"], _GTO_PLUS_HALF_WEIGHT_AA_SOURCE}
+        report["restore_source_text_accepted"] = current_text in expected_test_source_texts
+        if report["restore_source_text_accepted"]:
             probe._write_native_edit_text(user32, restore_edit, "")
             if probe._read_native_edit_text(user32, restore_edit) != "":
                 raise RuntimeError("Could not clear the test-only weighted AA Source text")
         elif current_text != "":
             raise RuntimeError(
-                "Source field contains text other than the known AA:0.5 test; preserved it and stopped"
+                "Source field text is not one of the exact known test forms "
+                "(AA, AA:0.5, [50%]AA[/50%]); preserved it and stopped"
             )
 
         clear_click = _click_exact_client(
@@ -1665,10 +1673,23 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         }
         stages.append(board_input_result)
 
+    # Deduplicate repeated references; the round-trip stage also appears in capture_windows.
+    unique_captures: list[dict[str, Any]] = []
+    seen_capture_paths: set[str] = set()
+    for capture in all_captures:
+        shot = capture.get("screenshot") if isinstance(capture, dict) else None
+        key = str(shot).replace("\\", "/").casefold() if shot else None
+        if key and key in seen_capture_paths:
+            continue
+        if key:
+            seen_capture_paths.add(key)
+        unique_captures.append(capture)
+    all_captures = unique_captures
+
     report = {
-        "schema_version": 13,
+        "schema_version": 14,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_aa_50pct_weighted_commit_roundtrip_v13_tooltip_safe_close",
+        "probe": "verified_gto_plus_oop_aa_50pct_weighted_commit_roundtrip_v14_canonical_restore_tooltip_safe_close",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -1682,6 +1703,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "test_value": "AA",
             "roundtrip_test_value": "AA:0.5",
             "roundtrip_test_weight": 0.5,
+            "expected_gto_plus_roundtrip_source_text": _GTO_PLUS_HALF_WEIGHT_AA_SOURCE,
             "original_field_must_be_empty": True,
             "focus_only_click_allowed_on_verified_gto_view": True,
             "no_keyboard_input_without_unique_native_edit": True,
@@ -1692,6 +1714,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "oop_aa_only_matrix_reflection_verified": bool(oop_roundtrip.get("aa_only_matrix_reflection_verified")),
             "oop_aa_restored": bool(oop_roundtrip.get("range_restored")),
             "oop_weight_display_capture_saved": bool(oop_roundtrip.get("weight_display_capture_saved")),
+            "oop_restore_source_text_readback": oop_roundtrip.get("restore_source_text_readback"),
+            "oop_restore_source_text_accepted": bool(oop_roundtrip.get("restore_source_text_accepted")),
             "range_committed": False,
             "board_text_entered": False,
             "temporary_window_position_restore_required": True,
@@ -1735,6 +1759,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "oop_weight_display_capture_saved": bool(oop_roundtrip.get("weight_display_capture_saved")),
             "oop_test_range_text": "AA:0.5",
             "oop_test_range_weight": 0.5,
+            "oop_restore_source_text_readback": oop_roundtrip.get("restore_source_text_readback"),
+            "oop_restore_source_text_accepted": bool(oop_roundtrip.get("restore_source_text_accepted")),
             "board_changed": False,
             "pot_changed": False,
             "stack_changed": False,
@@ -1769,6 +1795,14 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     json_path = output_dir / f"{stem}.json"
     txt_path = output_dir / f"{stem}.txt"
     json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    if oop_roundtrip.get("range_restored"):
+        final_oop_state = "restored to the original empty baseline"
+    elif oop_roundtrip.get("test_range_may_remain_committed"):
+        final_oop_state = "temporary AA:0.5 may remain committed; manual Clear + Done required"
+    elif not oop_roundtrip.get("range_committed_temporarily"):
+        final_oop_state = "no temporary test commit remains"
+    else:
+        final_oop_state = "restoration not verified; inspect the diagnostic images"
     lines = [
         "PIGEON POKER — VISUALLY VERIFIED GTO+ AUTO-SOLVE SETUP PROBE",
         f"Created: {report['created_at']}",
@@ -1779,6 +1813,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"OOP weighted AA commit/restore: {oop_roundtrip['status']}",
         f"OOP AA-only matrix reflection: {bool(oop_roundtrip.get('aa_only_matrix_reflection_verified'))}",
         f"OOP 50% weight-field screenshot saved: {bool(oop_roundtrip.get('weight_display_capture_saved'))}",
+        f"GTO+ normalized Source text: {oop_roundtrip.get('restore_source_text_readback')}",
+        f"Canonical Source text accepted for safe Clear: {bool(oop_roundtrip.get('restore_source_text_accepted'))}",
         f"OOP weighted range restored: {bool(oop_roundtrip.get('range_restored'))}",
         f"IP range editor: {ip_editor_result['status'] if ip_editor_result else 'not_attempted'}",
         f"Board input: {board_input_result['status'] if board_input_result else 'not_attempted'}",
@@ -1786,7 +1822,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"Temporary GTO window move: {oop_source_probe.get('temporary_window_adjustment', {}).get('status', 'not_reported')}",
         f"Temporary GTO window move restored: {bool(oop_source_probe.get('window_position_restore_verified', True))}",
         f"Manual close required: {manual_close_required}",
-        "Final range/board/pot/stack/rake changed: no (temporary AA:0.5 test cleared)",
+        f"Final OOP range state: {final_oop_state}",
+        "Board/Pot/Stack/Rake changed: no",
         "Tree built: no",
         "Solver run: no",
         "",
