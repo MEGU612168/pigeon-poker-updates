@@ -26,6 +26,12 @@ _OOP_MATRIX_RECT = (27, 88, 82, 144)
 _OOP_MATRIX_CENTER = (54, 116)
 _OOP_CLOSE_RECT = (488, 66, 504, 84)
 _OOP_CLOSE_CENTER = (496, 75)
+_IP_MATRIX_RECT = (27, 159, 82, 215)
+_IP_MATRIX_CENTER = (54, 187)
+_RANGE_SOURCE_FIELD_RECT = (112, 427, 412, 449)
+_RANGE_SOURCE_FIELD_CENTER = (262, 438)
+_BOARD_INPUT_RECT = (23, 230, 85, 248)
+_BOARD_INPUT_CENTER = (54, 239)
 _BUILD_TREE_RECT = (24, 253, 85, 276)
 _BUILD_TREE_CENTER = (54, 265)
 _DIALOG_ROI = (100, 60, 515, 460)
@@ -135,6 +141,9 @@ def _click_exact_client(user32, root_hwnd: int, root_pid: int,
                         label: str) -> dict[str, Any]:
     allowed = {
         "open_oop_range_editor": _OOP_MATRIX_RECT,
+        "open_ip_range_editor": _IP_MATRIX_RECT,
+        "focus_range_source_field": _RANGE_SOURCE_FIELD_RECT,
+        "focus_board_input": _BOARD_INPUT_RECT,
         "close_oop_range_editor": _OOP_CLOSE_RECT,
         "open_build_tree_setup": _BUILD_TREE_RECT,
     }
@@ -241,6 +250,136 @@ def _build_tree_dialog_is_visible(appearance: dict[str, Any],
     except (TypeError, ValueError, AttributeError):
         ratio = 0.0
     return popup_detected or ratio > 0.01
+
+
+def _probe_source_field_readback_restore(user32, root_hwnd: int, RECT, POINT,
+                                           output_dir: Path, stem: str,
+                                           role: str) -> dict[str, Any]:
+    """Test the exact GTO+ Source Edit using AA, then restore the original text.
+
+    The test never clicks Done. It writes only when exactly one visible Edit
+    control with GTO+ control ID 5458 is found at the measured source-field
+    location and its original content is blank. The exact original value is
+    read back after restoration before the caller may proceed.
+    """
+    if role not in {"OOP", "IP"}:
+        raise ValueError("role must be OOP or IP")
+    click = _click_exact_client(
+        user32, root_hwnd, probe._window_pid(user32, root_hwnd), RECT, POINT,
+        _RANGE_SOURCE_FIELD_CENTER, label="focus_range_source_field"
+    )
+    client = RECT()
+    if not user32.GetClientRect(probe.wintypes.HWND(root_hwnd), probe.ctypes.byref(client)):
+        raise OSError(f"{role} Source field GetClientRect failed: {probe.ctypes.get_last_error()}")
+    origin = POINT(int(client.left), int(client.top))
+    if not user32.ClientToScreen(probe.wintypes.HWND(root_hwnd), probe.ctypes.byref(origin)):
+        raise OSError(f"{role} Source field ClientToScreen failed: {probe.ctypes.get_last_error()}")
+    focus = probe._gui_thread_focus_snapshot(
+        user32, RECT, POINT, root_hwnd, probe._top_level_ancestor(user32, root_hwnd),
+        source_point_screen=(int(origin.x + _RANGE_SOURCE_FIELD_CENTER[0]),
+                             int(origin.y + _RANGE_SOURCE_FIELD_CENTER[1]))
+    )
+    finder = getattr(probe, "_batch_visible_source_edits", None)
+    if not callable(finder):
+        return {
+            "stage": f"{role.lower()}_source_field",
+            "status": "source_edit_enumerator_unavailable",
+            "field_click": click, "focus_snapshot": focus,
+            "candidate_count": None, "text_changed": False,
+            "range_committed": False, "tree_built": False, "solver_run": False,
+        }
+    edits = finder(user32, RECT, root_hwnd)
+    base = {
+        "stage": f"{role.lower()}_source_field",
+        "field_click": click,
+        "focus_snapshot": focus,
+        "candidate_count": len(edits),
+        "range_committed": False,
+        "tree_built": False,
+        "solver_run": False,
+    }
+    if len(edits) != 1:
+        return {**base, "status": "native_source_edit_missing_or_ambiguous",
+                "text_changed": False, "source_controls": probe._batch_child_controls(user32, RECT, root_hwnd)}
+    edit_hwnd, edit_rect = edits[0]
+    if (probe._window_pid(user32, edit_hwnd) != probe._window_pid(user32, root_hwnd)
+            or probe._class_name(user32, edit_hwnd) != "Edit"
+            or int(user32.GetDlgCtrlID(probe.wintypes.HWND(edit_hwnd))) != 5458):
+        return {**base, "status": "source_edit_identity_mismatch",
+                "text_changed": False, "edit_hwnd": int(edit_hwnd),
+                "edit_class": probe._class_name(user32, edit_hwnd),
+                "edit_control_id": int(user32.GetDlgCtrlID(probe.wintypes.HWND(edit_hwnd))),
+                "edit_rect_screen": edit_rect}
+
+    relative_rect = [int(edit_rect[0] - origin.x), int(edit_rect[1] - origin.y),
+                     int(edit_rect[2] - origin.x), int(edit_rect[3] - origin.y)]
+    center = [(relative_rect[0] + relative_rect[2]) // 2,
+              (relative_rect[1] + relative_rect[3]) // 2]
+    delta = [abs(center[0] - _RANGE_SOURCE_FIELD_CENTER[0]),
+             abs(center[1] - _RANGE_SOURCE_FIELD_CENTER[1])]
+    if delta[0] > 35 or delta[1] > 20:
+        return {**base, "status": "source_edit_outside_measured_field",
+                "text_changed": False, "edit_hwnd": int(edit_hwnd),
+                "edit_rect_screen": edit_rect, "edit_rect_client": relative_rect,
+                "center_delta": delta}
+
+    original = probe._read_native_edit_text(user32, edit_hwnd)
+    if original != "":
+        return {**base, "status": "nonempty_source_field_preserved",
+                "text_changed": False, "edit_hwnd": int(edit_hwnd),
+                "edit_rect_screen": edit_rect, "edit_rect_client": relative_rect,
+                "original_text_length": len(original)}
+
+    test_capture = None
+    restore_capture = None
+    test_readback = None
+    restore_readback = None
+    restore_error = None
+    write_verified = False
+    restore_verified = False
+    try:
+        probe._write_native_edit_text(user32, edit_hwnd, "AA")
+        test_readback = probe._read_native_edit_text(user32, edit_hwnd)
+        write_verified = test_readback == "AA"
+        if not write_verified:
+            raise RuntimeError(f"test write/readback mismatch: {test_readback!r}")
+        test_capture = probe._batch_capture(
+            user32, root_hwnd, RECT, POINT, output_dir, stem,
+            f"{role.lower()}_source_text_temporary"
+        )
+        if test_capture.get("capture_error"):
+            raise RuntimeError(f"temporary text capture failed: {test_capture['capture_error']}")
+    except Exception as exc:
+        restore_error = f"{type(exc).__name__}: {exc}"
+    finally:
+        try:
+            probe._write_native_edit_text(user32, edit_hwnd, original)
+            restore_readback = probe._read_native_edit_text(user32, edit_hwnd)
+            restore_verified = restore_readback == original
+            if not restore_verified:
+                restore_error = (restore_error + "; " if restore_error else "") + "original text restore readback mismatch"
+        except Exception as exc:
+            restore_error = (restore_error + "; " if restore_error else "") + f"restore {type(exc).__name__}: {exc}"
+    restore_capture = probe._batch_capture(
+        user32, root_hwnd, RECT, POINT, output_dir, stem,
+        f"{role.lower()}_source_text_restored"
+    )
+    status = (
+        "write_readback_and_restore_verified"
+        if write_verified and restore_verified and not (restore_capture or {}).get("capture_error")
+        else "source_field_test_incomplete"
+    )
+    return {
+        **base, "status": status, "edit_hwnd": int(edit_hwnd),
+        "edit_control_id": 5458, "edit_class": "Edit",
+        "edit_rect_screen": edit_rect, "edit_rect_client": relative_rect,
+        "center_delta": delta, "original_text_length": len(original),
+        "test_text": "AA", "test_write_readback": test_readback,
+        "write_verified": write_verified, "restore_readback": restore_readback,
+        "restore_verified": restore_verified, "restore_error": restore_error,
+        "temporary_capture": test_capture, "restored_capture": restore_capture,
+        "text_changed": not restore_verified, "range_committed": False, "done_clicked": False,
+    }
 
 def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: int) -> Path:
     if os.name != "nt":
