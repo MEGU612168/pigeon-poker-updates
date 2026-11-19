@@ -8,7 +8,7 @@ against the baseline screenshot before the next click is allowed.
 """
 from __future__ import annotations
 
-# Build marker: verified GTO view focus, Edit discovery, and native close retry, schema v9.
+# Build marker: verified OOP 50% weighted range commit/restore and weight capture, schema v13.
 
 import argparse
 import json
@@ -978,7 +978,7 @@ def _run_oop_aa_commit_roundtrip(
     output_dir: Path, stem: str, target_hwnd: int, target_pid: int,
     host_hwnd: int, baseline_path: str
 ) -> dict[str, Any]:
-    """Commit OOP=AA once, verify its cell, then clear and prove exact restoration.
+    """Commit OOP=AA:0.5 once, verify its cell, capture the weight display, then restore.
 
     Runs only when all 169 OOP mini-matrix sample points are black. If any
     existing range is present, it refuses to use Clear. It never touches IP,
@@ -987,8 +987,12 @@ def _run_oop_aa_commit_roundtrip(
     report: dict[str, Any] = {
         "stage": "oop_aa_commit_roundtrip",
         "status": "not_started",
-        "test_range": "AA",
-        "test_range_weight": 1.0,
+        "test_range": "AA:0.5",
+        "test_range_weight": 0.5,
+        "weight_display_capture_path": None,
+        "weight_display_capture_saved": False,
+        "weight_display_expected_percent": 50,
+        "weight_display_roi": [414, 343, 476, 376],
         "range_committed_temporarily": False,
         "range_restored": False,
         "tree_built": False,
@@ -1113,22 +1117,22 @@ def _run_oop_aa_commit_roundtrip(
         if original_text != "":
             raise RuntimeError("OOP Source field is no longer blank; preserving it and aborting")
 
-        probe._write_native_edit_text(user32, edit_hwnd, "AA")
+        probe._write_native_edit_text(user32, edit_hwnd, report["test_range"])
         test_readback = probe._read_native_edit_text(user32, edit_hwnd)
         report["test_source_readback"] = test_readback
-        if test_readback != "AA":
+        if test_readback != report["test_range"]:
             probe._write_native_edit_text(user32, edit_hwnd, original_text)
             raise RuntimeError("AA did not read back exactly; source field was restored and Done was not clicked")
         typed_capture = probe._batch_capture(
             user32, target_hwnd, RECT, POINT, output_dir, stem,
-            "oop_aa_roundtrip_before_done"
+            "oop_weighted_roundtrip_before_done"
         )
         add_capture(typed_capture)
         if typed_capture.get("capture_error"):
             probe._write_native_edit_text(user32, edit_hwnd, original_text)
             raise RuntimeError("Pre-Done image capture failed; Source field was restored")
 
-        closed_after_test, test_windows, test_done = close_editor_via_done("oop_aa_test")
+        closed_after_test, test_windows, test_done = close_editor_via_done("oop_weighted_test")
         report["test_done"] = test_done
         editor_open = not closed_after_test
         if not closed_after_test:
@@ -1156,14 +1160,18 @@ def _run_oop_aa_commit_roundtrip(
         )
         report["actions"].append(reopen_click)
         time.sleep(0.55)
-        restore_open_windows = capture_windows("oop_aa_restore_editor_open")
+        restore_open_windows = capture_windows("oop_weighted_restore_editor_open")
         restore_open_path = _root_capture_path(
-            restore_open_windows, "oop_aa_restore_editor_open"
+            restore_open_windows, "oop_weighted_restore_editor_open"
         )
         restore_open_appearance = _bmp_region_difference_ratio(
             baseline_path, restore_open_path
         )
         report["restore_editor_open_difference"] = restore_open_appearance
+        report["weight_display_capture_path"] = restore_open_path
+        report["weight_display_capture_saved"] = bool(restore_open_path and Path(restore_open_path).is_file())
+        report["weight_display_expected_percent"] = 50
+        report["weight_display_roi"] = [414, 343, 476, 376]
         if restore_open_appearance["ratio"] < 0.05:
             raise RuntimeError("OOP editor did not reopen for restoration")
         editor_open = True
@@ -1190,13 +1198,13 @@ def _run_oop_aa_commit_roundtrip(
         ):
             raise RuntimeError("Could not uniquely re-identify OOP Source Edit for restoration")
         current_text = probe._read_native_edit_text(user32, restore_edit)
-        if current_text == "AA":
+        if current_text in {"AA", report["test_range"]}:
             probe._write_native_edit_text(user32, restore_edit, "")
             if probe._read_native_edit_text(user32, restore_edit) != "":
-                raise RuntimeError("Could not clear the test-only AA Source text")
+                raise RuntimeError("Could not clear the test-only weighted AA Source text")
         elif current_text != "":
             raise RuntimeError(
-                "Source field contains text other than the known AA test; preserved it and stopped"
+                "Source field contains text other than the known AA:0.5 test; preserved it and stopped"
             )
 
         clear_click = _click_exact_client(
@@ -1207,13 +1215,13 @@ def _run_oop_aa_commit_roundtrip(
         time.sleep(0.30)
         clear_capture = probe._batch_capture(
             user32, target_hwnd, RECT, POINT, output_dir, stem,
-            "oop_aa_roundtrip_after_clear"
+            "oop_weighted_roundtrip_after_clear"
         )
         add_capture(clear_capture)
         if clear_capture.get("capture_error"):
             raise RuntimeError("Could not capture OOP editor after Clear; Done was not clicked")
         closed_after_restore, restore_windows, restore_done = close_editor_via_done(
-            "oop_aa_restore"
+            "oop_weighted_restore"
         )
         report["restore_done"] = restore_done
         editor_open = not closed_after_restore
@@ -1237,17 +1245,22 @@ def _run_oop_aa_commit_roundtrip(
         report["range_restored"] = restored
         report["editor_closed_after_restore"] = True
         report["status"] = (
-            "aa_committed_and_visually_restored"
+            "weighted_aa_committed_and_visually_restored"
+            if aa_visible and restored and report.get("weight_display_capture_saved")
+            else "weighted_aa_cell_committed_and_restored_weight_display_review_needed"
             if aa_visible and restored
-            else "aa_commit_not_visually_proven_but_restoration_verified"
+            else "weighted_aa_commit_not_visually_proven_but_restoration_verified"
             if restored
             else "range_restoration_not_verified"
         )
         report["note"] = (
-            "AA was committed, its OOP matrix cell was checked, then Clear/Done restored "
-            "the exact 13x13 baseline sample signature. No solver/tree action was performed."
+            "AA:0.5 was committed and the OOP AA cell was checked. The reopened editor "
+            "weight-display screenshot was saved for visual confirmation of 50%; Clear/Done "
+            "then restored the exact 13x13 baseline sample signature. No solver/tree action was performed."
+            if restored and report.get("weight_display_capture_saved") else
+            "The OOP matrix was restored, but the weight-display screenshot was not saved."
             if restored else
-            "The test commit was attempted, but the final OOP matrix does not match its baseline."
+            "The weighted test commit was attempted, but the final OOP matrix does not match its baseline."
         )
         return report
     except Exception as exc:
@@ -1432,6 +1445,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         oop_roundtrip.get("aa_only_matrix_reflection_verified")
         and oop_roundtrip.get("range_restored")
         and oop_roundtrip.get("editor_closed_after_restore")
+        and oop_roundtrip.get("weight_display_capture_saved")
         and oop_roundtrip.get("window_position_restore_verified", True)
     )
     if oop_roundtrip.get("status") == "skipped_initial_oop_range_not_empty":
@@ -1652,9 +1666,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         stages.append(board_input_result)
 
     report = {
-        "schema_version": 12,
+        "schema_version": 13,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_aa_commit_roundtrip_and_clear_restore_v12_tooltip_safe_close",
+        "probe": "verified_gto_plus_oop_aa_50pct_weighted_commit_roundtrip_v13_tooltip_safe_close",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -1666,6 +1680,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         "input_calibration": {
             "method": "temporary child reposition in verified parent-client coordinates when WindowFromPoint hits a foreign overlay; focus-only click is allowed on exact GTO view 59648, followed by unique native Edit discovery by PID, ownership, class, and measured field geometry",
             "test_value": "AA",
+            "roundtrip_test_value": "AA:0.5",
+            "roundtrip_test_weight": 0.5,
             "original_field_must_be_empty": True,
             "focus_only_click_allowed_on_verified_gto_view": True,
             "no_keyboard_input_without_unique_native_edit": True,
@@ -1675,6 +1691,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "oop_aa_committed_temporarily": bool(oop_roundtrip.get("range_committed_temporarily")),
             "oop_aa_only_matrix_reflection_verified": bool(oop_roundtrip.get("aa_only_matrix_reflection_verified")),
             "oop_aa_restored": bool(oop_roundtrip.get("range_restored")),
+            "oop_weight_display_capture_saved": bool(oop_roundtrip.get("weight_display_capture_saved")),
             "range_committed": False,
             "board_text_entered": False,
             "temporary_window_position_restore_required": True,
@@ -1715,6 +1732,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "oop_test_range_temporarily_committed": bool(oop_roundtrip.get("range_committed_temporarily")),
             "oop_aa_only_matrix_reflection_verified": bool(oop_roundtrip.get("aa_only_matrix_reflection_verified")),
             "oop_test_range_restored": bool(oop_roundtrip.get("range_restored")),
+            "oop_weight_display_capture_saved": bool(oop_roundtrip.get("weight_display_capture_saved")),
+            "oop_test_range_text": "AA:0.5",
+            "oop_test_range_weight": 0.5,
             "board_changed": False,
             "pot_changed": False,
             "stack_changed": False,
@@ -1756,16 +1776,17 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"Client: {width}x{height}",
         f"OOP editor closed by X: {stages[0]['visually_closed']}",
         f"OOP source field: {oop_source_probe['status']}",
-        f"OOP AA commit/restore: {oop_roundtrip['status']}",
-        f"OOP AA only visual reflection: {bool(oop_roundtrip.get('aa_only_matrix_reflection_verified'))}",
-        f"OOP range restored: {bool(oop_roundtrip.get('range_restored'))}",
+        f"OOP weighted AA commit/restore: {oop_roundtrip['status']}",
+        f"OOP AA-only matrix reflection: {bool(oop_roundtrip.get('aa_only_matrix_reflection_verified'))}",
+        f"OOP 50% weight-field screenshot saved: {bool(oop_roundtrip.get('weight_display_capture_saved'))}",
+        f"OOP weighted range restored: {bool(oop_roundtrip.get('range_restored'))}",
         f"IP range editor: {ip_editor_result['status'] if ip_editor_result else 'not_attempted'}",
         f"Board input: {board_input_result['status'] if board_input_result else 'not_attempted'}",
         f"Source click sent: {bool(oop_source_probe.get('click_sent', False))}",
         f"Temporary GTO window move: {oop_source_probe.get('temporary_window_adjustment', {}).get('status', 'not_reported')}",
         f"Temporary GTO window move restored: {bool(oop_source_probe.get('window_position_restore_verified', True))}",
         f"Manual close required: {manual_close_required}",
-        "Range/board/pot/stack/rake changed: no",
+        "Final range/board/pot/stack/rake changed: no (temporary AA:0.5 test cleared)",
         "Tree built: no",
         "Solver run: no",
         "",
