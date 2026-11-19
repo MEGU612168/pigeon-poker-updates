@@ -681,21 +681,27 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         board_focus = probe._gui_thread_focus_snapshot(
             user32, RECT, POINT, target_hwnd, host
         )
-        board_escape = None
-        board_after_escape_windows = []
+        board_close_click = None
+        board_after_x_windows = []
         board_close_check = None
+        board_close_error = None
         if board_dialog_detected:
-            board_escape = _send_escape_only_to_gto_focused_thread(
-                user32, RECT, POINT, target_hwnd, target_pid
-            )
-            if board_escape["escape_sent"]:
-                board_after_escape_windows = _capture_related_windows(
-                    user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
-                    target_hwnd, target_pid, output_dir, stem, "board_input_after_escape"
+            try:
+                board_close_click = _click_exact_client(
+                    user32, target_hwnd, target_pid, RECT, POINT,
+                    _BOARD_CLOSE_CENTER, label="close_board_selector"
                 )
-                board_after_path = _root_capture_path(board_after_escape_windows, "board_input_after_escape")
+                actions.append(board_close_click)
+                time.sleep(0.35)
+                board_after_x_windows = _capture_related_windows(
+                    user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                    target_hwnd, target_pid, output_dir, stem, "board_input_after_x"
+                )
+                board_after_path = _root_capture_path(board_after_x_windows, "board_input_after_x")
                 board_close_check = _bmp_region_difference_ratio(baseline_path, board_after_path)
-                all_captures.extend(w["capture"] for w in board_after_escape_windows)
+                all_captures.extend(w["capture"] for w in board_after_x_windows)
+            except Exception as exc:
+                board_close_error = f"{type(exc).__name__}: {exc}"
         board_closed_ok = bool(
             not board_dialog_detected
             or (board_close_check and board_close_check["ratio"] <= 0.01)
@@ -705,7 +711,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "stage": "board_input",
             "status": (
                 "input_field_focused_no_popup" if not board_dialog_detected
-                else "selector_opened_and_closed" if board_closed_ok
+                else "selector_opened_and_closed_by_x" if board_closed_ok
                 else "selector_opened_manual_close_required"
             ),
             "click": board_click,
@@ -715,18 +721,19 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "dialog_detected": board_dialog_detected,
             "native_controls": board_controls,
             "focus_snapshot": board_focus,
-            "escape_attempt": board_escape,
-            "windows_after_escape": board_after_escape_windows,
-            "baseline_difference_after_escape": board_close_check,
+            "close_click": board_close_click,
+            "close_error": board_close_error,
+            "windows_after_x": board_after_x_windows,
+            "baseline_difference_after_x": board_close_check,
             "visually_closed": board_closed_ok,
             "board_changed": False,
         }
         stages.append(board_input_result)
 
     report = {
-        "schema_version": 4,
+        "schema_version": 5,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_ip_source_and_board_input_calibration_v4",
+        "probe": "verified_gto_plus_oop_ip_source_hit_test_and_board_selector_close_v5",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "input_calibration": {
@@ -751,6 +758,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "range_source_field_center": list(_RANGE_SOURCE_FIELD_CENTER),
             "board_input_rect": list(_BOARD_INPUT_RECT),
             "board_input_center": list(_BOARD_INPUT_CENTER),
+            "board_close_rect": list(_BOARD_CLOSE_RECT),
+            "board_close_center": list(_BOARD_CLOSE_CENTER),
             "build_tree_button_rect": list(_BUILD_TREE_RECT),
             "build_tree_button_center": list(_BUILD_TREE_CENTER),
             "visual_verification_roi": list(_DIALOG_ROI),
@@ -776,14 +785,18 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "solver_run": False,
             "other_gto_processes_touched": False,
             "build_tree_clicked": False,
-            "board_selector_left_open": manual_close_required,
+            "board_selector_left_open": bool(
+                board_input_result and board_input_result.get("dialog_detected")
+                and not board_input_result.get("visually_closed")
+            ),
             "manual_close_required": manual_close_required,
         },
         "notes": [
             "Only the exact Pigeon-embedded GTO+ HWND/PID was operated.",
-            "OOP and IP Source Edit fields are identified only after clicking their measured input area; test text AA is written only to one exact GTO-owned Edit id=5458 that was blank, read back, and restored. Done is never clicked.",
-            "The range editor is dismissed with its measured X button and visually checked against the baseline image. Any failed text restoration stops the sequence.",
-            "The Board input is only focused and inspected. No board text is entered and no card is selected.",
+            "Before any Source field click, WindowFromPoint must resolve to a visible, enabled Edit id=5458 belonging to this exact GTO process and embedded-window ownership chain. Foreign overlays cause a no-click, no-write stop.",
+            "OOP and IP Source Edit fields are tested with AA only when the exact field is hit-tested and originally blank; text is read back and restored. Done is never clicked.",
+            "The OOP/IP range editor is dismissed with its measured X button and visually checked against baseline pixels.",
+            "The Board selector is dismissed with its measured X button and visually checked against baseline pixels. No board text is entered and no card is selected.",
             "No range is committed; no Board/Pot/Stack/Rake is changed; Build Tree and Solver are not run.",
             "Escape is sent only when the detected selector belongs to the exact GTO process and that process owns keyboard focus.",
         ],
@@ -800,6 +813,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"OOP source field: {oop_source_probe['status']}",
         f"IP range editor: {ip_editor_result['status'] if ip_editor_result else 'not_attempted'}",
         f"Board input: {board_input_result['status'] if board_input_result else 'not_attempted'}",
+        f"Source click sent: {bool(oop_source_probe.get('click_sent', False))}",
         f"Manual close required: {manual_close_required}",
         "Range/board/pot/stack/rake changed: no",
         "Tree built: no",
@@ -816,6 +830,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             lines.append(f"After Escape baseline pixel ratio: {stage['baseline_difference_after_escape']['ratio']:.4f}")
         if "baseline_difference_after_x" in stage:
             lines.append(f"After X baseline pixel ratio: {stage['baseline_difference_after_x']['ratio']:.4f}")
+        if "baseline_difference_after_x" in stage and stage.get("stage") == "board_input":
+            lines.append(f"Board selector closed by X: {bool(stage.get('visually_closed'))}")
     txt_path.write_text("\n".join(lines), encoding="utf-8")
     zip_path = output_dir / f"{stem}.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
