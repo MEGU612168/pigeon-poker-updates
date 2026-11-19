@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.48",
-  "published_at": "2026-11-19T16:17:51Z",
-  "release_notes": "GTO+ 1.9.1のSource欄はクリック前にWindowFromPointでGTO所有の入力候補を検証。重なりがあれば埋込GTO子ウィンドウのみ親座標内で一時移動し元位置を復元・検証。描画ビューのみの場合は入力欄へのフォーカスクリックだけ行い、固有のネイティブEditを検出するまで文字入力しない。ネイティブEditが一意に特定され空欄と確認できた場合だけAAを読戻し・復元。OOP/IPとBoard画面は実測Xで閉じる。レンジ確定・Tree構築・Solver実行は行わない。",
+  "version": "1.3.49",
+  "published_at": "2026-11-19T16:41:23Z",
+  "release_notes": "GTO+ 1.9.1のSource欄は実測したGTO描画ビューを経由してEditを特定。空欄に限りAAの読戻し・復元を検証。OOP/IP/Boardの×ボタンは通常クリック後に閉鎖を画像確認し、閉じない場合だけWindowFromPointで特定したGTO描画ビューへマウスメッセージを再送して再検証。レンジ確定・Tree構築・Solver実行は行わない。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.48/payload-updater.zip.b64",
-  "payload_sha256": "b4cf21200f4270a3dd2fa77804805d48ab06ce20d333c3c0b98238151f7602e6",
-  "payload_size": 199734
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.49/payload-updater.zip.b64",
+  "payload_sha256": "f3a61d1888cd2aa5d39a5f5deb809ae381a1d466a87031c28015275ac669fc12",
+  "payload_size": 201112
 }
