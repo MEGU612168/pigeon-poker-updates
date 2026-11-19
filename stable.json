@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.32",
-  "published_at": "",
-  "release_notes": "GTO+ OOP Source欄の入力先を安全に特定するため、GetGUIThreadInfoによるフォーカス先・キャレット・座標診断を追加しました。既存の入力欄にクリックした後の状態を記録するだけで、AAの入力、Done確定、Board、Stack、Tree、Solverの実行は行いません。変更対象はpigeon_gto_plus/ui_probe.pyのみ。既存ファイルのハッシュが想定版と一致する場合だけバックアップ後に更新します。Windows実機のAA確定は未検証です。",
+  "version": "1.3.33",
+  "published_at": "2026-11-19T02:42:00Z",
+  "release_notes": "v1.3.31の安全な所有ポップアップ探索移行を保持したうえで、GTO+ OOP Source欄のフォーカス先・キャレット位置をGetGUIThreadInfoで読み取る診断を追加。クリック後の観測だけを行い、AA入力・Done確定・Board・Stack・Tree・Solverの操作はしません。ui_probe.pyは既知の基準SHAに一致する場合だけバックアップ後に更新します。Windows実機でのAA確定は未検証です。",
   "package_mode": "updater-only",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.32/payload-updater.zip.b64",
-  "payload_sha256": "d59cb09e6a45d961f57e2c41c981098980917bac451c5cb7add3828eb4e59845",
-  "payload_size": 9088
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.33/payload-updater.zip.b64",
+  "payload_sha256": "c3659e8520a57559246312b8a13a489da4305415586024382a0ad2f85c6563b5",
+  "payload_size": 34955
 }
