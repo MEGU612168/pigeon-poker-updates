@@ -1,0 +1,108 @@
+@@ -6923,7 +6965,7 @@
+             suit = code[1].lower() if len(code) > 1 else "s"
+         rank_text = {"T": "10"}.get(rank, rank)
+         suit_text = suit_map.get(suit, "♠")
+-        color = card_face_color(rank+suit, bool(self.appearance.get("four_color_deck", False)))
++        color = _playing_card_ink(rank, suit, bool(self.appearance.get("four_color_deck", False)))
+         face_fill, face_edge, face_inner, court_panel = card_face_palette(
+             self.appearance.get("card_face_theme", "Classic"))
+         tag = ("playing_card",)
+@@ -7197,14 +7239,18 @@
+ 
+         def _scroll_gto_controls(event):
+             widget = event.widget
++            delta = int(getattr(event, "delta", 0) or 0)
++            if not delta:
++                return None
++            units = int(-delta / 120) or (-1 if delta > 0 else 1)
+             while widget is not None:
+                 if widget is controls_canvas:
+-                    delta = getattr(event, "delta", 0)
+-                    if delta:
+-                        controls_canvas.yview_scroll(
+-                            int(-delta / 120) or (-1 if delta > 0 else 1), "units"
+-                        )
+-                    return "break"
++                    first, last = controls_canvas.yview()
++                    can_move = (first > 0.001) if units < 0 else (last < 0.999)
++                    if (last - first) < 0.999 and can_move:
++                        controls_canvas.yview_scroll(units, "units")
++                        return "break"
++                    return None
+                 widget = getattr(widget, "master", None)
+             return None
+ 
+@@ -7798,7 +7844,7 @@
+                 or attributes.get("action_voice_stop", threading.Event()).is_set()):
+             return
+         alert_bus = int(attributes.get("sound_group_levels", {}).get("alerts", 100))
+-        effective_volume = int(self.sound_volume * max(0, min(100, alert_bus)) / 100)
++        effective_volume = int(self.sound_volume * max(0, min(100, alert_bus)) / 100 * 0.60)
+         if effective_volume <= 0:
+             return
+         try:
+@@ -7907,7 +7953,9 @@
+         group = SOUND_GROUPS.get(key, "alerts")
+         group_levels = getattr(self, "sound_group_levels", {})
+         bus_level = max(0, min(100, int(group_levels.get(group, 100))))
+-        effective_volume = int(round(self.sound_volume * bus_level / 100))
++        # Lower every effect, with an extra reduction on the frequent deal/land cues.
++        gain = 0.60 * (0.55 if key in {"deal", "card_land"} else 1.0)
++        effective_volume = int(round(self.sound_volume * bus_level / 100 * gain))
+         if effective_volume <= 0:
+             return
+         previous = self.sound_last_variants.get(key, -1)
+@@ -7936,6 +7984,43 @@
+             write_sound_wav(path, key, variation=take)
+         return path
+ 
++    def _attenuated_wav_for_fallback(self, sound_path: Path, volume: int) -> Path:
++        """Create a cached quiet PCM copy for winsound, which lacks per-play volume."""
++        gain = max(0.0, min(0.32, float(max(0, int(volume))) / 200.0))
++        target = sound_path.with_name(f"{sound_path.stem}_quiet_{int(volume)}.wav")
++        try:
++            if target.is_file() and target.stat().st_mtime >= sound_path.stat().st_mtime:
++                return target
++            with wave.open(str(sound_path), "rb") as source:
++                params = source.getparams()
++                width = source.getsampwidth()
++                raw = source.readframes(source.getnframes())
++            count = len(raw) // max(1, width)
++            if width == 1:
++                attenuated = bytes(max(0, min(255, int(round(128 + (sample - 128) * gain))))
++                                   for sample in raw)
++            elif width in (2, 4):
++                code = "h" if width == 2 else "i"
++                values = struct.unpack("<" + code * count, raw[:count * width])
++                limit = (1 << (width * 8 - 1)) - 1
++                floor = -(1 << (width * 8 - 1))
++                attenuated = struct.pack("<" + code * count,
++                    *(max(floor, min(limit, int(round(sample * gain)))) for sample in values))
++            elif width == 3:
++                samples = []
++                for index in range(0, count * 3, 3):
++                    sample = int.from_bytes(raw[index:index+3], "little", signed=True)
++                    samples.append(int(round(sample * gain)).to_bytes(3, "little", signed=True))
++                attenuated = b"".join(samples)
++            else:
++                return sound_path
++            with wave.open(str(target), "wb") as output:
++                output.setparams(params)
++                output.writeframes(attenuated)
++            return target
++        except (OSError, ValueError, wave.Error, struct.error):
++            return sound_path
++
+     def _play_wav_nonblocking(self, sound_path: Path, volume: int = 70) -> bool:
+         """Play WAV without blocking; MCI aliases allow action and card cues to overlap."""
+         # Windows MCI opens each effect as its own waveaudio alias, so a card
+@@ -7974,7 +8059,8 @@
+                 pass
+         try:
+             import winsound
+-            winsound.PlaySound(str(sound_path), winsound.SND_FILENAME
++            quiet_path = self._attenuated_wav_for_fallback(sound_path, volume)
++            winsound.PlaySound(str(quiet_path), winsound.SND_FILENAME
+                                | winsound.SND_ASYNC
+                                | getattr(winsound, "SND_NODEFAULT", 0))
+             return True
