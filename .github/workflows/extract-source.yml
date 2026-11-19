@@ -1,0 +1,55 @@
+name: Extract current Pigeon Poker source for development
+
+on:
+  push:
+    paths:
+      - "extract-source.request"
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify and extract the stable source package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, pathlib, urllib.request, zipfile, io
+          root = pathlib.Path(".")
+          manifest = json.loads((root / "stable.json").read_text(encoding="utf-8"))
+          url = manifest["payload_url"]
+          raw = urllib.request.urlopen(url, timeout=60).read()
+          payload = base64.b64decode(raw, validate=True)
+          digest = hashlib.sha256(payload).hexdigest()
+          if digest != manifest["payload_sha256"]:
+              raise SystemExit("stable package SHA-256 mismatch")
+          if len(payload) != int(manifest["payload_size"]):
+              raise SystemExit("stable package size mismatch")
+          out = root / "staging" / ("source_" + manifest["version"].replace(".", "_"))
+          out.mkdir(parents=True, exist_ok=True)
+          with zipfile.ZipFile(io.BytesIO(payload)) as z:
+              bad = z.testzip()
+              if bad:
+                  raise SystemExit("ZIP CRC failure: " + bad)
+              names = z.namelist()
+              needed = [n for n in names if n == "PigeonPoker.pyw" or n == "VERSION.txt" or (n.startswith(("pigeon_poker/", "pigeon_gto_plus/")) and n.endswith(".py"))]
+              for name in needed:
+                  target = out / name
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(z.read(name))
+          print("Extracted", len(needed), "source files from", manifest["version"])
+          PY
+      - name: Commit extracted source snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add staging/
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Stage verified stable source for CPU integration"
+          git push
