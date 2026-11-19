@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.55",
-  "published_at": "2026-11-19T20:28:25Z",
-  "release_notes": "GTO+ 1.9.1の重み付きレンジ変換。AA:0.5の確定後、GTO+が返す正規化テキスト[50%]AA[/50%]との完全一致を確認してからClear＋完了で復元。想定外テキストは変更せず停止。診断ZIP内の重複BMPも排除。Build Tree・Solver実行なし。",
+  "version": "1.3.56",
+  "published_at": "2026-11-19T21:11:57Z",
+  "release_notes": "GTO+ 1.9.1の複数ハンド重み付きレンジを検証。OOPへAA,AKs:0.4を一時確定し、AA/AKsの2セルだけの反映とGTO+正規化[40%]AKs[/40%]の完全一致を確認してからClear＋完了で復元。想定外テキストは変更せず停止。IP入力欄・Board選択画面も確認。Build Tree・Solver実行なし。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.55/payload-updater.zip.b64",
-  "payload_sha256": "6e7146816f591dac2658d245d942b797e675b9487fcb0df89cfa3dff90ae656a",
-  "payload_size": 206452
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.56/payload-updater.zip.b64",
+  "payload_sha256": "9aee6ca25e65583d386a2093e8c40ca14ee9b58a88cadf8e196da91a432ae15f",
+  "payload_size": 206894
 }
