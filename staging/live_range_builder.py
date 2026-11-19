@@ -64,6 +64,7 @@ def to_gto_plus_range_text(weighted_range: str) -> str:
 
     Example: 'AA:1.0000,AKs:0.5000,KQo:0.0000' -> 'AA,[50]AKs[/50]'.
     GTO+ uses percentages inside square-bracket blocks; unbracketed hands are 100%.
+    Example output: AA,[50]AKs[/50] (full weight AA, half-frequency AKs).
     """
     if not isinstance(weighted_range, str):
         raise TypeError("weighted_range must be a string")
