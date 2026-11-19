@@ -59,6 +59,50 @@ def _weighted_range(rows, node_id, action):
     selected.sort()
     return ",".join(f"{combo}:{weight:.4f}" for combo,weight in selected),len(selected)
 
+def _required_tree_sizes(postflop_line):
+    """Extract exact bet/raise sizes needed to replay the already-played line."""
+    result = {
+        street: {"bet_percentages": [], "raise_percentages": [], "all_in": False}
+        for street in ("flop", "turn", "river")
+    }
+    for event in postflop_line:
+        if event.get("type") != "action":
+            continue
+        action = str(event.get("action", "")).lower().replace("_", "-")
+        if action not in {"bet", "raise", "all-in"}:
+            continue
+        street = str(event.get("street", "")).lower()
+        if street not in result:
+            return None, f"postflop {action} has no valid street label"
+        if action == "all-in":
+            result[street]["all_in"] = True
+            continue
+        try:
+            target = float(event["target"])
+            contribution = float(event["street_contribution_before"])
+            pot = float(event["pot_before"])
+            if action == "bet":
+                denominator = pot
+                numerator = target - contribution
+                key = "bet_percentages"
+            else:
+                current_bet = float(event["current_bet_before"])
+                to_call = float(event["to_call_before"])
+                denominator = pot + to_call
+                numerator = target - current_bet
+                key = "raise_percentages"
+        except (KeyError, TypeError, ValueError):
+            return None, f"postflop {action} size context is incomplete"
+        if denominator <= 0 or numerator <= 0:
+            return None, f"postflop {action} size cannot be reconstructed"
+        pct = round(numerator / denominator * 100.0, 4)
+        result[street][key].append(pct)
+    for street in result:
+        result[street]["bet_percentages"] = sorted(set(result[street]["bet_percentages"]))
+        result[street]["raise_percentages"] = sorted(set(result[street]["raise_percentages"]))
+    return result, None
+
+
 def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_pct: float):
     """Create a replayable GTO+ flop-root request only for a standard open/flat-call HU line.
 
@@ -143,6 +187,9 @@ def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_
     try: root_pot=int(first_action.get("pot_before")) if first_action else int(getattr(hand,"pot",0))
     except (TypeError,ValueError): return _result("could not reconstruct flop-root pot")
     if root_pot<=0: return _result("flop-root pot is empty")
+    required_tree_sizes, size_error = _required_tree_sizes(postflop_line)
+    if size_error:
+        return _result(size_error)
     try: rake=float(rake_pct)
     except (TypeError,ValueError): return _result("invalid rake percentage")
     if not 0<=rake<=100: return _result("rake percentage is outside 0..100")
@@ -155,7 +202,7 @@ def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_
                 "oop_range":oop_range,"ip_range":ip_range,"range_source":"screenshot_preflop_chart_frequency",
                 "preflop_nodes":{"open":open_node,"call":call_node},
                 "range_hand_classes":{"oop":oop_count,"ip":ip_count}},
-        "postflop_line":postflop_line,
+        "postflop_line":postflop_line,"required_tree_sizes":required_tree_sizes,
         "assumptions":["Preflop ranges are screenshot-derived approximations, not solver-certified.",
                        "Bet-tree sizes and solver precision settings must be included in the resulting tree identity.",
                        "Unsupported preflop lines are rejected rather than assigned guessed ranges."]
