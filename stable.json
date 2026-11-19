@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.43",
-  "published_at": "2026-11-19T14:14:31Z",
-  "release_notes": "GTO+診断：OOPレンジ編集画面を実測Xボタンで閉じ、画像差分で確認。Build Treeクリック後は画像差分と関連ポップアップで設定画面が実際に開いたかを判定。何も開いていない場合はEscを送らず、手動閉鎖不要として記録。開いた場合だけGTOプロセスのフォーカスを確認して閉鎖。レンジ/Board/Pot/Stack/Rake、Tree構築、Solver実行は変更しない。",
+  "version": "1.3.44",
+  "published_at": "2026-11-19T15:05:45Z",
+  "release_notes": "GTO+ 1.9.1のOOP/IPレンジ入力欄を実測位置で識別し、既存テキストを保護したままネイティブEditへの書込み・読戻し・復元を診断。GTO+独自の角括弧付き頻度形式へレンジを変換する機能を追加。入力欄の確認だけを行い、レンジ確定・Board/Pot/Stack/Rake変更・Tree構築・Solver実行は行わない。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.43/payload-updater.zip.b64",
-  "payload_sha256": "8b02c0f2a628e1268344e310acc7e68f3febda8c5d87ec0246e9ad20ce55423c",
-  "payload_size": 192537
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.44/payload-updater.zip.b64",
+  "payload_sha256": "5eb68669f54cddb07fb57f2f22826db0715828a0c4bb370a1cc34b1c11472a65",
+  "payload_size": 195986
 }
