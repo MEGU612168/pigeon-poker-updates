@@ -22,18 +22,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Download and verify stable v1.3.52 base
+      - name: Download and verify pinned v1.3.52 base
         run: |
           python - <<'PY'
-          import base64, hashlib, io, json, pathlib, urllib.request, zipfile
-          m=json.loads(urllib.request.urlopen("https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/stable.json",timeout=60).read())
-          if m.get("version")!="1.3.52": raise SystemExit("unexpected base version: "+str(m.get("version")))
-          b=base64.b64decode(urllib.request.urlopen(m["payload_url"],timeout=90).read(),validate=True)
-          if len(b)!=int(m["payload_size"]): raise SystemExit("base payload size mismatch")
-          if hashlib.sha256(b).hexdigest()!=m["payload_sha256"]: raise SystemExit("base payload sha256 mismatch")
+          import base64, io, json, pathlib, urllib.request, zipfile
+          base_url="https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.52/"
+          release=json.loads(urllib.request.urlopen(base_url+"release.json",timeout=60).read())
+          if release.get("version")!="1.3.52" or release.get("channel")!="stable" or release.get("package_mode")!="full":
+              raise SystemExit("pinned base release metadata is not a full stable v1.3.52 package")
+          encoded=urllib.request.urlopen(base_url+"payload-updater.zip.b64",timeout=90).read().strip()
+          if len(encoded)!=273880:
+              raise SystemExit("pinned v1.3.52 payload encoding size mismatch")
+          b=base64.b64decode(encoded,validate=True)
+          with zipfile.ZipFile(io.BytesIO(b)) as z:
+              if z.testzip() is not None:
+                  raise SystemExit("pinned v1.3.52 ZIP integrity failed")
+              if z.read("VERSION.txt").decode("utf-8").strip()!="1.3.52":
+                  raise SystemExit("pinned base payload VERSION.txt mismatch")
+              required={"PigeonPoker.pyw","pigeon_updater.py","VERSION.txt",
+                        "pigeon_gto_plus/auto_solve_ui.py","pigeon_gto_plus/ui_probe.py"}
+              if not required.issubset(set(z.namelist())):
+                  raise SystemExit("pinned v1.3.52 base is missing required integration files")
           out=pathlib.Path("staging/base_v1_3_52.zip");out.parent.mkdir(parents=True,exist_ok=True);out.write_bytes(b)
-          print("Verified base",m["version"],"bytes",len(b))
-          with zipfile.ZipFile(io.BytesIO(b)) as z: print("Base files",z.namelist())
+          print("Verified pinned base",release["version"],"bytes",len(b))
           PY
       - name: Patch live unknown-scenario queue with derived preflop ranges
         run: |
