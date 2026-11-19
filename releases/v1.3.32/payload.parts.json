@@ -1,6 +1,7 @@
 {
   "parts": [
-    "payload.part-0001a",
+    "payload.part-0001a1",
+    "payload.part-0001a2",
     "payload.part-0001b",
     "payload.part-0001c",
     "payload.part-0001d",
