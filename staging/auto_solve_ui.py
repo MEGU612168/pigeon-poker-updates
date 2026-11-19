@@ -477,3 +477,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+# Rebuild after correcting the source path for the bundled Win32 UI observer.
