@@ -1,7 +1,7 @@
 """Derive conservative HU flop-root ranges from Pigeon's existing screenshot-derived preflop chart."""
 
 # Auto-solve v1.3.50: emit GTO+ native HAND:WEIGHT source strings.
-# Build trigger: rebuild v1.3.52 after making the Pigeon UI patch idempotent.
+# Build trigger: validate the v11 cell-centre OOP matrix sampler and candidate fixture paths.
 from __future__ import annotations
 from typing import Any, Mapping
 
