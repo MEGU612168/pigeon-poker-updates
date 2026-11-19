@@ -59,6 +59,70 @@ def _weighted_range(rows, node_id, action):
     selected.sort()
     return ",".join(f"{combo}:{weight:.4f}" for combo,weight in selected),len(selected)
 
+def to_gto_plus_range_text(weighted_range: str) -> str:
+    """Convert internal HAND:WEIGHT pairs into GTO+'s bracket-weighted range syntax.
+
+    Example: 'AA:1.0000,AKs:0.5000,KQo:0.0000' -> 'AA,[50]AKs[/50]'.
+    GTO+ uses percentages inside square-bracket blocks; unbracketed hands are 100%.
+    """
+    if not isinstance(weighted_range, str):
+        raise TypeError("weighted_range must be a string")
+    if not weighted_range.strip():
+        return ""
+
+    rank_order = "23456789TJQKA"
+    full_weight: list[str] = []
+    weighted_groups: dict[float, list[str]] = {}
+    seen: set[str] = set()
+
+    for raw_token in weighted_range.split(","):
+        token = raw_token.strip()
+        if not token:
+            continue
+        if ":" not in token:
+            raise ValueError(f"weighted range token has no weight: {token!r}")
+        hand, raw_weight = (part.strip() for part in token.rsplit(":", 1))
+        hand = hand.upper()
+        valid_pair = len(hand) == 2 and hand[0] == hand[1] and hand[0] in rank_order
+        valid_nonpair = (
+            len(hand) == 3
+            and hand[0] in rank_order
+            and hand[1] in rank_order
+            and hand[0] != hand[1]
+            and rank_order.index(hand[0]) > rank_order.index(hand[1])
+            and hand[2] in "SO"
+        )
+        if not (valid_pair or valid_nonpair):
+            raise ValueError(f"unsupported GTO+ starting-hand class: {hand!r}")
+        if hand in seen:
+            raise ValueError(f"duplicate hand class in weighted range: {hand}")
+        seen.add(hand)
+        try:
+            weight = float(raw_weight)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"invalid weight for {hand}: {raw_weight!r}") from exc
+        if not 0.0 <= weight <= 1.0:
+            raise ValueError(f"weight for {hand} is outside 0..1: {weight}")
+        if weight <= 0.0:
+            continue
+        if weight >= 1.0:
+            full_weight.append(hand)
+            continue
+        percentage = round(weight * 100.0, 4)
+        if percentage <= 0.0:
+            continue
+        weighted_groups.setdefault(percentage, []).append(hand)
+
+    sections: list[str] = []
+    if full_weight:
+        sections.append(",".join(sorted(full_weight)))
+    for percentage in sorted(weighted_groups, reverse=True):
+        value = f"{percentage:.4f}".rstrip("0").rstrip(".")
+        hands = ",".join(sorted(weighted_groups[percentage]))
+        sections.append(f"[{value}]{hands}[/{value}]")
+    return ",".join(sections)
+
+
 def _required_tree_sizes(postflop_line, oop_player_id: str, ip_player_id: str):
     """Create a compact Advanced-tree sizing profile containing every observed line size."""
     result = {
@@ -225,7 +289,10 @@ def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_
         "root":{"game":"NLHE","players":2,"board":board,"pot_bb":round(root_pot/bb,6),
                 "effective_stack_bb":round(effective/bb,6),"rake_pct":rake,"rake_cap_bb":rake_cap,
                 "oop_player_id":oop,"ip_player_id":ip,"oop_position":positions[oop],"ip_position":positions[ip],
-                "oop_range":oop_range,"ip_range":ip_range,"range_source":"screenshot_preflop_chart_frequency",
+                "oop_range":oop_range,"ip_range":ip_range,
+                "oop_range_gto_plus":to_gto_plus_range_text(oop_range),
+                "ip_range_gto_plus":to_gto_plus_range_text(ip_range),
+                "range_source":"screenshot_preflop_chart_frequency",
                 "preflop_nodes":{"open":open_node,"call":call_node},
                 "range_hand_classes":{"oop":oop_count,"ip":ip_count}},
         "postflop_line":postflop_line,"required_tree_sizes":required_tree_sizes,
