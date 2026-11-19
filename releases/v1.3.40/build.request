@@ -1,1 +1,1 @@
-Build v1.3.40: fix reading the engine's action event player field and test all 20 nodes.
+Retry v1.3.40 after correcting 3,380-row dataset assertion.
