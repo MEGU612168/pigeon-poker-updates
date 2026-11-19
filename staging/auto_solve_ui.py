@@ -1422,7 +1422,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     stages.append(oop_roundtrip)
 
     oop_roundtrip_ok = bool(
-        oop_roundtrip.get("range_restored")
+        oop_roundtrip.get("aa_only_matrix_reflection_verified")
+        and oop_roundtrip.get("range_restored")
         and oop_roundtrip.get("editor_closed_after_restore")
         and oop_roundtrip.get("window_position_restore_verified", True)
     )
@@ -1664,7 +1665,10 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "no_keyboard_input_without_unique_native_edit": True,
             "source_text_readback_required": True,
             "original_text_restore_readback_required": True,
-            "done_button_clicked": False,
+            "done_button_clicked_for_oop_aa_test": True,
+            "oop_aa_committed_temporarily": bool(oop_roundtrip.get("range_committed_temporarily")),
+            "oop_aa_only_matrix_reflection_verified": bool(oop_roundtrip.get("aa_only_matrix_reflection_verified")),
+            "oop_aa_restored": bool(oop_roundtrip.get("range_restored")),
             "range_committed": False,
             "board_text_entered": False,
             "temporary_window_position_restore_required": True,
@@ -1701,6 +1705,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             ),
             "range_committed": False,
             "oop_test_range_temporarily_committed": bool(oop_roundtrip.get("range_committed_temporarily")),
+            "oop_aa_only_matrix_reflection_verified": bool(oop_roundtrip.get("aa_only_matrix_reflection_verified")),
             "oop_test_range_restored": bool(oop_roundtrip.get("range_restored")),
             "board_changed": False,
             "pot_changed": False,
@@ -1726,10 +1731,10 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "Only the exact Pigeon-embedded GTO+ HWND/PID was operated.",
             "Before the Source field focus click, WindowFromPoint must resolve either to an exact GTO-owned native Edit or to the measured AfxFrameOrView140su id=59648 covering the field. Foreign overlays cause a no-click, no-write stop. If the view receives focus but no unique native Edit appears at the measured field, no keyboard input is sent.",
             "If a foreign window covers the Source field, only the exact embedded GTO child is temporarily shifted within its verified parent-client coordinate system; the exact original parent-relative position is restored and verified immediately after the field probe. The host window and other processes are not moved.",
-            "OOP and IP Source Edit fields are tested with AA only when the exact field is hit-tested and originally blank; text is read back and restored. Done is never clicked.",
-            "The OOP/IP range editor is first dismissed with its measured X button; when the overlay remains, one direct WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP retry is sent only to the verified GTO drawing view under that exact point and rechecked against baseline pixels.",
-            "The Board selector is first dismissed with its measured X button; when it remains, the same exact-view-only mouse-message retry is used and visually checked. No board text is entered and no card is selected.",
-            "No range is committed; no Board/Pot/Stack/Rake is changed; Build Tree and Solver are not run.",
+            "The OOP Source Edit is tested with reversible AA readback. Only when the entire initial OOP mini-matrix is visually empty, AA is committed once, the single AA matrix cell is checked, and Clear plus Done must restore the exact baseline signature. IP Source Edit is readback-tested only; no IP range is committed.",
+            "The OOP/IP range editor is dismissed with its measured X button; when the overlay remains, one direct WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP retry is sent only to the verified GTO drawing view and visually rechecked.",
+            "The Board selector is dismissed with its measured X button; when it remains, the same exact-view-only mouse-message retry is used and visually checked. No board text is entered and no card is selected.",
+            "The OOP AA test is temporary. The final OOP range must match the empty baseline before the report marks restoration successful. Board/Pot/Stack/Rake are not changed; Build Tree and Solver are not run.",
             "Escape is sent only when the detected selector belongs to the exact GTO process and that process owns keyboard focus.",
         ],
     }
@@ -1743,6 +1748,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"Client: {width}x{height}",
         f"OOP editor closed by X: {stages[0]['visually_closed']}",
         f"OOP source field: {oop_source_probe['status']}",
+        f"OOP AA commit/restore: {oop_roundtrip['status']}",
+        f"OOP AA only visual reflection: {bool(oop_roundtrip.get('aa_only_matrix_reflection_verified'))}",
+        f"OOP range restored: {bool(oop_roundtrip.get('range_restored'))}",
         f"IP range editor: {ip_editor_result['status'] if ip_editor_result else 'not_attempted'}",
         f"Board input: {board_input_result['status'] if board_input_result else 'not_attempted'}",
         f"Source click sent: {bool(oop_source_probe.get('click_sent', False))}",
