@@ -1,0 +1,43 @@
+name: Export Pigeon Poker v1.3.36 source package
+
+on:
+  push:
+    branches:
+      - chatgpt/export-v1-3-36
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Decode and verify package
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64, hashlib, json, pathlib, zipfile
+          root = pathlib.Path(".")
+          manifest = json.loads((root / "stable.json").read_text(encoding="utf-8"))
+          assert manifest["version"] == "1.3.36", manifest["version"]
+          encoded = (root / "releases/v1.3.36/payload-full.zip.b64").read_text(encoding="ascii")
+          payload = base64.b64decode(encoded, validate=True)
+          digest = hashlib.sha256(payload).hexdigest()
+          assert digest == manifest["payload_sha256"], (digest, manifest["payload_sha256"])
+          assert len(payload) == manifest["payload_size"], (len(payload), manifest["payload_size"])
+          out = pathlib.Path("pigeon-poker-v1.3.36.zip")
+          out.write_bytes(payload)
+          with zipfile.ZipFile(out) as z:
+              bad = z.testzip()
+              assert bad is None, bad
+              print(json.dumps({"version": manifest["version"], "sha256": digest, "size": len(payload), "files": z.namelist()}))
+          PY
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pigeon-poker-v1.3.36-source
+          path: pigeon-poker-v1.3.36.zip
+          if-no-files-found: error
+          retention-days: 1
