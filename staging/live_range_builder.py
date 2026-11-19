@@ -59,12 +59,18 @@ def _weighted_range(rows, node_id, action):
     selected.sort()
     return ",".join(f"{combo}:{weight:.4f}" for combo,weight in selected),len(selected)
 
-def _required_tree_sizes(postflop_line):
-    """Extract exact bet/raise sizes needed to replay the already-played line."""
+def _required_tree_sizes(postflop_line, oop_player_id: str, ip_player_id: str):
+    """Create a compact Advanced-tree sizing profile containing every observed line size."""
     result = {
-        street: {"bet_percentages": [], "raise_percentages": [], "all_in": False}
+        street: {
+            "oop": {"bet_pct": set(), "raise_x": set(), "three_bet_x": set(),
+                    "four_bet_x": set(), "all_in": False},
+            "ip": {"bet_pct": set(), "raise_x": set(), "three_bet_x": set(),
+                   "four_bet_x": set(), "all_in": False},
+        }
         for street in ("flop", "turn", "river")
     }
+    raise_depth = {street: 0 for street in result}
     for event in postflop_line:
         if event.get("type") != "action":
             continue
@@ -74,8 +80,13 @@ def _required_tree_sizes(postflop_line):
         street = str(event.get("street", "")).lower()
         if street not in result:
             return None, f"postflop {action} has no valid street label"
+        player_id = str(event.get("player", "") or "")
+        role = "oop" if player_id == oop_player_id else "ip" if player_id == ip_player_id else None
+        if role is None:
+            return None, "postflop action actor is not one of the two HU players"
+        cfg = result[street][role]
         if action == "all-in":
-            result[street]["all_in"] = True
+            cfg["all_in"] = True
             continue
         try:
             target = float(event["target"])
@@ -84,26 +95,36 @@ def _required_tree_sizes(postflop_line):
             if action == "bet":
                 denominator = pot
                 numerator = target - contribution
-                key = "bet_percentages"
+                key = "bet_pct"
             else:
                 current_bet = float(event["current_bet_before"])
-                to_call = float(event["to_call_before"])
-                denominator = pot + to_call
-                numerator = target - current_bet
-                key = "raise_percentages"
+                denominator = current_bet
+                numerator = target
+                key = ("raise_x", "three_bet_x", "four_bet_x")[
+                    min(raise_depth[street], 2)
+                ]
+                raise_depth[street] += 1
         except (KeyError, TypeError, ValueError):
             return None, f"postflop {action} size context is incomplete"
         if denominator <= 0 or numerator <= 0:
             return None, f"postflop {action} size cannot be reconstructed"
-        pct = round(numerator / denominator * 100.0, 4)
-        result[street][key].append(pct)
+        cfg[key].add(round(numerator / denominator * (100.0 if action == "bet" else 1.0), 4))
+
+    # Keep the solve tree useful beyond the one observed path without exploding
+    # the branching factor. Observed sizes are always retained.
     for street in result:
-        result[street]["bet_percentages"] = sorted(set(result[street]["bet_percentages"]))
-        result[street]["raise_percentages"] = sorted(set(result[street]["raise_percentages"]))
+        for role in ("oop", "ip"):
+            cfg = result[street][role]
+            cfg["bet_pct"] = sorted(cfg["bet_pct"] | {33.0, 75.0})
+            cfg["raise_x"] = sorted(cfg["raise_x"] | {3.0})
+            cfg["three_bet_x"] = sorted(cfg["three_bet_x"] | {3.0})
+            cfg["four_bet_x"] = sorted(cfg["four_bet_x"] | {2.0})
+            for key in ("bet_pct", "raise_x", "three_bet_x", "four_bet_x"):
+                cfg[key] = cfg[key]
     return result, None
 
 
-def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_pct: float):
+def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_pct: float, rake_cap_bb: float | None = None):
     """Create a replayable GTO+ flop-root request only for a standard open/flat-call HU line.
 
     Ranges are approximations reconstructed from the user's chart images. The
@@ -187,17 +208,22 @@ def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_
     try: root_pot=int(first_action.get("pot_before")) if first_action else int(getattr(hand,"pot",0))
     except (TypeError,ValueError): return _result("could not reconstruct flop-root pot")
     if root_pot<=0: return _result("flop-root pot is empty")
-    required_tree_sizes, size_error = _required_tree_sizes(postflop_line)
+    required_tree_sizes, size_error = _required_tree_sizes(postflop_line, oop, ip)
     if size_error:
         return _result(size_error)
     try: rake=float(rake_pct)
     except (TypeError,ValueError): return _result("invalid rake percentage")
     if not 0<=rake<=100: return _result("rake percentage is outside 0..100")
+    if rake_cap_bb is None:
+        rake_cap = None
+    else:
+        try: rake_cap = max(0.0, float(rake_cap_bb))
+        except (TypeError, ValueError): return _result("invalid rake cap")
     return {
         "supported":True,"reason":"standard single-open/flat-call HU line; flop-root state reconstructed",
         "schema":"pigeon-gto-plus-auto-solve-v1",
         "root":{"game":"NLHE","players":2,"board":board,"pot_bb":round(root_pot/bb,6),
-                "effective_stack_bb":round(effective/bb,6),"rake_pct":rake,
+                "effective_stack_bb":round(effective/bb,6),"rake_pct":rake,"rake_cap_bb":rake_cap,
                 "oop_player_id":oop,"ip_player_id":ip,"oop_position":positions[oop],"ip_position":positions[ip],
                 "oop_range":oop_range,"ip_range":ip_range,"range_source":"screenshot_preflop_chart_frequency",
                 "preflop_nodes":{"open":open_node,"call":call_node},
