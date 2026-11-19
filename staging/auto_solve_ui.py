@@ -1181,6 +1181,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         board_close_click = None
         board_after_x_windows = []
         board_close_check = None
+        board_native_retry = None
+        board_after_native_windows = []
+        board_native_retry_check = None
         board_close_error = None
         if board_dialog_detected:
             try:
@@ -1197,9 +1200,6 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                 board_after_path = _root_capture_path(board_after_x_windows, "board_input_after_x")
                 board_close_check = _bmp_region_difference_ratio(baseline_path, board_after_path)
                 all_captures.extend(w["capture"] for w in board_after_x_windows)
-                board_native_retry = None
-                board_after_native_windows = []
-                board_native_retry_check = None
                 if board_close_check["ratio"] > 0.01:
                     board_native_retry = _click_verified_gto_hit_target(
                         user32, target_hwnd, target_pid, RECT, POINT, _BOARD_CLOSE_CENTER,
@@ -1217,14 +1217,15 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                         baseline_path, board_after_native_path
                     )
                     all_captures.extend(w["capture"] for w in board_after_native_windows)
-                    if board_native_retry_check["ratio"] <= 0.01:
-                        board_close_check = board_native_retry_check
-                        board_after_x_windows = board_after_native_windows
             except Exception as exc:
                 board_close_error = f"{type(exc).__name__}: {exc}"
+        board_final_close_check = (
+            board_native_retry_check
+            if board_native_retry_check is not None else board_close_check
+        )
         board_closed_ok = bool(
             not board_dialog_detected
-            or (board_close_check and board_close_check["ratio"] <= 0.01)
+            or (board_final_close_check and board_final_close_check["ratio"] <= 0.01)
         )
         manual_close_required = manual_close_required or (board_dialog_detected and not board_closed_ok)
         board_input_result = {
@@ -1245,9 +1246,10 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "close_error": board_close_error,
             "native_close_retry": board_native_retry if board_dialog_detected else None,
             "windows_after_native_close": board_after_native_windows if board_dialog_detected else [],
-            "baseline_difference_after_native_close": board_native_retry_check if board_dialog_detected else None,
+            "baseline_difference_after_native_close": board_native_retry_check,
             "windows_after_x": board_after_x_windows,
             "baseline_difference_after_x": board_close_check,
+            "final_baseline_difference": board_final_close_check,
             "visually_closed": board_closed_ok,
             "board_changed": False,
         }
