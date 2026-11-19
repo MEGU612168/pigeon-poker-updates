@@ -235,3 +235,5 @@ def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_
     }
 
 # candidate validation trigger: include this deterministic source in the v1.3.41-dev build.
+
+# Build v1.3.41 after actual table rake/cap integration.
