@@ -8,6 +8,6 @@
   "package_mode": "full",
   "payload_encoding": "base64",
   "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.35/payload-full.zip.b64",
-  "payload_sha256": "ed20fe52dc4ffffc3ec38715ac9c57f007971f91efce5be6f34c5e140626e490",
+  "payload_sha256": "c8586eb2f166223e91b9136bff5d1a5a9bdb5123b539b61d65052509cbd2fa5e",
   "payload_size": 670013
 }
