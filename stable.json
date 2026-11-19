@@ -4,10 +4,10 @@
   "channel": "stable",
   "version": "1.3.35",
   "published_at": "2026-11-19T04:15:45.923Z",
-  "release_notes": "v1.3.34の最大2卓設定・既存GTO+機能を維持。CashierとStudy Walletを同一SQLite残高台帳に統一し、外部Walletの入金・出金を双方向同期。残高の古いキャッシュによる上書きを防止し、Cashier取引を原子的に記録。Focus Timerのsimple_timer_data.jsonを既存パス情報・ユーザーフォルダから自動検出し、Study累計だけを入金可能額に反映（Rest/Sleepは対象外）。Study Wallet画面と起動用ルートモジュールを追加。Windows実機のUPDATE NOW適用・GUI通し動作は未検証。",
+  "release_notes": "v1.3.34ベースのv1.3.35 Wallet/Cashier同期修正。既存v1.3.34アップデーターの許可リストに合わせ、追加ファイルをすべてpigeon_poker/*.py内へ配置。Wallet画面の起動先もpackage内へ変更し、追加rootファイルを要求しないため既存UPDATE NOWから適用可能。Cashier/Study Wallet共通SQLite、双方向残高同期、Focus Timer Study累計自動検出を維持。",
   "package_mode": "full",
   "payload_encoding": "base64",
   "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.35/payload-full.zip.b64",
-  "payload_sha256": "c8586eb2f166223e91b9136bff5d1a5a9bdb5123b539b61d65052509cbd2fa5e",
-  "payload_size": 670013
+  "payload_sha256": "9f9c946d296405ed1f5f3bdfaf685579984352a8e37635da1b5db8903aae8776",
+  "payload_size": 669207
 }
