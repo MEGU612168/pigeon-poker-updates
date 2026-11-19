@@ -1251,14 +1251,16 @@ def _run_oop_aa_commit_roundtrip(
             if aa_visible and restored
             else "weighted_aa_commit_not_visually_proven_but_restoration_verified"
             if restored
-            else "range_restoration_not_verified
+            else "range_restoration_not_verified"
         )
         report["note"] = (
             "AA:0.5 was committed and the OOP AA cell was checked. The reopened editor "
             "weight-display screenshot was saved for visual confirmation of 50%; Clear/Done "
             "then restored the exact 13x13 baseline sample signature. No solver/tree action was performed."
+            if restored and report.get("weight_display_capture_saved") else
+            "The OOP matrix was restored, but the weight-display screenshot was not saved."
             if restored else
-            "The test commit was attempted, but the final OOP matrix does not match its baseline."
+            "The weighted test commit was attempted, but the final OOP matrix does not match its baseline."
         )
         return report
     except Exception as exc:
