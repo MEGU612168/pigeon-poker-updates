@@ -67,7 +67,7 @@ jobs:
           ast.parse(app_source, filename="PigeonPoker.pyw")
           assert "height=max(viewport_height, requested_height)" in app_source
           assert "height=max(1, event.height, frame.winfo_reqheight())" in app_source
-          (work / "VERSION.txt").write_text("1.3.38\\n", encoding="utf-8")
+          (work / "VERSION.txt").write_text("1.3.38\n", encoding="utf-8")
 
           output = io.BytesIO()
           with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as target:
@@ -76,7 +76,7 @@ jobs:
                       if info.filename == "PigeonPoker.pyw":
                           data = app_path.read_bytes()
                       elif info.filename == "VERSION.txt":
-                          data = b"1.3.38\\n"
+                          data = b"1.3.38\n"
                       else:
                           data = source.read(info.filename)
                       target.writestr(info, data)
@@ -113,10 +113,10 @@ jobs:
               "payload_sha256": digest,
               "payload_size": len(final_payload),
           }
-          manifest_path.write_text(json.dumps(new_manifest, ensure_ascii=False, indent=2) + "\\n",
+          manifest_path.write_text(json.dumps(new_manifest, ensure_ascii=False, indent=2) + "\n",
                                    encoding="utf-8")
           (release_dir / "release.json").write_text(
-              json.dumps(new_manifest, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+              json.dumps(new_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
           print(json.dumps({"version":"1.3.38","base":"1.3.37","size":len(final_payload),
                             "sha256":digest}, ensure_ascii=False))
           PY
