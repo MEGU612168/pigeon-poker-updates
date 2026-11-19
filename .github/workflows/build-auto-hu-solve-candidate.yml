@@ -62,7 +62,7 @@ jobs:
                   main=main.replace("import json\n","import json\nimport zipfile\n",1)
               ui_replacements = [
                   ("Read-only calibration of the exact embedded GTO+ range/Build Tree dialogs.",
-                   "Run a reversible OOP=AA range commit/clear test and inspect the setup dialogs."),
+                   "Run a reversible OOP=AA:0.5 weighted commit/clear test and inspect the weight display."),
                   ("未知HU局面の自動Solve設定を診断（変更なし）",
                    "未知HU局面の自動Solve設定を診断（OOP 50%重み可逆テスト）"),
                   ("GTO+のOOPレンジ編集画面とBuild Tree設定画面を開いて撮影し、Escapeで閉じます。文字入力・レンジ確定・Board/Pot/Stack/Rake変更・Tree構築・Solver実行は行いません。",
@@ -95,7 +95,7 @@ jobs:
                   + " " * 32 + "report_safety = report_json.get(\"safety\", {})" + chr(10)
                   + " " * 32 + "success = bool(report_safety.get(\"oop_aa_only_matrix_reflection_verified\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and not report_safety.get(\"manual_close_required\"))" + chr(10)
                   + " " * 32 + "if not success:" + chr(10)
-                  + " " * 36 + "detail += \" [AA可逆テスト] OOPのAA反映・復元確認に未達です。診断JSONと画像を確認してください。\"" + chr(10)
+                  + " " * 36 + "detail += \" [AA:0.5可逆テスト] OOPのAAセル反映・重み表示保存・復元確認に未達です。診断JSONと画像を確認してください。\"" + chr(10)
                   + " " * 20 + "except Exception as exc:" + chr(10)
                   + " " * 24 + "success = False" + chr(10)
                   + " " * 24 + "detail += \" [AA可逆テスト] 診断JSONの確認に失敗: \"+str(exc)"
@@ -339,7 +339,7 @@ jobs:
               if not required.issubset(set(z.namelist())):
                   raise SystemExit("v1.3.54 update ZIP is missing required files")
               if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.54":
-                  raise SystemExit("v1.3.52 VERSION.txt mismatch")
+                  raise SystemExit("v1.3.54 VERSION.txt mismatch")
               import ast
               ast.parse(z.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
               ast.parse(z.read("pigeon_gto_plus/live_range_builder.py").decode("utf-8"),
@@ -368,7 +368,7 @@ jobs:
               "version": "1.3.54",
               "published_at": datetime.datetime.now(datetime.timezone.utc).isoformat(
                   timespec="seconds").replace("+00:00", "Z"),
-              "release_notes": "GTO+ 1.9.1の重み付きレンジを公式HAND:WEIGHT形式へ変換。OOPの13x13マトリクスは各セル中心をサンプリング。左側ツールチップを除外して編集画面の終了・復元を検証。空レンジでのみAA:0.5を一時確定し、AAセル反映と重み表示画面を保存後、Clear＋完了で元に戻す。初期レンジが空でない場合は変更せず停止。Build Tree・Solver実行なし。
+              "release_notes": "GTO+ 1.9.1の重み付きレンジを公式HAND:WEIGHT形式へ変換。OOPの13x13マトリクスは各セル中心をサンプリング。左側ツールチップを除外して編集画面の終了・復元を検証。空レンジでのみAA:0.5を一時確定し、AAセル反映と重み表示画面を保存後、Clear＋完了で元に戻す。初期レンジが空でない場合は変更せず停止。Build Tree・Solver実行なし。",
               "package_mode": "full"
           }
           (release/"release.json").write_text(
