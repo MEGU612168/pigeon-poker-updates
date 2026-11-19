@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.52",
-  "published_at": "2026-11-19T19:03:31Z",
-  "release_notes": "GTO+ 1.9.1の重み付きレンジを公式HAND:WEIGHT形式へ変換。OOPの13x13マトリクスは罫線を避けた各セル中心を4px間隔でサンプリングし、空状態を判定。空の場合だけAAを一時確定し、一セルだけの反映を画像確認後、Clear＋完了で元の状態へ戻して検証。初期レンジが空でない場合は変更せず停止。Build Tree・Solver実行なし。",
+  "version": "1.3.53",
+  "published_at": "2026-11-19T19:19:32Z",
+  "release_notes": "GTO+ 1.9.1の重み付きレンジを公式HAND:WEIGHT形式へ変換。OOPの13x13マトリクスは各セル中心をサンプリング。レンジ編集画面の終了・復元確認では左側ツールチップ領域を除外し、ツールチップ移動による誤停止を防止。AA一時確定後に一セルの反映を確認し、Clear＋完了で元の状態へ戻す。初期レンジが空でない場合は変更せず停止。Build Tree・Solver実行なし。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.52/payload-updater.zip.b64",
-  "payload_sha256": "0bd401df207c0aa6817bc098fbe80f456328ceac8acb7e75ad91e0d149589aa2",
-  "payload_size": 205408
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.53/payload-updater.zip.b64",
+  "payload_sha256": "02477bdbd575a3e1de459c62966db7612881d1b7ba95ba4e9b3674b6fbadd9d6",
+  "payload_size": 205530
 }
