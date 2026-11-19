@@ -59,9 +59,14 @@ jobs:
               if len(nodes) != 20 or len(rows) != 3380:
                   raise SystemExit(f"Chart shape mismatch: nodes={len(nodes)}, rows={len(rows)}")
 
+              _test_holes = [
+                  ["Ac","Ad"],["Kc","Kh"],["Qc","Qd"],
+                  ["Jc","Jh"],["Tc","Th"],["9c","9d"],
+              ]
               class Player:
                   def __init__(self, pid, eligible):
                       self.player_id, self.eligible, self.stack = pid, eligible, 100000
+                      self.hole_cards = list(_test_holes[int(pid[1:])])
               def hand(events, active, dealer=0):
                   players = [Player("p"+str(i), "p"+str(i) in active) for i in range(6)]
                   return SimpleNamespace(players=players, dealer_index=dealer, big_blind=1000,
