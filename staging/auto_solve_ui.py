@@ -8,7 +8,7 @@ against the baseline screenshot before the next click is allowed.
 """
 from __future__ import annotations
 
-# Build marker: parent-client-relative embedded GTO child positioning, schema v6.
+# Build marker: verified GTO view focus and post-click native Edit discovery, schema v8.
 
 import argparse
 import json
