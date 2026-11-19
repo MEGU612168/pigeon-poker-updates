@@ -65,7 +65,7 @@ jobs:
           data = module._data()
           if len(data["nodes"]) != 20:
               raise SystemExit("Expected 20 range nodes")
-          if sum(len(n["hands"]) for n in data["nodes"].values()) != 3380:
+          if len(data["rows"]) != 3380:
               raise SystemExit("Expected 3,380 hand-class rows")
 
           positions = ("BTN", "SB", "BB", "UTG", "HJ", "CO")
