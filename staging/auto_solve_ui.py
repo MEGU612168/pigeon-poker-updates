@@ -8,7 +8,7 @@ against the baseline screenshot before the next click is allowed.
 """
 from __future__ import annotations
 
-# Build marker: exact GTO+ [50%]AA[/50%] normalization is recognized for safe restore; schema v14.
+# Build marker: OOP multi-hand AA + AKs:40% commit/restore is visually verified; schema v15.
 
 import argparse
 import json
@@ -45,6 +45,10 @@ _BUILD_TREE_CENTER = (54, 265)
 _DIALOG_ROI = (100, 60, 515, 460)
 # Exclude left-side hover tooltips while keeping most of the range editor panel.
 _RANGE_EDITOR_VERIFY_ROI = (240, 60, 515, 460)
+_GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS = (
+    "AA,[40%]AKs[/40%]",
+    "[40%]AKs[/40%],AA",
+)
 _GTO_PLUS_HALF_WEIGHT_AA_SOURCE = "[50%]AA[/50%]"
 
 
@@ -955,8 +959,9 @@ def _matrix_signature_is_empty(signature: dict[str, Any], threshold: int = 16) -
     )
 
 
-def _matrix_signature_is_aa_only(
-    signature: dict[str, Any], baseline: dict[str, Any], threshold: int = 16
+def _matrix_signature_matches_selected_cells(
+    signature: dict[str, Any], baseline: dict[str, Any],
+    expected_indices: list[int], threshold: int = 16
 ) -> bool:
     samples = (signature or {}).get("samples")
     base = (baseline or {}).get("samples")
@@ -964,36 +969,47 @@ def _matrix_signature_is_aa_only(
         return False
     if len(samples) != 169 or len(base) != 169:
         return False
+    expected = sorted(set(int(i) for i in expected_indices))
+    if not expected or any(i < 0 or i >= 169 for i in expected):
+        return False
     changed = [
         i for i, (current, original) in enumerate(zip(samples, base))
         if max(abs(int(current[c])-int(original[c])) for c in range(3)) > threshold
     ]
     return (
-        changed == [0]
-        and max(int(channel) for channel in samples[0]) > threshold
+        changed == expected
+        and all(max(int(channel) for channel in samples[i]) > threshold for i in expected)
     )
 
 
-def _run_oop_aa_commit_roundtrip(
+def _matrix_signature_is_aa_only(
+    signature: dict[str, Any], baseline: dict[str, Any], threshold: int = 16
+) -> bool:
+    return _matrix_signature_matches_selected_cells(signature, baseline, [0], threshold)
+
+
+def _run_oop_multi_range_commit_roundtrip(
     user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
     output_dir: Path, stem: str, target_hwnd: int, target_pid: int,
     host_hwnd: int, baseline_path: str
 ) -> dict[str, Any]:
-    """Commit OOP=AA:0.5 once, verify its cell, capture the weight display, then restore.
+    """Commit OOP=AA plus AKs:40% once, verify two cells and GTO+ normalization, then restore.
 
-    Runs only when all 169 OOP mini-matrix sample points are black. If any
-    existing range is present, it refuses to use Clear. It never touches IP,
-    Board, pot, stack, rake, Build Tree, or Solver.
+    Runs only when all 169 OOP mini-matrix sample points are black and Source is blank.
+    Clear is allowed only after Source text matches one of the exact normalized
+    test strings. It never touches IP, Board, pot, stack, rake, Build Tree, or Solver.
     """
     report: dict[str, Any] = {
-        "stage": "oop_aa_commit_roundtrip",
+        "stage": "oop_multi_range_commit_roundtrip",
         "status": "not_started",
-        "test_range": "AA:0.5",
-        "test_range_weight": 0.5,
+        "test_range": "AA,AKs:0.4",
+        "test_range_partial_weight": 0.4,
+        "test_range_entries": [{"hand": "AA", "weight": 1.0}, {"hand": "AKs", "weight": 0.4}],
+        "expected_matrix_cell_indices": [0, 1],
+        "expected_gto_plus_source_texts": list(_GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS),
         "weight_display_capture_path": None,
         "weight_display_capture_saved": False,
-        "weight_display_expected_percent": 50,
-        "expected_gto_plus_source_text": _GTO_PLUS_HALF_WEIGHT_AA_SOURCE,
+        "weight_display_expected_percent": 40,
         "restore_source_text_readback": None,
         "restore_source_text_accepted": False,
         "weight_display_roi": [414, 343, 476, 376],
@@ -1126,7 +1142,7 @@ def _run_oop_aa_commit_roundtrip(
         report["test_source_readback"] = test_readback
         if test_readback != report["test_range"]:
             probe._write_native_edit_text(user32, edit_hwnd, original_text)
-            raise RuntimeError("AA did not read back exactly; source field was restored and Done was not clicked")
+            raise RuntimeError("Multi-hand test text did not read back exactly; source field was restored and Done was not clicked")
         typed_capture = probe._batch_capture(
             user32, target_hwnd, RECT, POINT, output_dir, stem,
             "oop_weighted_roundtrip_before_done"
@@ -1143,7 +1159,7 @@ def _run_oop_aa_commit_roundtrip(
             edits = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
             if len(edits) == 1:
                 current_text = probe._read_native_edit_text(user32, edits[0][0])
-                if current_text == "AA":
+                if current_text == report["test_range"]:
                     probe._write_native_edit_text(user32, edits[0][0], "")
             report["status"] = "test_done_not_closed"
             report["manual_close_required"] = True
@@ -1154,9 +1170,11 @@ def _run_oop_aa_commit_roundtrip(
         report["range_committed_temporarily"] = True
         test_path = _root_capture_path(test_windows, "oop_aa_test_after_done")
         test_signature = _bmp_matrix_center_signature(test_path)
-        aa_visible = _matrix_signature_is_aa_only(test_signature, baseline_signature)
+        expected_cells_visible = _matrix_signature_matches_selected_cells(
+            test_signature, baseline_signature, report["expected_matrix_cell_indices"]
+        )
         report["test_matrix_signature"] = test_signature
-        report["aa_only_matrix_reflection_verified"] = aa_visible
+        report["expected_matrix_cells_reflection_verified"] = expected_cells_visible
 
         reopen_click = _click_exact_client(
             user32, target_hwnd, target_pid, RECT, POINT,
@@ -1203,7 +1221,7 @@ def _run_oop_aa_commit_roundtrip(
             raise RuntimeError("Could not uniquely re-identify OOP Source Edit for restoration")
         current_text = probe._read_native_edit_text(user32, restore_edit)
         report["restore_source_text_readback"] = current_text
-        expected_test_source_texts = {"AA", report["test_range"], _GTO_PLUS_HALF_WEIGHT_AA_SOURCE}
+        expected_test_source_texts = set(report["expected_gto_plus_source_texts"])
         report["restore_source_text_accepted"] = current_text in expected_test_source_texts
         if report["restore_source_text_accepted"]:
             probe._write_native_edit_text(user32, restore_edit, "")
@@ -1212,7 +1230,7 @@ def _run_oop_aa_commit_roundtrip(
         elif current_text != "":
             raise RuntimeError(
                 "Source field text is not one of the exact known test forms "
-                "(AA, AA:0.5, [50%]AA[/50%]); preserved it and stopped"
+                "(AA,[40%]AKs[/40%] or [40%]AKs[/40%],AA); preserved it and stopped"
             )
 
         clear_click = _click_exact_client(
@@ -1253,22 +1271,20 @@ def _run_oop_aa_commit_roundtrip(
         report["range_restored"] = restored
         report["editor_closed_after_restore"] = True
         report["status"] = (
-            "weighted_aa_committed_and_visually_restored"
-            if aa_visible and restored and report.get("weight_display_capture_saved")
-            else "weighted_aa_cell_committed_and_restored_weight_display_review_needed"
-            if aa_visible and restored
-            else "weighted_aa_commit_not_visually_proven_but_restoration_verified"
+            "multi_hand_weighted_range_committed_and_visually_restored"
+            if expected_cells_visible and report.get("restore_source_text_accepted") and restored and report.get("weight_display_capture_saved")
+            else "multi_hand_range_restored_but_source_or_matrix_review_needed"
             if restored
             else "range_restoration_not_verified"
         )
         report["note"] = (
-            "AA:0.5 was committed and the OOP AA cell was checked. The reopened editor "
-            "weight-display screenshot was saved for visual confirmation of 50%; Clear/Done "
-            "then restored the exact 13x13 baseline sample signature. No solver/tree action was performed."
-            if restored and report.get("weight_display_capture_saved") else
-            "The OOP matrix was restored, but the weight-display screenshot was not saved."
+            "AA,AKs:0.4 was committed. Exactly matrix cells 0 (AA) and 1 (AKs) changed. "
+            "The reopened Source field was read back as one of the exact expected [40%]AKs[/40%] forms; "
+            "Clear/Done then restored the exact 13x13 baseline sample signature. No solver/tree action was performed."
+            if restored and expected_cells_visible and report.get("restore_source_text_accepted") and report.get("weight_display_capture_saved") else
+            "The OOP matrix was restored, but the expected two-cell reflection or normalized Source readback was not fully verified."
             if restored else
-            "The weighted test commit was attempted, but the final OOP matrix does not match its baseline."
+            "The multi-hand weighted test commit was attempted, but the final OOP matrix does not match its baseline."
         )
         return report
     except Exception as exc:
@@ -1433,9 +1449,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     })
     stages.append(oop_source_probe)
 
-    # Stage 1b: one reversible OOP=AA commit test. Clear is allowed only after
-    # the starting OOP matrix has been proven empty by all 169 sample points.
-    oop_roundtrip = _run_oop_aa_commit_roundtrip(
+    # Stage 1b: one reversible OOP multi-hand weighted commit test (AA=100%, AKs=40%).
+    # Clear is allowed only after the starting OOP matrix has been proven empty.
+    oop_roundtrip = _run_oop_multi_range_commit_roundtrip(
         user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
         output_dir, stem, target_hwnd, target_pid, host, baseline_path
     )
@@ -1450,7 +1466,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     stages.append(oop_roundtrip)
 
     oop_roundtrip_ok = bool(
-        oop_roundtrip.get("aa_only_matrix_reflection_verified")
+        oop_roundtrip.get("expected_matrix_cells_reflection_verified")
+        and oop_roundtrip.get("restore_source_text_accepted")
         and oop_roundtrip.get("range_restored")
         and oop_roundtrip.get("editor_closed_after_restore")
         and oop_roundtrip.get("weight_display_capture_saved")
@@ -1687,9 +1704,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     all_captures = unique_captures
 
     report = {
-        "schema_version": 14,
+        "schema_version": 15,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_aa_50pct_weighted_commit_roundtrip_v14_canonical_restore_tooltip_safe_close",
+        "probe": "verified_gto_plus_oop_multi_hand_ak_s40_weighted_commit_roundtrip_v15_canonical_restore_tooltip_safe_close",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -1701,18 +1718,21 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         "input_calibration": {
             "method": "temporary child reposition in verified parent-client coordinates when WindowFromPoint hits a foreign overlay; focus-only click is allowed on exact GTO view 59648, followed by unique native Edit discovery by PID, ownership, class, and measured field geometry",
             "test_value": "AA",
-            "roundtrip_test_value": "AA:0.5",
-            "roundtrip_test_weight": 0.5,
+            "roundtrip_test_value": "AA,AKs:0.4",
+            "roundtrip_test_partial_weight": 0.4,
+            "expected_gto_plus_roundtrip_source_texts": list(_GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS),
             "expected_gto_plus_roundtrip_source_text": _GTO_PLUS_HALF_WEIGHT_AA_SOURCE,
             "original_field_must_be_empty": True,
             "focus_only_click_allowed_on_verified_gto_view": True,
             "no_keyboard_input_without_unique_native_edit": True,
             "source_text_readback_required": True,
             "original_text_restore_readback_required": True,
-            "done_button_clicked_for_oop_aa_test": bool(oop_roundtrip.get("range_committed_temporarily")),
-            "oop_aa_committed_temporarily": bool(oop_roundtrip.get("range_committed_temporarily")),
-            "oop_aa_only_matrix_reflection_verified": bool(oop_roundtrip.get("aa_only_matrix_reflection_verified")),
-            "oop_aa_restored": bool(oop_roundtrip.get("range_restored")),
+            "done_button_clicked_for_oop_multi_range_test": bool(oop_roundtrip.get("range_committed_temporarily")),
+            "oop_multi_range_committed_temporarily": bool(oop_roundtrip.get("range_committed_temporarily")),
+            "oop_expected_matrix_cells_reflection_verified": bool(oop_roundtrip.get("expected_matrix_cells_reflection_verified")),
+            "oop_range_restored": bool(oop_roundtrip.get("range_restored")),
+            "oop_restore_source_text_readback": oop_roundtrip.get("restore_source_text_readback"),
+            "oop_restore_source_text_accepted": bool(oop_roundtrip.get("restore_source_text_accepted")),
             "oop_weight_display_capture_saved": bool(oop_roundtrip.get("weight_display_capture_saved")),
             "oop_restore_source_text_readback": oop_roundtrip.get("restore_source_text_readback"),
             "oop_restore_source_text_accepted": bool(oop_roundtrip.get("restore_source_text_accepted")),
@@ -1754,11 +1774,13 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             ),
             "range_committed": False,
             "oop_test_range_temporarily_committed": bool(oop_roundtrip.get("range_committed_temporarily")),
-            "oop_aa_only_matrix_reflection_verified": bool(oop_roundtrip.get("aa_only_matrix_reflection_verified")),
+            "oop_expected_matrix_cells_reflection_verified": bool(oop_roundtrip.get("expected_matrix_cells_reflection_verified")),
             "oop_test_range_restored": bool(oop_roundtrip.get("range_restored")),
+            "oop_restore_source_text_readback": oop_roundtrip.get("restore_source_text_readback"),
+            "oop_restore_source_text_accepted": bool(oop_roundtrip.get("restore_source_text_accepted")),
             "oop_weight_display_capture_saved": bool(oop_roundtrip.get("weight_display_capture_saved")),
-            "oop_test_range_text": "AA:0.5",
-            "oop_test_range_weight": 0.5,
+            "oop_test_range_text": "AA,AKs:0.4",
+            "oop_test_range_partial_weight": 0.4,
             "oop_restore_source_text_readback": oop_roundtrip.get("restore_source_text_readback"),
             "oop_restore_source_text_accepted": bool(oop_roundtrip.get("restore_source_text_accepted")),
             "board_changed": False,
@@ -1798,7 +1820,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     if oop_roundtrip.get("range_restored"):
         final_oop_state = "restored to the original empty baseline"
     elif oop_roundtrip.get("test_range_may_remain_committed"):
-        final_oop_state = "temporary AA:0.5 may remain committed; manual Clear + Done required"
+        final_oop_state = "temporary AA + AKs:40% may remain committed; manual Clear + Done required"
     elif not oop_roundtrip.get("range_committed_temporarily"):
         final_oop_state = "no temporary test commit remains"
     else:
@@ -1810,9 +1832,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"Client: {width}x{height}",
         f"OOP editor closed by X: {stages[0]['visually_closed']}",
         f"OOP source field: {oop_source_probe['status']}",
-        f"OOP weighted AA commit/restore: {oop_roundtrip['status']}",
-        f"OOP AA-only matrix reflection: {bool(oop_roundtrip.get('aa_only_matrix_reflection_verified'))}",
-        f"OOP 50% weight-field screenshot saved: {bool(oop_roundtrip.get('weight_display_capture_saved'))}",
+        f"OOP multi-hand weighted range commit/restore: {oop_roundtrip['status']}",
+        f"OOP expected AA+AKs cells only: {bool(oop_roundtrip.get('expected_matrix_cells_reflection_verified'))}",
+        f"OOP 40% weight-field screenshot saved: {bool(oop_roundtrip.get('weight_display_capture_saved'))}",
         f"GTO+ normalized Source text: {oop_roundtrip.get('restore_source_text_readback')}",
         f"Canonical Source text accepted for safe Clear: {bool(oop_roundtrip.get('restore_source_text_accepted'))}",
         f"OOP weighted range restored: {bool(oop_roundtrip.get('range_restored'))}",
