@@ -228,6 +228,20 @@ def _send_escape_only_to_gto_focused_thread(user32, RECT, POINT,
             "focus_snapshot": focus, "escape_sent": True}
 
 
+
+def _build_tree_dialog_is_visible(appearance: dict[str, Any],
+                                  windows: list[dict[str, Any]]) -> bool:
+    """Only treat Build Tree as open when pixels changed or a related popup exists."""
+    popup_detected = any(
+        isinstance(window, dict) and not window.get("is_embedded_root", False)
+        for window in windows
+    )
+    try:
+        ratio = float((appearance or {}).get("ratio", 0.0))
+    except (TypeError, ValueError, AttributeError):
+        ratio = 0.0
+    return popup_detected or ratio > 0.01
+
 def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: int) -> Path:
     if os.name != "nt":
         raise OSError("This GTO+ setup probe is Windows-only.")
@@ -341,13 +355,28 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         build_open_path = _root_capture_path(build_windows, "build_tree_open")
         build_appearance = _bmp_region_difference_ratio(baseline_path, build_open_path)
         all_captures.extend(w["capture"] for w in build_windows)
-        build_focus = probe._gui_thread_focus_snapshot(user32, RECT, POINT, target_hwnd, host)
-        escape_result = _send_escape_only_to_gto_focused_thread(
-            user32, RECT, POINT, target_hwnd, target_pid
+        popup_window_detected = any(
+            not w.get("is_embedded_root", False) for w in build_windows
         )
+        dialog_detected = _build_tree_dialog_is_visible(build_appearance, build_windows)
+        build_focus = (
+            probe._gui_thread_focus_snapshot(user32, RECT, POINT, target_hwnd, host)
+            if dialog_detected else None
+        )
+        if dialog_detected:
+            escape_result = _send_escape_only_to_gto_focused_thread(
+                user32, RECT, POINT, target_hwnd, target_pid
+            )
+        else:
+            escape_result = {
+                "status": "skipped_no_visible_build_tree_dialog",
+                "foreground_hwnd": int(user32.GetForegroundWindow() or 0),
+                "gto_focus_hwnds": [],
+                "escape_sent": False,
+            }
         build_closed_check = None
         build_closed_windows = []
-        if escape_result["escape_sent"]:
+        if dialog_detected and escape_result["escape_sent"]:
             build_closed_windows = _capture_related_windows(
                 user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
                 target_hwnd, target_pid, output_dir, stem, "build_tree_after_gto_escape"
@@ -355,11 +384,26 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             build_closed_path = _root_capture_path(build_closed_windows, "build_tree_after_gto_escape")
             build_closed_check = _bmp_region_difference_ratio(baseline_path, build_closed_path)
             all_captures.extend(w["capture"] for w in build_closed_windows)
-        build_closed_ok = bool(build_closed_check and build_closed_check["ratio"] <= 0.01)
-        manual_close_required = not build_closed_ok
+        build_closed_ok = bool(
+            dialog_detected and build_closed_check and build_closed_check["ratio"] <= 0.01
+        )
+        manual_close_required = bool(dialog_detected and not build_closed_ok)
+        if build_closed_ok:
+            build_status = "opened_and_visually_closed"
+        elif dialog_detected:
+            build_status = "dialog_opened_manual_close_required"
+        else:
+            build_status = "click_no_dialog_detected"
         build_tree_result = {
             "stage": "build_tree_setup",
-            "status": "opened_and_visually_closed" if build_closed_ok else "opened_captured_manual_close_required",
+            "status": build_status,
+            "click_attempted": True,
+            "dialog_detected": dialog_detected,
+            "popup_window_detected": popup_window_detected,
+            "click_outcome": (
+                "dialog_opened" if dialog_detected
+                else "no_visible_dialog_or_popup_after_click"
+            ),
             "open_click": build_click,
             "open_windows": build_windows,
             "visible_overlay_difference": build_appearance,
@@ -378,7 +422,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         manual_close_required = True
 
     report = {
-        "schema_version": 2,
+        "schema_version": 3,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "probe": "verified_visual_gto_plus_setup_dialog_discovery",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
@@ -417,7 +461,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "Only the exact Pigeon-embedded GTO+ HWND/PID was operated.",
             "The OOP editor close is verified against baseline pixels in the calibrated dialog ROI.",
             "Escape is sent only when the focused HWND belongs to the exact GTO.exe PID; Pigeon's Tk host focus is never accepted.",
-            "Build Tree dialog is captured without entering settings or building a tree. If it cannot be closed with verified GTO keyboard focus, the report marks manual_close_required and stops.",
+            "Build Tree is considered open only when a visible overlay or related GTO popup is detected. Escape is attempted only for a detected dialog when the exact GTO process owns keyboard focus; otherwise manual_close_required is set only if a dialog actually remains open.",
             "No range text, board, pot, stack, rake, tree or Solver setting is changed.",
         ],
     }
@@ -430,8 +474,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"Target: PID={target_pid} HWND={target_hwnd}",
         f"Client: {width}x{height}",
         f"OOP editor closed by X: {stages[0]['visually_closed']}",
-        f"Build Tree dialog captured: {build_tree_result is not None}",
-        f"Build Tree dialog visually closed: {bool(build_tree_result and build_tree_result['visually_closed'])}",
+        f"Build Tree click attempted: {bool(build_tree_result and build_tree_result.get('click_attempted'))}",
+        f"Build Tree dialog detected: {bool(build_tree_result and build_tree_result.get('dialog_detected'))}",
+        f"Build Tree dialog visually closed: {bool(build_tree_result and build_tree_result.get('dialog_detected') and build_tree_result['visually_closed'])}",
         f"Manual close required: {manual_close_required}",
         "Range/board/pot/stack/rake changed: no",
         "Tree built: no",
