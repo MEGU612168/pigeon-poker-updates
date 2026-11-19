@@ -245,3 +245,5 @@ def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_
 # Re-run release packaging after JSON metadata serialisation correction.
 
 # Rebuild v1.3.41 with direct stable-manifest publication.
+
+# Rebuild v1.3.42 with visual dialog verification.
