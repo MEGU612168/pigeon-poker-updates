@@ -1,0 +1,106 @@
+name: Validate HU auto-solve range reconstruction
+
+on:
+  push:
+    branches: ["feature/auto-hu-solve"]
+    paths:
+      - "staging/live_range_builder.py"
+      - "staging/test_live_range_builder.py"
+      - ".github/workflows/test-auto-hu-solve.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run deterministic range reconstruction tests
+        run: python -m unittest discover -s staging -p "test_live_range_builder.py" -v
+      - name: Validate against the actual 1.3.40 embedded screenshot chart
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, io, json, pathlib, sys, urllib.request, zipfile
+          from types import SimpleNamespace
+          from tempfile import TemporaryDirectory
+
+          root = pathlib.Path(".")
+          manifest = json.loads(urllib.request.urlopen(
+              "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/stable.json",
+              timeout=60).read().decode("utf-8"))
+          if manifest.get("version") != "1.3.40":
+              raise SystemExit("Expected stable 1.3.40")
+          encoded = urllib.request.urlopen(manifest["payload_url"], timeout=90).read()
+          payload = base64.b64decode(encoded, validate=True)
+          if len(payload) != int(manifest["payload_size"]):
+              raise SystemExit("Stable payload size mismatch")
+          with zipfile.ZipFile(io.BytesIO(payload)) as z:
+              source = z.read("pigeon_poker/preflop_screenshot_ranges.py")
+
+          with TemporaryDirectory() as td:
+              pkg = pathlib.Path(td) / "pigeon_poker"
+              pkg.mkdir()
+              (pkg / "__init__.py").write_text("", encoding="utf-8")
+              (pkg / "preflop_screenshot_ranges.py").write_bytes(source)
+              sys.path.insert(0, td)
+              sys.path.insert(0, str(root / "staging"))
+              from pigeon_poker import preflop_screenshot_ranges
+              from live_range_builder import build_live_hu_solver_setup
+              data = preflop_screenshot_ranges._data()
+              nodes = data.get("nodes", {})
+              rows = data.get("rows", [])
+              if len(nodes) != 20 or len(rows) != 3380:
+                  raise SystemExit(f"Chart shape mismatch: nodes={len(nodes)}, rows={len(rows)}")
+
+              _test_holes = [
+                  ["Ac","Ad"],["Kc","Kh"],["Qc","Qd"],
+                  ["Jc","Jh"],["Tc","Th"],["9c","9d"],
+              ]
+              class Player:
+                  def __init__(self, pid, eligible):
+                      self.player_id, self.eligible, self.stack = pid, eligible, 100000
+                      self.hole_cards = list(_test_holes[int(pid[1:])])
+              def hand(events, active, dealer=0):
+                  players = [Player("p"+str(i), "p"+str(i) in active) for i in range(6)]
+                  return SimpleNamespace(players=players, dealer_index=dealer, big_blind=1000,
+                                         events=events, street="flop",
+                                         board=["As","Kd","7c"], pot=5000)
+              cases = [
+                  ("BTN/SB", [
+                    {"type":"action","street":"preflop","player":"p5","action":"fold"},
+                    {"type":"action","street":"preflop","player":"p4","action":"fold"},
+                    {"type":"action","street":"preflop","player":"p3","action":"fold"},
+                    {"type":"action","street":"preflop","player":"p0","action":"raise","target":2500},
+                    {"type":"action","street":"preflop","player":"p1","action":"call"},
+                    {"type":"action","street":"preflop","player":"p2","action":"fold"},
+                    {"type":"street","street":"flop","board":["As","Kd","7c"]},
+                  ], {"p0","p1"}),
+                  ("UTG/BB", [
+                    {"type":"action","street":"preflop","player":"p3","action":"raise","target":2500},
+                    {"type":"action","street":"preflop","player":"p4","action":"fold"},
+                    {"type":"action","street":"preflop","player":"p5","action":"fold"},
+                    {"type":"action","street":"preflop","player":"p0","action":"fold"},
+                    {"type":"action","street":"preflop","player":"p1","action":"fold"},
+                    {"type":"action","street":"preflop","player":"p2","action":"call"},
+                    {"type":"street","street":"flop","board":["As","Kd","7c"]},
+                  ], {"p2","p3"}),
+                ]
+              for label, events, active in cases:
+                  result = build_live_hu_solver_setup(hand(events, active), data, rake_pct=5)
+                  if not result.get("supported"):
+                      raise SystemExit(f"{label} chart integration failed: {result}")
+                  root_state = result["root"]
+                  if not root_state["oop_range"] or not root_state["ip_range"]:
+                      raise SystemExit(f"{label} generated an empty range")
+                  if root_state["range_hand_classes"]["oop"] <= 0 or root_state["range_hand_classes"]["ip"] <= 0:
+                      raise SystemExit(f"{label} generated no hand classes")
+                  print(label, root_state["preflop_nodes"], root_state["range_hand_classes"])
+              print("PASS: live range builder consumes actual v1.3.40 chart (20 nodes / 3,380 rows)")
+          PY
