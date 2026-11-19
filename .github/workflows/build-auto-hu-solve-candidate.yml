@@ -62,8 +62,18 @@ jobs:
               target.write_text(module,encoding="utf-8",newline="\n")
               ui_target.write_text(ui_module,encoding="utf-8",newline="\n")
               probe_target=root/"pigeon_gto_plus"/"ui_probe.py"
-              probe_source=pathlib.Path("staging/source_1_3_38/pigeon_gto_plus/ui_probe.py").read_text(encoding="utf-8")
+              old_payload_b64=urllib.request.urlopen("https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.40/payload-updater.zip.b64",timeout=90).read()
+              old_payload=base64.b64decode(old_payload_b64,validate=True)
+              with zipfile.ZipFile(io.BytesIO(old_payload)) as old_zip:
+                  probe_source=old_zip.read("pigeon_gto_plus/ui_probe.py").decode("utf-8")
+                  preflop_source=old_zip.read("pigeon_poker/preflop_screenshot_ranges.py").decode("utf-8")
               ast.parse(probe_source,filename="pigeon_gto_plus/ui_probe.py")
+              ast.parse(z.read("pigeon_poker/preflop_screenshot_ranges.py").decode("utf-8"),
+                        filename="pigeon_poker/preflop_screenshot_ranges.py")
+              ast.parse(preflop_source,filename="pigeon_poker/preflop_screenshot_ranges.py")
+              preflop_target=root/"pigeon_poker"/"preflop_screenshot_ranges.py"
+              preflop_target.parent.mkdir(parents=True,exist_ok=True)
+              preflop_target.write_text(preflop_source,encoding="utf-8")
               probe_target.write_text(probe_source,encoding="utf-8")
               out=pathlib.Path("staging/auto_hu_solve_candidate");shutil.rmtree(out,ignore_errors=True);out.mkdir(parents=True)
               shutil.copy2(main_path,out/"PigeonPoker.pyw")
@@ -71,6 +81,7 @@ jobs:
               shutil.copy2(target,out/"live_range_builder.py")
               shutil.copy2(ui_target,out/"auto_solve_ui.py")
               shutil.copy2(probe_target,out/"ui_probe.py")
+              shutil.copy2(preflop_target,out/"preflop_screenshot_ranges.py")
               (out/"VERSION.txt").write_text("1.3.42\n",encoding="ascii")
               print("Patched app queue: range reconstruction result will be attached to every unknown HU request.")
           PY
@@ -91,6 +102,8 @@ jobs:
           assert "skipped_no_gto_owned_keyboard_focus" in ui_source
           probe_source=pathlib.Path("staging/auto_hu_solve_candidate/ui_probe.py").read_text(encoding="utf-8")
           ast.parse(probe_source,filename="ui_probe.py")
+          preflop_candidate=pathlib.Path("staging/auto_hu_solve_candidate/preflop_screenshot_ranges.py").read_text(encoding="utf-8")
+          ast.parse(preflop_candidate,filename="preflop_screenshot_ranges.py")
           # Validate visual state verification against synthetic 32-bit BMPs.
           import importlib.util, struct, types
           with tempfile.TemporaryDirectory() as td:
@@ -121,9 +134,7 @@ jobs:
           assert "def _run_auto_solve_ui_probe" in main
           updater=pathlib.Path("staging/auto_hu_solve_candidate/pigeon_updater.py").read_text(encoding="utf-8")
           ast.parse(updater,filename="pigeon_updater.py")
-          m=json.loads(urllib.request.urlopen("https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/stable.json").read())
-          b=base64.b64decode(urllib.request.urlopen(m["payload_url"]).read(),validate=True)
-          with zipfile.ZipFile(io.BytesIO(b)) as z: data=z.read("pigeon_poker/preflop_screenshot_ranges.py")
+          data=preflop_candidate.encode("utf-8")
           with tempfile.TemporaryDirectory() as td:
               pkg=pathlib.Path(td)/"pigeon_poker";pkg.mkdir();(pkg/"__init__.py").write_text("")
               (pkg/"preflop_screenshot_ranges.py").write_bytes(data)
@@ -146,6 +157,7 @@ jobs:
               z.write(root/"live_range_builder.py","pigeon_gto_plus/live_range_builder.py")
               z.write(root/"auto_solve_ui.py","pigeon_gto_plus/auto_solve_ui.py")
               z.write(root/"ui_probe.py","pigeon_gto_plus/ui_probe.py")
+              z.write(root/"preflop_screenshot_ranges.py","pigeon_poker/preflop_screenshot_ranges.py")
               z.write(root/"VERSION.txt","VERSION.txt")
           print("Candidate ZIP",out.stat().st_size,"SHA256",hashlib.sha256(out.read_bytes()).hexdigest())
           PY
@@ -169,7 +181,8 @@ jobs:
               required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
                           "pigeon_gto_plus/live_range_builder.py",
                           "pigeon_gto_plus/auto_solve_ui.py",
-                          "pigeon_gto_plus/ui_probe.py"}
+                          "pigeon_gto_plus/ui_probe.py",
+                          "pigeon_poker/preflop_screenshot_ranges.py"}
               if not required.issubset(set(z.namelist())):
                   raise SystemExit("v1.3.42 update ZIP is missing required files")
               if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.42":
