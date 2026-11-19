@@ -64,7 +64,7 @@ jobs:
               probe_target=root/"pigeon_gto_plus"/"ui_probe.py"
               probe_source=pathlib.Path("staging/source_1_3_39/pigeon_gto_plus/ui_probe.py").read_text(encoding="utf-8")
               ast.parse(probe_source,filename="pigeon_gto_plus/ui_probe.py")
-              probe_target.write_text(probe_source,encoding="utf-8",newline="\\n")
+              probe_target.write_text(probe_source,encoding="utf-8")
               out=pathlib.Path("staging/auto_hu_solve_candidate");shutil.rmtree(out,ignore_errors=True);out.mkdir(parents=True)
               shutil.copy2(main_path,out/"PigeonPoker.pyw")
               shutil.copy2(root/"pigeon_updater.py",out/"pigeon_updater.py")
@@ -99,8 +99,6 @@ jobs:
               base_zip=pathlib.Path("staging/base_v1_3_41.zip")
               # ui_probe.py is explicitly included in this candidate, so test that exact bundled source.
               (pkg/"ui_probe.py").write_text(probe_source,encoding="utf-8")
-              with zipfile.ZipFile(base_zip) as bz:
-                  (pkg/"ui_probe.py").write_bytes(bz.read("pigeon_gto_plus/ui_probe.py"))
               (pkg/"auto_solve_ui.py").write_text(ui_source,encoding="utf-8")
               sys.path.insert(0,td)
               from probe_pkg.auto_solve_ui import _bmp_region_difference_ratio
@@ -170,7 +168,7 @@ jobs:
                   raise SystemExit("v1.3.42 update ZIP integrity failed")
               required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
                           "pigeon_gto_plus/live_range_builder.py",
-                          "pigeon_gto_plus/auto_solve_ui.py"}
+                          "pigeon_gto_plus/auto_solve_ui.py",
                           "pigeon_gto_plus/ui_probe.py"}
               if not required.issubset(set(z.namelist())):
                   raise SystemExit("v1.3.42 update ZIP is missing required files")
