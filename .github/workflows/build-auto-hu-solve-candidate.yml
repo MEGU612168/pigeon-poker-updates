@@ -180,16 +180,17 @@ jobs:
           assert '"test_range": "AA,AKs:0.4"' in ui_source
           assert '"test_range_partial_weight": 0.4' in ui_source
           assert "_matrix_signature_matches_selected_cells" in ui_source
-          assert '_GTO_PLUS_HALF_WEIGHT_AA_SOURCE = "[50%]AA[/50%]"' in ui_source
-          assert 'expected_test_source_texts = {"AA", report["test_range"], _GTO_PLUS_HALF_WEIGHT_AA_SOURCE}' in ui_source
+          assert '_GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS = (' in ui_source
+          assert 'expected_test_source_texts = set(report["expected_gto_plus_source_texts"])' in ui_source
           assert '"restore_source_text_readback"' in ui_source
           assert '"schema_version": 15' in ui_source
           assert '"weight_display_capture_saved"' in ui_source
           assert '"original_text_restore_readback_required": True' in ui_source
           assert '"range_committed": False' in ui_source
-          assert '"done_button_clicked_for_oop_aa_test": bool(oop_roundtrip.get("range_committed_temporarily"))' in ui_source
+          assert '"done_button_clicked_for_oop_multi_range_test": bool(oop_roundtrip.get("range_committed_temporarily"))' in ui_source
+          assert '"test_range_may_remain_committed": False' in ui_source
           assert '"oop_weight_display_capture_saved": bool(oop_roundtrip.get("weight_display_capture_saved"))' in ui_source
-          assert '"oop_aa_only_matrix_reflection_verified"' in ui_source
+          assert '"oop_expected_matrix_cells_reflection_verified"' in ui_source
           assert "_bmp_region_difference_ratio" in ui_source
           assert "_build_tree_dialog_is_visible" in ui_source
           assert '"stage": "ip_range_editor"' in ui_source
@@ -200,7 +201,7 @@ jobs:
           assert "_window_is_related_to_embedded_target" in ui_source
           assert "_source_field_underlay_is_verified_edit" in ui_source
           assert "source_field_occluded_by_foreign_window" in ui_source
-          assert "_run_oop_aa_commit_roundtrip" in ui_source
+          assert "_run_oop_multi_range_commit_roundtrip" in ui_source
           assert "_bmp_matrix_center_signature" in ui_source
           assert "_matrix_signature_is_empty" in ui_source
           assert "_matrix_signature_is_aa_only" in ui_source
