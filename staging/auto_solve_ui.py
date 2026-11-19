@@ -252,9 +252,10 @@ def _build_tree_dialog_is_visible(appearance: dict[str, Any],
     return popup_detected or ratio > 0.01
 
 
-def _probe_source_field_readback_restore(user32, root_hwnd: int, RECT, POINT,
-                                           output_dir: Path, stem: str,
-                                           role: str) -> dict[str, Any]:
+def _probe_source_field_readback_restore(user32, root_hwnd: int,
+                                           EnumWindowsProc, EnumChildProc,
+                                           RECT, POINT, output_dir: Path,
+                                           stem: str, role: str) -> dict[str, Any]:
     """Test the exact GTO+ Source Edit using AA, then restore the original text.
 
     The test never clicks Done. It writes only when exactly one visible Edit
@@ -274,30 +275,96 @@ def _probe_source_field_readback_restore(user32, root_hwnd: int, RECT, POINT,
     origin = POINT(int(client.left), int(client.top))
     if not user32.ClientToScreen(probe.wintypes.HWND(root_hwnd), probe.ctypes.byref(origin)):
         raise OSError(f"{role} Source field ClientToScreen failed: {probe.ctypes.get_last_error()}")
+    host = probe._top_level_ancestor(user32, root_hwnd)
+    source_screen = (int(origin.x + _RANGE_SOURCE_FIELD_CENTER[0]),
+                     int(origin.y + _RANGE_SOURCE_FIELD_CENTER[1]))
     focus = probe._gui_thread_focus_snapshot(
-        user32, RECT, POINT, root_hwnd, probe._top_level_ancestor(user32, root_hwnd),
-        source_point_screen=(int(origin.x + _RANGE_SOURCE_FIELD_CENTER[0]),
-                             int(origin.y + _RANGE_SOURCE_FIELD_CENTER[1]))
+        user32, RECT, POINT, root_hwnd, host,
+        source_point_screen=source_screen
     )
-    finder = getattr(probe, "_batch_visible_source_edits", None)
-    if not callable(finder):
-        return {
-            "stage": f"{role.lower()}_source_field",
-            "status": "source_edit_enumerator_unavailable",
-            "field_click": click, "focus_snapshot": focus,
-            "candidate_count": None, "text_changed": False,
-            "range_committed": False, "tree_built": False, "solver_run": False,
+    point = POINT(*source_screen)
+    under = int(user32.WindowFromPoint(point) or 0)
+    under_record = None
+    if under:
+        under_record = {
+            "hwnd": under,
+            "pid": probe._window_pid(user32, under),
+            "class": probe._class_name(user32, under),
+            "control_id": int(user32.GetDlgCtrlID(probe.wintypes.HWND(under))),
+            "title": probe._window_text(user32, under),
+            "rect_screen": probe._rect(user32, RECT, under),
+            "visible": bool(user32.IsWindowVisible(probe.wintypes.HWND(under))),
+            "enabled": bool(user32.IsWindowEnabled(probe.wintypes.HWND(under))),
         }
-    edits = finder(user32, RECT, root_hwnd)
+
+    roots, children_by_root = probe._all_hwnds(user32, EnumWindowsProc, EnumChildProc)
+    candidate_hwnds = {int(root_hwnd), int(host or 0), int(under or 0)}
+    for top in roots:
+        top = int(top)
+        if (top == int(root_hwnd) or top == int(host)
+                or probe._window_is_related_to_embedded_target(
+                    user32, top, root_hwnd, host)):
+            candidate_hwnds.add(top)
+            candidate_hwnds.update(int(child) for child in children_by_root.get(top, []))
+    direct_children = []
+    def collect_child(hwnd, _):
+        direct_children.append(int(hwnd))
+        return True
+    child_callback = EnumChildProc(collect_child)
+    user32.EnumChildWindows(probe.wintypes.HWND(root_hwnd), child_callback, 0)
+    candidate_hwnds.update(direct_children)
+
+    target_pid = probe._window_pid(user32, root_hwnd)
+    edit_candidates = []
+    matches = []
+    for candidate in sorted(candidate_hwnds):
+        if not candidate or not user32.IsWindow(probe.wintypes.HWND(candidate)):
+            continue
+        cls = probe._class_name(user32, candidate)
+        if cls != "Edit":
+            continue
+        rect = probe._rect(user32, RECT, candidate)
+        pid = probe._window_pid(user32, candidate)
+        control_id = int(user32.GetDlgCtrlID(probe.wintypes.HWND(candidate)))
+        related = probe._window_is_related_to_embedded_target(
+            user32, candidate, root_hwnd, host
+        )
+        if rect:
+            center = [(rect[0] + rect[2]) // 2, (rect[1] + rect[3]) // 2]
+            delta = [
+                abs(center[0] - source_screen[0]),
+                abs(center[1] - source_screen[1]),
+            ]
+        else:
+            delta = [999999, 999999]
+        observation = {
+            "hwnd": candidate, "pid": pid, "control_id": control_id,
+            "class": cls, "rect_screen": rect, "related_to_exact_host": related,
+            "center_delta": delta,
+            "visible": bool(user32.IsWindowVisible(probe.wintypes.HWND(candidate))),
+            "enabled": bool(user32.IsWindowEnabled(probe.wintypes.HWND(candidate))),
+        }
+        edit_candidates.append(observation)
+        if (pid == target_pid and control_id == 5458 and related and rect
+                and delta[0] <= 35 and delta[1] <= 20
+                and observation["visible"] and observation["enabled"]):
+            matches.append((candidate, rect))
+
     base = {
         "stage": f"{role.lower()}_source_field",
         "field_click": click,
         "focus_snapshot": focus,
-        "candidate_count": len(edits),
+        "window_from_point": under_record,
+        "edit_candidates": edit_candidates,
+        "candidate_count": len(matches),
+        "target_pid": target_pid,
+        "root_hwnd": int(root_hwnd),
+        "host_hwnd": int(host or 0),
         "range_committed": False,
         "tree_built": False,
         "solver_run": False,
     }
+    edits = matches
     if len(edits) != 1:
         return {**base, "status": "native_source_edit_missing_or_ambiguous",
                 "text_changed": False, "source_controls": probe._batch_child_controls(user32, RECT, root_hwnd)}
@@ -450,7 +517,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         )
 
     oop_source_probe = _probe_source_field_readback_restore(
-        user32, target_hwnd, RECT, POINT, output_dir, stem, "OOP"
+        user32, target_hwnd, EnumWindowsProc, EnumChildProc,
+        RECT, POINT, output_dir, stem, "OOP"
     )
     actions.append(oop_source_probe["field_click"])
     for capture_key in ("temporary_capture", "restored_capture"):
@@ -508,7 +576,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         all_captures.extend(w["capture"] for w in ip_windows)
         if ip_appearance["ratio"] >= 0.05:
             ip_source_probe = _probe_source_field_readback_restore(
-                user32, target_hwnd, RECT, POINT, output_dir, stem, "IP"
+                user32, target_hwnd, EnumWindowsProc, EnumChildProc,
+                RECT, POINT, output_dir, stem, "IP"
             )
             actions.append(ip_source_probe["field_click"])
             for capture_key in ("temporary_capture", "restored_capture"):
