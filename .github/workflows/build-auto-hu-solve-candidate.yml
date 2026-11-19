@@ -119,6 +119,7 @@ jobs:
               preflop_target.write_text(preflop_source,encoding="utf-8")
               probe_target.write_text(probe_source,encoding="utf-8")
               out=pathlib.Path("staging/auto_hu_solve_candidate");shutil.rmtree(out,ignore_errors=True);out.mkdir(parents=True)
+              main_path.write_text(main,encoding="utf-8",newline="\\n")
               shutil.copy2(main_path,out/"PigeonPoker.pyw")
               shutil.copy2(root/"pigeon_updater.py",out/"pigeon_updater.py")
               shutil.copy2(target,out/"live_range_builder.py")
