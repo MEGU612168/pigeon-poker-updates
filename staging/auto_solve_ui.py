@@ -479,3 +479,5 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 # Rebuild after correcting the source path for the bundled Win32 UI observer.
+
+# Candidate rebuild: package the exact v1.3.40 UI observer and preflop chart modules.
