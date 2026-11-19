@@ -387,9 +387,9 @@ def _validated_oop_client_size(user32, hwnd: int, RECT, stage: str) -> tuple[int
 def _open_oop_range_editor(user32, hwnd: int, RECT, POINT) -> dict[str, Any]:
     """Open the OOP Starting Range Editor on the exact embedded GTO+ target.
 
-    Safety: use only the verified 680x476 embedded layout (with a small
-    tolerance), click once in the measured OOP matrix, then return. No hand
-    cell, range text, weights, tree, or solver operation is touched.
+    Safety: use the calibrated embedded-client envelope and fixed measured
+    matrix anchor. Click once, then return. No hand cell, range text, weights,
+    tree, or solver operation is touched.
     """
     width, height = _validated_oop_client_size(
         user32, hwnd, RECT, "Open OOP range editor"
@@ -398,13 +398,13 @@ def _open_oop_range_editor(user32, hwnd: int, RECT, POINT) -> dict[str, Any]:
     # blank client height must not rescale the Y coordinate.
     x0, y0, x1, y1 = _OOP_SINGLE_STEP_REFERENCE["oop_range_matrix_rect"]
     anchor_x, anchor_y = _OOP_SINGLE_STEP_REFERENCE["oop_range_matrix_center"]
-    matrix_scaled = [int(x0), int(y0), int(x1), int(y1)]
+    matrix_rect = [int(x0), int(y0), int(x1), int(y1)]
     click_x, click_y = int(anchor_x), int(anchor_y)
-    if not (matrix_scaled[0] <= click_x <= matrix_scaled[2] and
-            matrix_scaled[1] <= click_y <= matrix_scaled[3]):
+    if not (matrix_rect[0] <= click_x <= matrix_rect[2] and
+            matrix_rect[1] <= click_y <= matrix_rect[3]):
         raise RuntimeError(
             f"OOP click point is outside measured matrix: point=({click_x},{click_y}), "
-            f"matrix={matrix_scaled}; no click sent"
+            f"matrix={matrix_rect}; no click sent"
         )
     if not (0 <= click_x < width and 0 <= click_y < height):
         raise RuntimeError(
@@ -1081,10 +1081,10 @@ def _click_oop_editor_done(user32, root_hwnd: int, RECT, POINT) -> dict[str, Any
     # Do not scale it against unused client height.
     x0, y0, x1, y1 = _OOP_DONE_BUTTON_REFERENCE["rect"]
     ax, ay = _OOP_DONE_BUTTON_REFERENCE["center"]
-    scaled_rect = [int(x0), int(y0), int(x1), int(y1)]
+    button_rect_client = [int(x0), int(y0), int(x1), int(y1)]
     cx, cy = int(ax), int(ay)
-    if not (scaled_rect[0] <= cx <= scaled_rect[2] and scaled_rect[1] <= cy <= scaled_rect[3]):
-        raise RuntimeError(f"OOP Done point outside measured button: point={(cx,cy)} rect={scaled_rect}; no click sent")
+    if not (button_rect_client[0] <= cx <= button_rect_client[2] and button_rect_client[1] <= cy <= button_rect_client[3]):
+        raise RuntimeError(f"OOP Done point outside measured button: point={(cx,cy)} rect={button_rect_client}; no click sent")
     if not (0 <= cx < width and 0 <= cy < height):
         raise RuntimeError(f"OOP Done point outside client area: {(cx,cy)} / {(width,height)}; no click sent")
     screen = POINT(cx, cy)
@@ -1124,7 +1124,7 @@ def _click_oop_editor_done(user32, root_hwnd: int, RECT, POINT) -> dict[str, Any
         "action": "click_oop_source_editor_done",
         "target_hwnd": int(root_hwnd), "target_pid": _window_pid(user32, root_hwnd),
         "client_size": [width, height], "reference_client_size": [ref_w, ref_h],
-        "button_rect_client": scaled_rect, "click_client": [cx, cy],
+        "button_rect_client": button_rect_client, "click_client": [cx, cy],
         "click_screen": [int(screen.x), int(screen.y)],
         "foreground_verified": True, "foreground_host_hwnd": int(host),
         "set_foreground_window_return": set_foreground,
