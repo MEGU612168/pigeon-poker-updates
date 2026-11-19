@@ -62,7 +62,7 @@ jobs:
               target.write_text(module,encoding="utf-8",newline="\n")
               ui_target.write_text(ui_module,encoding="utf-8",newline="\n")
               probe_target=root/"pigeon_gto_plus"/"ui_probe.py"
-              probe_source=pathlib.Path("staging/source_1_3_39/pigeon_gto_plus/ui_probe.py").read_text(encoding="utf-8")
+              probe_source=pathlib.Path("staging/source_1_3_38/pigeon_gto_plus/ui_probe.py").read_text(encoding="utf-8")
               ast.parse(probe_source,filename="pigeon_gto_plus/ui_probe.py")
               probe_target.write_text(probe_source,encoding="utf-8")
               out=pathlib.Path("staging/auto_hu_solve_candidate");shutil.rmtree(out,ignore_errors=True);out.mkdir(parents=True)
