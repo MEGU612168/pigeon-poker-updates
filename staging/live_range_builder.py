@@ -241,3 +241,5 @@ def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_
 # Candidate archive path checked.
 
 # Rebuild after adding the v1.3.41 updater and stable-release assembly steps.
+
+# Re-run release packaging after JSON metadata serialisation correction.
