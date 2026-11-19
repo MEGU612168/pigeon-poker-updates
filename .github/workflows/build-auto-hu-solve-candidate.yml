@@ -38,7 +38,7 @@ jobs:
       - name: Patch live unknown-scenario queue with derived preflop ranges
         run: |
           python - <<'PY'
-          import ast, pathlib, shutil, zipfile
+          import ast, base64, io, pathlib, shutil, urllib.request, zipfile
           from tempfile import TemporaryDirectory
           base=pathlib.Path("staging/base_v1_3_41.zip")
           module=pathlib.Path("staging/live_range_builder.py").read_text(encoding="utf-8")
