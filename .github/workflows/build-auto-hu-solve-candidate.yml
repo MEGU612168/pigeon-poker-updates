@@ -197,7 +197,7 @@ jobs:
           print(json.dumps({
               "version": "1.3.41", "payload_size": len(payload),
               "payload_sha256": hashlib.sha256(payload).hexdigest(),
-              "part_count": len(names), "zip_files": required
+              "part_count": len(names), "zip_files": sorted(required)
           }, ensure_ascii=False))
           PY
           git config user.name "github-actions[bot]"
