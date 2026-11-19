@@ -1014,6 +1014,7 @@ def _run_oop_multi_range_commit_roundtrip(
         "restore_source_text_accepted": False,
         "weight_display_roi": [414, 343, 476, 376],
         "range_committed_temporarily": False,
+        "test_range_may_remain_committed": False,
         "range_restored": False,
         "tree_built": False,
         "solver_run": False,
@@ -1156,14 +1157,13 @@ def _run_oop_multi_range_commit_roundtrip(
         report["test_done"] = test_done
         editor_open = not closed_after_test
         if not closed_after_test:
-            edits = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
-            if len(edits) == 1:
-                current_text = probe._read_native_edit_text(user32, edits[0][0])
-                if current_text == report["test_range"]:
-                    probe._write_native_edit_text(user32, edits[0][0], "")
             report["status"] = "test_done_not_closed"
+            report["test_range_may_remain_committed"] = True
             report["manual_close_required"] = True
-            report["note"] = "Done could not be visually confirmed; test text may remain in the open editor."
+            report["note"] = (
+                "Done could not be visually confirmed. The AA + AKs test range may be committed "
+                "or remain in the open editor; leave it visible and use Clear + Done manually."
+            )
             return report
 
         test_committed = True
@@ -1781,6 +1781,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "oop_weight_display_capture_saved": bool(oop_roundtrip.get("weight_display_capture_saved")),
             "oop_test_range_text": "AA,AKs:0.4",
             "oop_test_range_partial_weight": 0.4,
+            "oop_test_range_may_remain_committed": bool(oop_roundtrip.get("test_range_may_remain_committed")),
             "oop_restore_source_text_readback": oop_roundtrip.get("restore_source_text_readback"),
             "oop_restore_source_text_accepted": bool(oop_roundtrip.get("restore_source_text_accepted")),
             "board_changed": False,
