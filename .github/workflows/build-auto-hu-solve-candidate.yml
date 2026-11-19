@@ -96,6 +96,8 @@ jobs:
           ast.parse(ui_source,filename="auto_solve_ui.py")
           assert "未知HU局面の自動Solve設定を診断（変更なし）" in main
           assert '"schema_version": 4' in ui_source
+          assert '"original_text_restore_readback_required": True' in ui_source
+          assert '"range_committed": False' in ui_source
           assert "_bmp_region_difference_ratio" in ui_source
           assert "_build_tree_dialog_is_visible" in ui_source
           assert '"stage": "ip_range_editor"' in ui_source
