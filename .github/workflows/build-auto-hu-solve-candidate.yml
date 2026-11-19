@@ -104,12 +104,12 @@ jobs:
                   + " " * 28 + "else:" + chr(10)
                   + " " * 32 + "report_json = json.loads(report_zip.read(report_json_name).decode(\"utf-8\"))" + chr(10)
                   + " " * 32 + "report_safety = report_json.get(\"safety\", {})" + chr(10)
-                  + " " * 32 + "success = bool(report_safety.get(\"oop_aa_only_matrix_reflection_verified\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and not report_safety.get(\"manual_close_required\"))" + chr(10)
+                  + " " * 32 + "success = bool(report_safety.get(\"oop_expected_matrix_cells_reflection_verified\") and report_safety.get(\"oop_restore_source_text_accepted\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and not report_safety.get(\"manual_close_required\"))" + chr(10)
                   + " " * 32 + "if not success:" + chr(10)
-                  + " " * 36 + "detail += \" [AA:0.5可逆テスト] OOPのAAセル反映・重み表示保存・復元確認に未達です。診断JSONと画像を確認してください。\"" + chr(10)
+                  + " " * 36 + "detail += \" [OOP複数ハンド可逆テスト] AA+AKsの2セル反映・40%正規化・Source読戻し・完全復元に未達です。\"" + chr(10)
                   + " " * 20 + "except Exception as exc:" + chr(10)
                   + " " * 24 + "success = False" + chr(10)
-                  + " " * 24 + "detail += \" [AA可逆テスト] 診断JSONの確認に失敗: \"+str(exc)"
+                  + " " * 24 + "detail += \" [OOP複数ハンド可逆テスト] 診断JSONの確認に失敗: \"+str(exc)"
               )
               old_gates = ["success = bool(report_safety.get(\"oop_aa_only_matrix_reflection_verified\") and report_safety.get(\"oop_test_range_restored\") and not report_safety.get(\"manual_close_required\"))", "success = bool(report_safety.get(\"oop_aa_only_matrix_reflection_verified\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and not report_safety.get(\"manual_close_required\"))"]
               new_gate = "success = bool(report_safety.get(\"oop_expected_matrix_cells_reflection_verified\") and report_safety.get(\"oop_restore_source_text_accepted\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and not report_safety.get(\"manual_close_required\"))"
