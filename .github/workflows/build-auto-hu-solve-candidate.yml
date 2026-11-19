@@ -137,4 +137,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: auto-hu-solve-v1.3.41
-          path: staging/auto_hu_solve_candidate_v1.3.41-dev.zip
+          path: staging/auto_hu_solve_v1.3.41.zip
