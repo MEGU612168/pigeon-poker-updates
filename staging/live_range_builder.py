@@ -1,4 +1,6 @@
 """Derive conservative HU flop-root ranges from Pigeon's existing screenshot-derived preflop chart."""
+
+# Auto-solve v1.3.50: emit GTO+ native HAND:WEIGHT source strings.
 from __future__ import annotations
 from typing import Any, Mapping
 
