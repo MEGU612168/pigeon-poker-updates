@@ -747,7 +747,9 @@ def _probe_source_field_readback_restore_at_current_position(user32, root_hwnd: 
     edit_hwnd, edit_rect = edits[0]
     if (probe._window_pid(user32, edit_hwnd) != probe._window_pid(user32, root_hwnd)
             or probe._class_name(user32, edit_hwnd) != "Edit"
-            or int(user32.GetDlgCtrlID(probe.wintypes.HWND(edit_hwnd))) != 5458):
+            or not probe._window_is_related_to_embedded_target(
+                user32, edit_hwnd, root_hwnd, host
+            )):
         return {**base, "status": "source_edit_identity_mismatch",
                 "text_changed": False, "edit_hwnd": int(edit_hwnd),
                 "edit_class": probe._class_name(user32, edit_hwnd),
