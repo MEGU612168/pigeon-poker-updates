@@ -449,6 +449,15 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "no close click or Build Tree click was sent."
         )
 
+    oop_source_probe = _probe_source_field_readback_restore(
+        user32, target_hwnd, RECT, POINT, output_dir, stem, "OOP"
+    )
+    actions.append(oop_source_probe["field_click"])
+    for capture_key in ("temporary_capture", "restored_capture"):
+        capture = oop_source_probe.get(capture_key)
+        if capture:
+            all_captures.append(capture)
+
     close_click = _click_exact_client(
         user32, target_hwnd, target_pid, RECT, POINT, _OOP_CLOSE_CENTER,
         label="close_oop_range_editor"
@@ -475,90 +484,141 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         "range_text_changed": False,
         "range_committed": False,
     })
+    stages.append(oop_source_probe)
 
-    # Stage 2 is permitted only after pixel-level confirmation that the OOP
-    # editor is gone. Otherwise stop here instead of clicking beneath a modal.
-    build_tree_result = None
+    # Stage 2: calibrate the IP Source field using the same reversible AA test.
+    # Never click Done: the test text is read back and restored before closing.
+    ip_editor_result = None
+    board_input_result = None
     manual_close_required = False
-    if oop_closed_ok:
-        build_click = _click_exact_client(
-            user32, target_hwnd, target_pid, RECT, POINT, _BUILD_TREE_CENTER,
-            label="open_build_tree_setup"
+    continue_after_oop = oop_closed_ok and oop_source_probe.get("status") != "source_field_test_incomplete"
+    if continue_after_oop:
+        ip_click = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT, _IP_MATRIX_CENTER,
+            label="open_ip_range_editor"
         )
-        actions.append(build_click)
-        time.sleep(0.75)
-        build_windows = _capture_related_windows(
+        actions.append(ip_click)
+        time.sleep(0.55)
+        ip_windows = _capture_related_windows(
             user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
-            target_hwnd, target_pid, output_dir, stem, "build_tree_open"
+            target_hwnd, target_pid, output_dir, stem, "ip_editor_open"
         )
-        build_open_path = _root_capture_path(build_windows, "build_tree_open")
-        build_appearance = _bmp_region_difference_ratio(baseline_path, build_open_path)
-        all_captures.extend(w["capture"] for w in build_windows)
-        popup_window_detected = any(
-            not w.get("is_embedded_root", False) for w in build_windows
+        ip_open_path = _root_capture_path(ip_windows, "ip_editor_open")
+        ip_appearance = _bmp_region_difference_ratio(baseline_path, ip_open_path)
+        all_captures.extend(w["capture"] for w in ip_windows)
+        if ip_appearance["ratio"] >= 0.05:
+            ip_source_probe = _probe_source_field_readback_restore(
+                user32, target_hwnd, RECT, POINT, output_dir, stem, "IP"
+            )
+            actions.append(ip_source_probe["field_click"])
+            for capture_key in ("temporary_capture", "restored_capture"):
+                capture = ip_source_probe.get(capture_key)
+                if capture:
+                    all_captures.append(capture)
+            ip_close_click = _click_exact_client(
+                user32, target_hwnd, target_pid, RECT, POINT, _OOP_CLOSE_CENTER,
+                label="close_oop_range_editor"
+            )
+            actions.append(ip_close_click)
+            ip_closed_windows = _capture_related_windows(
+                user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                target_hwnd, target_pid, output_dir, stem, "ip_editor_after_x"
+            )
+            ip_closed_path = _root_capture_path(ip_closed_windows, "ip_editor_after_x")
+            ip_close_check = _bmp_region_difference_ratio(baseline_path, ip_closed_path)
+            all_captures.extend(w["capture"] for w in ip_closed_windows)
+            ip_closed_ok = ip_close_check["ratio"] <= 0.01
+            ip_editor_result = {
+                "stage": "ip_range_editor",
+                "status": "opened_and_closed_by_measured_x" if ip_closed_ok else "close_not_verified",
+                "open_click": ip_click,
+                "open_windows": ip_windows,
+                "open_overlay_difference": ip_appearance,
+                "source_field_probe": ip_source_probe,
+                "close_click": ip_close_click,
+                "windows_after_x": ip_closed_windows,
+                "baseline_difference_after_x": ip_close_check,
+                "visually_closed": ip_closed_ok,
+                "range_committed": False,
+            }
+            stages.append(ip_editor_result)
+            stages.append(ip_source_probe)
+            continue_after_oop = ip_closed_ok and ip_source_probe.get("status") != "source_field_test_incomplete"
+        else:
+            ip_editor_result = {
+                "stage": "ip_range_editor",
+                "status": "editor_not_visibly_opened",
+                "open_click": ip_click,
+                "open_windows": ip_windows,
+                "open_overlay_difference": ip_appearance,
+                "range_committed": False,
+            }
+            stages.append(ip_editor_result)
+            continue_after_oop = False
+
+    # Stage 3: focus the Board entry only to identify its input mechanism.
+    # No board text is typed and no card selection is made.
+    if continue_after_oop:
+        board_click = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT, _BOARD_INPUT_CENTER,
+            label="focus_board_input"
         )
-        dialog_detected = _build_tree_dialog_is_visible(build_appearance, build_windows)
-        build_focus = (
-            probe._gui_thread_focus_snapshot(user32, RECT, POINT, target_hwnd, host)
-            if dialog_detected else None
+        actions.append(board_click)
+        time.sleep(0.45)
+        board_windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, "board_input_open"
         )
-        if dialog_detected:
-            escape_result = _send_escape_only_to_gto_focused_thread(
+        board_open_path = _root_capture_path(board_windows, "board_input_open")
+        board_appearance = _bmp_region_difference_ratio(baseline_path, board_open_path)
+        all_captures.extend(w["capture"] for w in board_windows)
+        board_popup_detected = any(not w.get("is_embedded_root", False) for w in board_windows)
+        board_dialog_detected = board_popup_detected or board_appearance["ratio"] >= 0.05
+        board_controls = probe._batch_child_controls(user32, RECT, target_hwnd)
+        board_focus = probe._gui_thread_focus_snapshot(
+            user32, RECT, POINT, target_hwnd, host
+        )
+        board_escape = None
+        board_after_escape_windows = []
+        board_close_check = None
+        if board_dialog_detected:
+            board_escape = _send_escape_only_to_gto_focused_thread(
                 user32, RECT, POINT, target_hwnd, target_pid
             )
-        else:
-            escape_result = {
-                "status": "skipped_no_visible_build_tree_dialog",
-                "foreground_hwnd": int(user32.GetForegroundWindow() or 0),
-                "gto_focus_hwnds": [],
-                "escape_sent": False,
-            }
-        build_closed_check = None
-        build_closed_windows = []
-        if dialog_detected and escape_result["escape_sent"]:
-            build_closed_windows = _capture_related_windows(
-                user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
-                target_hwnd, target_pid, output_dir, stem, "build_tree_after_gto_escape"
-            )
-            build_closed_path = _root_capture_path(build_closed_windows, "build_tree_after_gto_escape")
-            build_closed_check = _bmp_region_difference_ratio(baseline_path, build_closed_path)
-            all_captures.extend(w["capture"] for w in build_closed_windows)
-        build_closed_ok = bool(
-            dialog_detected and build_closed_check and build_closed_check["ratio"] <= 0.01
+            if board_escape["escape_sent"]:
+                board_after_escape_windows = _capture_related_windows(
+                    user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                    target_hwnd, target_pid, output_dir, stem, "board_input_after_escape"
+                )
+                board_after_path = _root_capture_path(board_after_escape_windows, "board_input_after_escape")
+                board_close_check = _bmp_region_difference_ratio(baseline_path, board_after_path)
+                all_captures.extend(w["capture"] for w in board_after_escape_windows)
+        board_closed_ok = bool(
+            not board_dialog_detected
+            or (board_close_check and board_close_check["ratio"] <= 0.01)
         )
-        manual_close_required = bool(dialog_detected and not build_closed_ok)
-        if build_closed_ok:
-            build_status = "opened_and_visually_closed"
-        elif dialog_detected:
-            build_status = "dialog_opened_manual_close_required"
-        else:
-            build_status = "click_no_dialog_detected"
-        build_tree_result = {
-            "stage": "build_tree_setup",
-            "status": build_status,
-            "click_attempted": True,
-            "dialog_detected": dialog_detected,
-            "popup_window_detected": popup_window_detected,
-            "click_outcome": (
-                "dialog_opened" if dialog_detected
-                else "no_visible_dialog_or_popup_after_click"
+        manual_close_required = board_dialog_detected and not board_closed_ok
+        board_input_result = {
+            "stage": "board_input",
+            "status": (
+                "input_field_focused_no_popup" if not board_dialog_detected
+                else "selector_opened_and_closed" if board_closed_ok
+                else "selector_opened_manual_close_required"
             ),
-            "open_click": build_click,
-            "open_windows": build_windows,
-            "visible_overlay_difference": build_appearance,
-            "focus_before_escape": build_focus,
-            "escape_attempt": escape_result,
-            "after_escape_windows": build_closed_windows,
-            "baseline_difference_after_escape": build_closed_check,
-            "visually_closed": build_closed_ok,
-            "manual_close_required": manual_close_required,
-            "settings_changed": False,
-            "tree_built": False,
-            "solver_run": False,
+            "click": board_click,
+            "open_windows": board_windows,
+            "visible_overlay_difference": board_appearance,
+            "popup_detected": board_popup_detected,
+            "dialog_detected": board_dialog_detected,
+            "native_controls": board_controls,
+            "focus_snapshot": board_focus,
+            "escape_attempt": board_escape,
+            "windows_after_escape": board_after_escape_windows,
+            "baseline_difference_after_escape": board_close_check,
+            "visually_closed": board_closed_ok,
+            "board_changed": False,
         }
-        stages.append(build_tree_result)
-    else:
-        manual_close_required = True
+        stages.append(board_input_result)
 
     report = {
         "schema_version": 3,
