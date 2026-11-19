@@ -621,7 +621,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         stages.append(board_input_result)
 
     report = {
-        "schema_version": 3,
+        "schema_version": 4,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "probe": "verified_visual_gto_plus_setup_dialog_discovery",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
@@ -632,6 +632,12 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "oop_matrix_center": list(_OOP_MATRIX_CENTER),
             "oop_close_rect": list(_OOP_CLOSE_RECT),
             "oop_close_center": list(_OOP_CLOSE_CENTER),
+            "ip_matrix_rect": list(_IP_MATRIX_RECT),
+            "ip_matrix_center": list(_IP_MATRIX_CENTER),
+            "range_source_field_rect": list(_RANGE_SOURCE_FIELD_RECT),
+            "range_source_field_center": list(_RANGE_SOURCE_FIELD_CENTER),
+            "board_input_rect": list(_BOARD_INPUT_RECT),
+            "board_input_center": list(_BOARD_INPUT_CENTER),
             "build_tree_button_rect": list(_BUILD_TREE_RECT),
             "build_tree_button_center": list(_BUILD_TREE_CENTER),
             "visual_verification_roi": list(_DIALOG_ROI),
@@ -643,8 +649,11 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         "actions": actions,
         "all_captures": all_captures,
         "safety": {
-            "oop_range_text_changed": False,
-            "ip_range_text_changed": False,
+            "oop_range_text_changed": bool(oop_source_probe.get("text_changed", False)),
+            "ip_range_text_changed": any(
+                bool(stage.get("text_changed", False))
+                for stage in stages if stage.get("stage") == "ip_source_field"
+            ),
             "range_committed": False,
             "board_changed": False,
             "pot_changed": False,
@@ -653,15 +662,17 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "tree_built": False,
             "solver_run": False,
             "other_gto_processes_touched": False,
-            "build_tree_dialog_left_open": manual_close_required and build_tree_result is not None,
+            "build_tree_clicked": False,
+            "board_selector_left_open": manual_close_required,
             "manual_close_required": manual_close_required,
         },
         "notes": [
             "Only the exact Pigeon-embedded GTO+ HWND/PID was operated.",
-            "The OOP editor close is verified against baseline pixels in the calibrated dialog ROI.",
-            "Escape is sent only when the focused HWND belongs to the exact GTO.exe PID; Pigeon's Tk host focus is never accepted.",
-            "Build Tree is considered open only when a visible overlay or related GTO popup is detected. Escape is attempted only for a detected dialog when the exact GTO process owns keyboard focus; otherwise manual_close_required is set only if a dialog actually remains open.",
-            "No range text, board, pot, stack, rake, tree or Solver setting is changed.",
+            "OOP and IP Source Edit fields are identified only after clicking their measured input area; test text AA is written only to one exact GTO-owned Edit id=5458 that was blank, read back, and restored. Done is never clicked.",
+            "The range editor is dismissed with its measured X button and visually checked against the baseline image. Any failed text restoration stops the sequence.",
+            "The Board input is only focused and inspected. No board text is entered and no card is selected.",
+            "No range is committed; no Board/Pot/Stack/Rake is changed; Build Tree and Solver are not run.",
+            "Escape is sent only when the detected selector belongs to the exact GTO process and that process owns keyboard focus.",
         ],
     }
     json_path = output_dir / f"{stem}.json"
@@ -673,9 +684,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"Target: PID={target_pid} HWND={target_hwnd}",
         f"Client: {width}x{height}",
         f"OOP editor closed by X: {stages[0]['visually_closed']}",
-        f"Build Tree click attempted: {bool(build_tree_result and build_tree_result.get('click_attempted'))}",
-        f"Build Tree dialog detected: {bool(build_tree_result and build_tree_result.get('dialog_detected'))}",
-        f"Build Tree dialog visually closed: {bool(build_tree_result and build_tree_result.get('dialog_detected') and build_tree_result['visually_closed'])}",
+        f"OOP source field: {oop_source_probe['status']}",
+        f"IP range editor: {ip_editor_result['status'] if ip_editor_result else 'not_attempted'}",
+        f"Board input: {board_input_result['status'] if board_input_result else 'not_attempted'}",
         f"Manual close required: {manual_close_required}",
         "Range/board/pot/stack/rake changed: no",
         "Tree built: no",
@@ -685,7 +696,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     for stage in stages:
         lines.append(f"{stage['stage']}: {stage['status']}")
         if "visible_overlay_difference" in stage:
-            lines.append(f"Build Tree overlay pixel ratio: {stage['visible_overlay_difference']['ratio']:.4f}")
+            lines.append(f"Overlay pixel ratio: {stage['visible_overlay_difference']['ratio']:.4f}")
+        if "open_overlay_difference" in stage:
+            lines.append(f"Editor-open pixel ratio: {stage['open_overlay_difference']['ratio']:.4f}")
         if "baseline_difference_after_escape" in stage and stage["baseline_difference_after_escape"]:
             lines.append(f"After Escape baseline pixel ratio: {stage['baseline_difference_after_escape']['ratio']:.4f}")
         if "baseline_difference_after_x" in stage:
