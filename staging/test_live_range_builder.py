@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from live_range_builder import build_live_hu_solver_setup, OPEN_NODE, CALL_NODE
+from live_range_builder import build_live_hu_solver_setup, to_gto_plus_range_text, OPEN_NODE, CALL_NODE
 
 
 def chart():
@@ -145,6 +145,35 @@ class LiveAutoSolveRangeTests(unittest.TestCase):
         self.assertEqual(r["root"]["effective_stack_bb"],9.0)
         self.assertEqual(len(r["postflop_line"]),2)
         self.assertEqual(r["required_tree_sizes"]["flop"]["ip"]["bet_pct"],[33.0,50.0,75.0])
+
+
+    def test_gto_plus_weighted_range_syntax_conversion(self):
+        source="AKs:0.5000,AA:1.0000,KQs:0.1250,72o:0.0000,AKo:0.7500"
+        self.assertEqual(
+            to_gto_plus_range_text(source),
+            "AA,AKo,[75]AKo[/75],[50]AKs[/50],[12.5]KQs[/12.5]"
+        )
+
+    def test_gto_plus_converter_rejects_invalid_or_ambiguous_ranges(self):
+        for source in ("AKs", "AKs:1.2", "AKs:-0.1", "A2x:0.5", "AKs:0.5,AKs:0.2"):
+            with self.subTest(source=source):
+                with self.assertRaises(ValueError):
+                    to_gto_plus_range_text(source)
+
+    def test_supported_setup_contains_gto_plus_range_strings(self):
+        events=[
+            {"type":"action","street":"preflop","player":"p5","action":"fold"},
+            {"type":"action","street":"preflop","player":"p4","action":"fold"},
+            {"type":"action","street":"preflop","player":"p3","action":"fold"},
+            {"type":"action","street":"preflop","player":"p0","action":"raise","target":2500},
+            {"type":"action","street":"preflop","player":"p1","action":"call"},
+            {"type":"action","street":"preflop","player":"p2","action":"fold"},
+            {"type":"street","street":"flop","board":["As","Kd","7c"]},
+        ]
+        r=build_live_hu_solver_setup(hand(events,{"p0","p1"}),self.chart,rake_pct=5)
+        self.assertTrue(r["supported"],r)
+        self.assertEqual(r["root"]["oop_range_gto_plus"],"[40]AKs[/40],AA")
+        self.assertEqual(r["root"]["ip_range_gto_plus"],"[50]AKs[/50],AA")
 
 
 if __name__=="__main__":
