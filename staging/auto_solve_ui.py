@@ -8,7 +8,7 @@ against the baseline screenshot before the next click is allowed.
 """
 from __future__ import annotations
 
-# Build marker: verified OOP 50% weighted range commit/restore and weight capture, schema v13.
+# Build marker: OOP 50% weighted roundtrip; pinned v1.3.52 base, schema v13.
 
 import argparse
 import json
