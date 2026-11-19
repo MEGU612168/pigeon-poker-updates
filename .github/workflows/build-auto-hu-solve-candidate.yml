@@ -68,24 +68,24 @@ jobs:
                   raise SystemExit("Stable base does not attach setup data to unknown-spot requests")
               if "def _run_auto_solve_ui_probe" not in main:
                   raise SystemExit("Stable base is missing the GTO+ diagnostic action")
-              # The probe commits OOP=AA:0.5, confirms GTO+ normalizes it to [50%]AA[/50%], then clears and verifies restoration.
+              # The probe commits OOP=AA,AKs:0.4, confirms GTO+ normalizes the partial AKs weight to [40%]AKs[/40%], then clears and verifies restoration.
               if "import zipfile\n" not in main:
                   main=main.replace("import json\n","import json\nimport zipfile\n",1)
               ui_replacements = [
                   ("Run a reversible OOP=AA range commit/clear test and inspect the setup dialogs.",
-                   "Run a reversible OOP=AA:0.5 weighted commit/clear test and inspect the weight display."),
+                   "Run a reversible OOP multi-hand weighted range commit/clear test and verify AA+AKs cells."),
                   ("未知HU局面の自動Solve設定を診断（OOP AA可逆テスト）",
-                   "未知HU局面の自動Solve設定を診断（OOP 50%重み可逆テスト）"),
+                   "未知HU局面の自動Solve設定を診断（OOP複数ハンド重み可逆テスト）"),
                   ("OOPレンジが空の場合のみAAを一時確定してマトリクス反映を確認し、Clear＋完了で元に戻します。空でない場合は変更せず停止。Board/Pot/Stack/Rake・Tree・Solverは操作しません。",
-                   "OOPレンジが空の場合のみAA:0.5を一時確定し、AAセルと重み表示を記録後、Clear＋完了で元に戻します。空でない場合は変更せず停止。Board/Pot/Stack/Rake・Tree・Solverは操作しません。"),
+                   "OOPレンジが空の場合のみAA,AKs:0.4を一時確定し、AA/AKsの2セルと40%重み表示を確認後、Clear＋完了で元に戻します。空でない場合は変更せず停止。Board/Pot/Stack/Rake・Tree・Solverは操作しません。"),
                   ("未知局面Solve用のGTO+入力を可逆テスト中…（OOP AAを一時確定して復元）",
-                   "未知局面Solve用のGTO+入力を可逆テスト中…（OOP AA:0.5を一時確定して復元）"),
+                   "未知局面Solve用のGTO+入力を可逆テスト中…（OOP AA+AKs:40%を一時確定して復元）"),
                   ("GTO+画面診断完了（OOP AAの反映・復元を確認。Tree/Solver未実行）",
-                   "GTO+画面診断完了（OOP AA:0.5の一時反映・復元を確認。重み表示画像を保存。Tree/Solver未実行）"),
+                   "GTO+画面診断完了（OOP AA+AKs:40%の2セル反映・正規化・完全復元を確認。Tree/Solver未実行）"),
                   ("GTO+画面診断は安全停止しました。AAテストの反映・復元状態と手動対応フラグをログで確認してください。",
-                   "GTO+画面診断は安全停止しました。AA:0.5テストの反映・復元状態と重み表示画像、手動対応フラグをログで確認してください。"),
+                   "GTO+画面診断は安全停止しました。AA+AKs:40%テストの正規化・2セル反映・復元状態と手動対応フラグを確認してください。"),
                   ("AAテストの復元に未達の可能性があります。診断ログを確認してください。Tree/Solverは未実行です。",
-                   "AA:0.5テストの復元に未達の可能性があります。診断ログを確認してください。Tree/Solverは未実行です。"),
+                   "AA+AKs:40%テストの復元に未達の可能性があります。診断ログの最終OOP状態を確認してください。Tree/Solverは未実行です。"),
               ]
               for old_text,new_text in ui_replacements:
                   if old_text in main:
@@ -111,21 +111,29 @@ jobs:
                   + " " * 24 + "success = False" + chr(10)
                   + " " * 24 + "detail += \" [AA可逆テスト] 診断JSONの確認に失敗: \"+str(exc)"
               )
-              old_gate = 'success = bool(report_safety.get("oop_aa_only_matrix_reflection_verified") and report_safety.get("oop_test_range_restored") and not report_safety.get("manual_close_required"))'
-              new_gate = 'success = bool(report_safety.get("oop_aa_only_matrix_reflection_verified") and report_safety.get("oop_test_range_restored") and report_safety.get("oop_weight_display_capture_saved") and not report_safety.get("manual_close_required"))'
-              if old_gate in main:
-                  main=main.replace(old_gate,new_gate,1)
-              elif new_gate not in main:
+              old_gates = ["success = bool(report_safety.get(\"oop_aa_only_matrix_reflection_verified\") and report_safety.get(\"oop_test_range_restored\") and not report_safety.get(\"manual_close_required\"))", "success = bool(report_safety.get(\"oop_aa_only_matrix_reflection_verified\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and not report_safety.get(\"manual_close_required\"))"]
+              new_gate = "success = bool(report_safety.get(\"oop_expected_matrix_cells_reflection_verified\") and report_safety.get(\"oop_restore_source_text_accepted\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and not report_safety.get(\"manual_close_required\"))"
+              gate_replaced = False
+              for candidate_gate in old_gates:
+                  if candidate_gate in main:
+                      main=main.replace(candidate_gate,new_gate,1)
+                      gate_replaced = True
+                      break
+              if not gate_replaced and new_gate not in main:
                   if success_old in main:
                       main=main.replace(success_old,success_new,1)
                   else:
                       raise SystemExit("Could not locate the prior Pigeon diagnostic success gate")
-              old_error='[AA可逆テスト] OOPのAA反映・復元確認に未達です。診断JSONと画像を確認してください。'
-              new_error='[AA:0.5可逆テスト] OOPのAAセル反映・重み表示保存・復元確認に未達です。診断JSONと画像を確認してください。'
-              if old_error in main:
-                  main=main.replace(old_error,new_error,1)
-              elif new_error not in main:
-                  raise SystemExit("Could not update the weighted diagnostic failure message")
+              old_errors = ["[AA可逆テスト] OOPのAA反映・復元確認に未達です。診断JSONと画像を確認してください。", "[AA:0.5可逆テスト] OOPのAAセル反映・重み表示保存・復元確認に未達です。診断JSONと画像を確認してください。"]
+              new_error = "[OOP複数ハンド可逆テスト] AA+AKsの2セル反映・40%正規化・Source読戻し・完全復元に未達です。"
+              error_replaced = False
+              for candidate_error in old_errors:
+                  if candidate_error in main:
+                      main=main.replace(candidate_error,new_error,1)
+                      error_replaced = True
+                      break
+              if not error_replaced and new_error not in main:
+                  raise SystemExit("Could not update the weighted multi-hand diagnostic failure message")
               target=root/"pigeon_gto_plus"/"live_range_builder.py"
               ui_target=root/"pigeon_gto_plus"/"auto_solve_ui.py"
               target.write_text(module,encoding="utf-8",newline="\n")
@@ -150,7 +158,7 @@ jobs:
               shutil.copy2(ui_target,out/"auto_solve_ui.py")
               shutil.copy2(probe_target,out/"ui_probe.py")
               shutil.copy2(preflop_target,out/"preflop_screenshot_ranges.py")
-              (out/"VERSION.txt").write_text("1.3.55\n",encoding="ascii")
+              (out/"VERSION.txt").write_text("1.3.56\n",encoding="ascii")
               print("Patched app queue: range reconstruction result will be attached to every unknown HU request.")
           PY
       - name: Test source and actual embedded chart compatibility
@@ -164,16 +172,18 @@ jobs:
           with open("staging/auto_hu_solve_candidate/live_range_builder.py",encoding="utf-8") as f: ast.parse(f.read())
           ui_source=pathlib.Path("staging/auto_hu_solve_candidate/auto_solve_ui.py").read_text(encoding="utf-8")
           ast.parse(ui_source,filename="auto_solve_ui.py")
-          assert "未知HU局面の自動Solve設定を診断（OOP 50%重み可逆テスト）" in main
-          assert "AA:0.5を一時確定し、AAセルと重み表示を記録" in main
-          assert "oop_aa_only_matrix_reflection_verified" in main
+          assert "未知HU局面の自動Solve設定を診断（OOP複数ハンド重み可逆テスト）" in main
+          assert "AA,AKs:0.4を一時確定し、AA/AKsの2セルと40%重み表示を確認" in main
+          assert "oop_expected_matrix_cells_reflection_verified" in main
+          assert "oop_restore_source_text_accepted" in main
           assert "oop_weight_display_capture_saved" in main
-          assert '"test_range": "AA:0.5"' in ui_source
-          assert '"test_range_weight": 0.5' in ui_source
+          assert '"test_range": "AA,AKs:0.4"' in ui_source
+          assert '"test_range_partial_weight": 0.4' in ui_source
+          assert "_matrix_signature_matches_selected_cells" in ui_source
           assert '_GTO_PLUS_HALF_WEIGHT_AA_SOURCE = "[50%]AA[/50%]"' in ui_source
           assert 'expected_test_source_texts = {"AA", report["test_range"], _GTO_PLUS_HALF_WEIGHT_AA_SOURCE}' in ui_source
           assert '"restore_source_text_readback"' in ui_source
-          assert '"schema_version": 14' in ui_source
+          assert '"schema_version": 15' in ui_source
           assert '"weight_display_capture_saved"' in ui_source
           assert '"original_text_restore_readback_required": True' in ui_source
           assert '"range_committed": False' in ui_source
@@ -202,7 +212,7 @@ jobs:
           assert "or not ip_closed_ok" in ui_source
           assert "_temporary_source_field_window_adjustment" in ui_source
           assert "_source_field_occlusion_shift" in ui_source
-          assert '"probe": "verified_gto_plus_oop_aa_50pct_weighted_commit_roundtrip_v14_canonical_restore_tooltip_safe_close"' in ui_source
+          assert '"probe": "verified_gto_plus_oop_multi_hand_ak_s40_weighted_commit_roundtrip_v15_canonical_restore_tooltip_safe_close"' in ui_source
           assert "unique_captures" in ui_source
           assert "_source_field_underlay_is_verified_gto_view" in ui_source
           assert "_click_verified_gto_hit_target" in ui_source
@@ -330,7 +340,7 @@ jobs:
           python - <<'PY'
           import pathlib,zipfile,hashlib
           root=pathlib.Path("staging/auto_hu_solve_candidate")
-          out=pathlib.Path("staging/auto_hu_solve_v1.3.55.zip")
+          out=pathlib.Path("staging/auto_hu_solve_v1.3.56.zip")
           with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED,compresslevel=9) as z:
               z.write(root/"PigeonPoker.pyw","PigeonPoker.pyw")
               z.write(root/"pigeon_updater.py","pigeon_updater.py")
@@ -343,30 +353,30 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: auto-hu-solve-v1.3.55
-          path: staging/auto_hu_solve_v1.3.55.zip
+          name: auto-hu-solve-v1.3.56
+          path: staging/auto_hu_solve_v1.3.56.zip
 
-      - name: Queue the verified v1.3.55 stable release (main branch only)
+      - name: Queue the verified v1.3.56 stable release (main branch only)
         if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import base64, datetime, hashlib, io, json, pathlib, zipfile
-          payload_path = pathlib.Path("staging/auto_hu_solve_v1.3.55.zip")
+          payload_path = pathlib.Path("staging/auto_hu_solve_v1.3.56.zip")
           payload = payload_path.read_bytes()
           with zipfile.ZipFile(io.BytesIO(payload)) as z:
               if z.testzip() is not None:
-                  raise SystemExit("v1.3.55 update ZIP integrity failed")
+                  raise SystemExit("v1.3.56 update ZIP integrity failed")
               required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
                           "pigeon_gto_plus/live_range_builder.py",
                           "pigeon_gto_plus/auto_solve_ui.py",
                           "pigeon_gto_plus/ui_probe.py",
                           "pigeon_poker/preflop_screenshot_ranges.py"}
               if not required.issubset(set(z.namelist())):
-                  raise SystemExit("v1.3.55 update ZIP is missing required files")
-              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.55":
-                  raise SystemExit("v1.3.55 VERSION.txt mismatch")
+                  raise SystemExit("v1.3.56 update ZIP is missing required files")
+              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.56":
+                  raise SystemExit("v1.3.56 VERSION.txt mismatch")
               import ast
               ast.parse(z.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
               ast.parse(z.read("pigeon_gto_plus/live_range_builder.py").decode("utf-8"),
@@ -377,7 +387,7 @@ jobs:
                         filename="pigeon_gto_plus/ui_probe.py")
               ast.parse(z.read("pigeon_poker/preflop_screenshot_ranges.py").decode("utf-8"),
                         filename="pigeon_poker/preflop_screenshot_ranges.py")
-          release = pathlib.Path("releases/v1.3.55")
+          release = pathlib.Path("releases/v1.3.56")
           release.mkdir(parents=True, exist_ok=True)
           for old in release.glob("payload.part-*"):
               old.unlink()
@@ -392,17 +402,17 @@ jobs:
               "schema_version": 1,
               "product": "pigeon-poker",
               "channel": "stable",
-              "version": "1.3.55",
+              "version": "1.3.56",
               "published_at": datetime.datetime.now(datetime.timezone.utc).isoformat(
                   timespec="seconds").replace("+00:00", "Z"),
-              "release_notes": "GTO+ 1.9.1の重み付きレンジ変換。AA:0.5の確定後、GTO+が返す正規化テキスト[50%]AA[/50%]との完全一致を確認してからClear＋完了で復元。想定外テキストは変更せず停止。診断ZIP内の重複BMPも排除。Build Tree・Solver実行なし。",
+              "release_notes": "GTO+ 1.9.1の複数ハンド重み付きレンジを検証。OOPへAA,AKs:0.4を一時確定し、AA/AKsの2セルだけの反映とGTO+正規化[40%]AKs[/40%]の完全一致を確認してからClear＋完了で復元。想定外テキストは変更せず停止。IP入力欄・Board選択画面も確認。Build Tree・Solver実行なし。",
               "package_mode": "full"
           }
           (release/"release.json").write_text(
               json.dumps(metadata, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
           (release/"payload.parts.json").write_text(
               json.dumps({"parts": names}, indent=2) + chr(10), encoding="utf-8")
-          (release/"payload.ready").write_text("verified v1.3.55" + chr(10), encoding="ascii")
+          (release/"payload.ready").write_text("verified v1.3.56" + chr(10), encoding="ascii")
           # Publish stable.json here; GITHUB_TOKEN pushes do not trigger a second workflow.
           with zipfile.ZipFile(io.BytesIO(payload)) as z:
               zip_names = set(z.namelist())
@@ -416,7 +426,7 @@ jobs:
                       raise SystemExit("Non-allow-listed update file: " + name)
               if not allowed_roots.issubset(zip_names):
                   raise SystemExit("Missing required root update files")
-              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.55":
+              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.56":
                   raise SystemExit("Update VERSION mismatch")
           (release/"payload-updater.zip.b64").write_text(
               base64.b64encode(payload).decode("ascii"), encoding="ascii")
@@ -424,25 +434,25 @@ jobs:
               "schema_version": 1,
               "product": "pigeon-poker",
               "channel": "stable",
-              "version": "1.3.55",
+              "version": "1.3.56",
               "published_at": metadata["published_at"],
               "release_notes": metadata["release_notes"],
               "package_mode": "full",
               "payload_encoding": "base64",
-              "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.55/payload-updater.zip.b64",
+              "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.56/payload-updater.zip.b64",
               "payload_sha256": hashlib.sha256(payload).hexdigest(),
               "payload_size": len(payload),
           }
           pathlib.Path("stable.json").write_text(
               json.dumps(manifest, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
           print(json.dumps({
-              "version": "1.3.55", "payload_size": len(payload),
+              "version": "1.3.56", "payload_size": len(payload),
               "payload_sha256": manifest["payload_sha256"],
               "part_count": len(names), "zip_files": sorted(zip_names)
           }, ensure_ascii=False))
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stable.json releases/v1.3.55/
-          git commit -m "Queue verified Pigeon Poker v1.3.55 release"
+          git add stable.json releases/v1.3.56/
+          git commit -m "Queue verified Pigeon Poker v1.3.56 release"
           git push
