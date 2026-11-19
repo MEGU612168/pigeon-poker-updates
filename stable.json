@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.38",
-  "published_at": "2026-11-19T07:47:37Z",
-  "release_notes": "v1.3.37の全機能を維持。スクロール用Canvas内のページフレームをウィンドウ表示領域まで拡張し、Notebookと各ページが画面いっぱいに表示されるよう修正。長いページは従来どおりスクロール可能。",
+  "version": "1.3.39",
+  "published_at": "2026-11-19T09:44:52Z",
+  "release_notes": "スクリーンショットから復元した6-maxプリフロップ20ノードをCPUへ接続。169ハンドクラスの混合頻度を確率抽選し、未対応の局面は既存CPU判断へフォールバック。CPUレベル別の逸脱率を維持。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.38/payload-updater.zip.b64",
-  "payload_sha256": "1c1b9569d4ea2d0c5e11b0cbee5ec6713df70718f5327dc519c8d2126c88038b",
-  "payload_size": 674631
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.39/payload-updater.zip.b64",
+  "payload_sha256": "666d57f71ebc1b3fb5fcfd6384dac5055145577b0269a215274d315104a00f96",
+  "payload_size": 194648
 }
