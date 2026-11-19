@@ -398,31 +398,6 @@ def _temporary_source_field_window_adjustment(user32, root_hwnd: int,
     }
 
 
-def _restore_source_field_window_position(user32, root_hwnd: int,
-                                          position: dict[str, Any]) -> dict[str, Any]:
-    """Restore the exact original top-left position after a temporary field probe."""
-    if not position.get("moved"):
-        return {"attempted": False, "verified": True,
-                "status": position.get("status", "not_moved")}
-    original = position.get("original_rect")
-    if not isinstance(original, list) or len(original) != 4:
-        return {"attempted": False, "verified": False, "status": "original_rect_missing"}
-    hwnd = probe.wintypes.HWND(root_hwnd)
-    set_pos = user32.SetWindowPos
-    ok = bool(set_pos(hwnd, probe.wintypes.HWND(0), int(original[0]), int(original[1]),
-                      0, 0, 0x0001 | 0x0004 | 0x0010))
-    restored = probe._rect(user32, probe.wintypes.RECT, root_hwnd) if hasattr(probe.wintypes, "RECT") else None
-    if restored is None:
-        # RECT is supplied by the caller API factory; use the original RECT type.
-        return {"attempted": True, "verified": False, "set_window_pos": ok,
-                "status": "restore_rect_readback_unavailable"}
-    verified = bool(ok and abs(int(restored[0])-int(original[0])) <= 2
-                    and abs(int(restored[1])-int(original[1])) <= 2)
-    return {"attempted": True, "verified": verified, "set_window_pos": ok,
-            "restored_rect": restored,
-            "status": "restored" if verified else "restore_not_verified"}
-
-
 def _probe_source_field_readback_restore(user32, root_hwnd: int,
                                            EnumWindowsProc, EnumChildProc,
                                            RECT, POINT, output_dir: Path,
@@ -743,7 +718,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         user32, target_hwnd, EnumWindowsProc, EnumChildProc,
         RECT, POINT, output_dir, stem, "OOP"
     )
-    actions.append(oop_source_probe["field_click"])
+    if oop_source_probe.get("field_click"):
+        actions.append(oop_source_probe["field_click"])
     for capture_key in ("temporary_capture", "restored_capture"):
         capture = oop_source_probe.get(capture_key)
         if capture:
@@ -806,7 +782,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                 RECT, POINT, output_dir, stem, "IP"
             )
             if ip_source_probe.get("field_click"):
-                actions.append(ip_source_probe["field_click"])
+                if ip_source_probe.get("field_click"):
+                    actions.append(ip_source_probe["field_click"])
             for capture_key in ("temporary_capture", "restored_capture"):
                 capture = ip_source_probe.get(capture_key)
                 if capture:
