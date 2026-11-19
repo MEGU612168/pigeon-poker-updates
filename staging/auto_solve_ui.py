@@ -8,7 +8,7 @@ against the baseline screenshot before the next click is allowed.
 """
 from __future__ import annotations
 
-# Build marker: verified GTO view focus and post-click native Edit discovery, schema v8.
+# Build marker: verified GTO view focus, Edit discovery, and native close retry, schema v9.
 
 import argparse
 import json
