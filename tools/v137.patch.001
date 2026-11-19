@@ -1,0 +1,114 @@
+--- a/PigeonPoker.pyw
++++ b/PigeonPoker.pyw
+@@ -85,6 +85,11 @@
+     reset_timebank_hand_state, clear_timebank_selection, action_seconds_for_street,
+ )
+ 
++# The opening hole-card deal was deliberately tightened to twice its former speed.
++DEAL_FIRST_DELAY_MS = max(1, round(DEAL_FIRST_DELAY_MS * 0.5))
++DEAL_FLIGHT_FRAME_MS = max(1, round(DEAL_FLIGHT_FRAME_MS * 0.5))
++DEAL_BETWEEN_CARDS_MS = max(1, round(DEAL_BETWEEN_CARDS_MS * 0.5))
++
+ ROOT = Path(__file__).resolve().parent
+ CONFIG = ROOT / "pigeon_config.json"
+ DEFAULT_GTO = Path(r"C:\Program Files\GTO\GTO.exe")
+@@ -97,6 +102,16 @@
+ }
+ 
+ 
++def _playing_card_ink(rank: str, suit: str, four_color: bool = False) -> str:
++    """Keep spades nearly black and clubs vivid green for reliable suit recognition."""
++    suit = str(suit).lower()
++    if suit == "s":
++        return "#151b22"
++    if suit == "c":
++        return "#087b43"
++    return card_face_color(str(rank) + suit, bool(four_color))
++
++
+ def load_config() -> dict[str, Any]:
+     data = {
+         "gto_plus_executable": str(DEFAULT_GTO), "gto_plus_port": 55143,
+@@ -221,7 +236,7 @@
+         # Temporary sit-out preserves that table and its stack/session.
+         self.cash_sitout_before_bb_var = tk.BooleanVar(value=False)  # legacy migration only
+         self.cash_bet_var = tk.StringVar(value="")
+-        self.card_squeeze_enabled_var = tk.BooleanVar(value=bool(self.config_data.get("card_squeeze_enabled", True)))
++        self.card_squeeze_enabled_var = tk.BooleanVar(value=False)
+         self.hero_squeeze_count = 0
+         self.board_squeeze_count = 5
+         self.cash_initial_flip: dict[str, Any] = {
+@@ -392,6 +407,8 @@
+         self.page_scroll_contents: dict[str, tk.Frame] = {}
+         self._active_page_key: str | None = None
+         self.bind_all("<MouseWheel>", self._scroll_active_page, add="+")
++        self.bind_all("<Button-4>", self._scroll_active_page, add="+")
++        self.bind_all("<Button-5>", self._scroll_active_page, add="+")
+         nav = [("LOBBY", "lobby"), ("OPEN TABLES", "table"), ("CASHIER", "cashier"), ("GTO+ ENGINE", "gto"), ("POKERCRAFT", "poker_craft"), ("GG CARE", "gg_care"), ("SETTINGS", "settings")]
+         for label, page in nav:
+             ttk.Button(self.sidebar, text=label, command=lambda p=page: self.show_page(p)).pack(fill="x", padx=10, pady=3)
+@@ -436,10 +453,23 @@
+         if canvas is None or not canvas.winfo_exists():
+             return None
+ 
+-        # Let genuinely scrollable nested widgets (GTO controls, history trees,
+-        # graph canvases, etc.) handle their own wheel before the page does.
+-        widget = event.widget
+-        current = widget
++        # Tk reports Button-4/5 on Linux and delta on Windows/macOS.
++        number = getattr(event, "num", None)
++        if number == 4:
++            units = -1
++        elif number == 5:
++            units = 1
++        else:
++            delta = int(getattr(event, "delta", 0) or 0)
++            if not delta:
++                return None
++            units = int(-delta / 120)
++            if not units:
++                units = -1 if delta > 0 else 1
++
++        # Give the innermost scrollable widget first refusal. If it is already
++        # at the requested edge, keep walking so the containing page can move.
++        current = event.widget
+         while current is not None and current is not canvas:
+             try:
+                 widget_class = current.winfo_class()
+@@ -448,22 +478,25 @@
+             if widget_class in {"Canvas", "Treeview", "Text", "Listbox"}:
+                 try:
+                     first, last = current.yview()
+-                    if (last - first) < 0.999:
+-                        return None
++                    can_move = (first > 0.001) if units < 0 else (last < 0.999)
++                    if (last - first) < 0.999 and can_move:
++                        current.yview_scroll(units, "units")
++                        return "break"
+                 except (tk.TclError, AttributeError):
+-                    return None
++                    pass
+             current = getattr(current, "master", None)
++
+         if current is not canvas:
+             return None
+-
+-        delta = int(getattr(event, "delta", 0) or 0)
+-        if not delta:
++        try:
++            first, last = canvas.yview()
++            can_move = (first > 0.001) if units < 0 else (last < 0.999)
++            if can_move:
++                canvas.yview_scroll(units, "units")
++                return "break"
++        except tk.TclError:
+             return None
+-        units = int(-delta / 120)
+-        if not units:
+-            units = -1 if delta > 0 else 1
+-        canvas.yview_scroll(units, "units")
+-        return "break"
++        return None
+ 
+     def show_page(self, key: str):
+         for page in self.pages.values():
