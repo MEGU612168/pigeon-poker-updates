@@ -1085,9 +1085,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         stages.append(board_input_result)
 
     report = {
-        "schema_version": 7,
+        "schema_version": 8,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_ip_source_view_focus_and_native_edit_discovery_v7",
+        "probe": "verified_gto_plus_oop_ip_source_view_focus_and_native_edit_discovery_v8",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -1168,7 +1168,6 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "The OOP/IP range editor is dismissed with its measured X button and visually checked against baseline pixels.",
             "The Board selector is dismissed with its measured X button and visually checked against baseline pixels. No board text is entered and no card is selected.",
             "No range is committed; no Board/Pot/Stack/Rake is changed; Build Tree and Solver are not run.",
-            "When the lower Source field is outside the monitor work area, only the exact GTO top-level window is temporarily moved upward; its original position is read back and restored after the reversible test. Child windows are never moved with screen coordinates.",
             "Escape is sent only when the detected selector belongs to the exact GTO process and that process owns keyboard focus.",
         ],
     }
