@@ -138,12 +138,13 @@ class LiveAutoSolveRangeTests(unittest.TestCase):
             {"type":"action","street":"flop","player":"p1","action":"check","pot_before":5000,"street_contribution_before":0,"to_call_before":0},
             {"type":"action","street":"flop","player":"p0","action":"bet","target":2500,"street_contribution_before":0,"to_call_before":0,"pot_before":5000},
         ]
-        r=build_live_hu_solver_setup(hand(events,{"p0","p1"},current_pot=7500),self.chart,rake_pct=5)
+        r=build_live_hu_solver_setup(hand(events,{"p0","p1"},current_pot=7500),self.chart,rake_pct=5,rake_cap_bb=0.5)
         self.assertTrue(r["supported"],r)
+        self.assertEqual(r["root"]["rake_cap_bb"],0.5)
         self.assertEqual(r["root"]["pot_bb"],5.0)
         self.assertEqual(r["root"]["effective_stack_bb"],9.0)
         self.assertEqual(len(r["postflop_line"]),2)
-        self.assertEqual(r["required_tree_sizes"]["flop"]["bet_percentages"],[50.0])
+        self.assertEqual(r["required_tree_sizes"]["flop"]["ip"]["bet_pct"],[33.0,50.0,75.0])
 
 
 if __name__=="__main__":
