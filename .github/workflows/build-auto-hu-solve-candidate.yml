@@ -68,8 +68,6 @@ jobs:
                   probe_source=old_zip.read("pigeon_gto_plus/ui_probe.py").decode("utf-8")
                   preflop_source=old_zip.read("pigeon_poker/preflop_screenshot_ranges.py").decode("utf-8")
               ast.parse(probe_source,filename="pigeon_gto_plus/ui_probe.py")
-              ast.parse(z.read("pigeon_poker/preflop_screenshot_ranges.py").decode("utf-8"),
-                        filename="pigeon_poker/preflop_screenshot_ranges.py")
               ast.parse(preflop_source,filename="pigeon_poker/preflop_screenshot_ranges.py")
               preflop_target=root/"pigeon_poker"/"preflop_screenshot_ranges.py"
               preflop_target.parent.mkdir(parents=True,exist_ok=True)
@@ -194,6 +192,8 @@ jobs:
               ast.parse(z.read("pigeon_gto_plus/auto_solve_ui.py").decode("utf-8"),
                         filename="pigeon_gto_plus/auto_solve_ui.py")
               ast.parse(z.read("pigeon_gto_plus/ui_probe.py").decode("utf-8"),
+              ast.parse(z.read("pigeon_poker/preflop_screenshot_ranges.py").decode("utf-8"),
+                        filename="pigeon_poker/preflop_screenshot_ranges.py")
                         filename="pigeon_gto_plus/ui_probe.py")
           release = pathlib.Path("releases/v1.3.42")
           release.mkdir(parents=True, exist_ok=True)
