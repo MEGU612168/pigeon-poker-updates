@@ -41,9 +41,17 @@ def _capture_related_windows(user32, EnumWindowsProc, EnumChildProc, RECT, POINT
                              stem: str, stage: str) -> list[dict[str, Any]]:
     host = probe._top_level_ancestor(user32, root_hwnd)
     roots, _ = probe._all_hwnds(user32, EnumWindowsProc, EnumChildProc)
+    # The embedded solver window is commonly a child of Pigeon's host and
+    # therefore is NOT returned by EnumWindows. Always include that exact
+    # integration HWND explicitly before enumerating GTO-owned top-level dialogs.
+    candidates = [int(root_hwnd)] + [int(hwnd) for hwnd in roots if int(hwnd) != int(root_hwnd)]
     captured: list[dict[str, Any]] = []
-    for hwnd in roots:
+    seen: set[int] = set()
+    for hwnd in candidates:
         hwnd = int(hwnd)
+        if hwnd in seen:
+            continue
+        seen.add(hwnd)
         if not hwnd or not user32.IsWindow(probe.wintypes.HWND(hwnd)):
             continue
         if probe._window_pid(user32, hwnd) != int(root_pid):
