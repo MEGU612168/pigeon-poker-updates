@@ -4,12 +4,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from live_range_builder import build_live_hu_solver_setup
+from live_range_builder import build_live_hu_solver_setup, OPEN_NODE, CALL_NODE
 
 
 def chart():
     rows=[]
-    for node in ("01_UTG_OPEN","04_BTN_OPEN","10_BB_VS_UTG","18_SB_VS_BTN"):
+    nodes=set(OPEN_NODE.values()) | set(CALL_NODE.values())
+    for node in sorted(nodes):
         rows.extend([
             {"node":node,"hand":"AA","p":{"raise":1.0,"call":1.0,"fold":0.0}},
             {"node":node,"hand":"AKs","p":{"raise":0.5,"call":0.4,"fold":0.1}},
@@ -60,6 +61,34 @@ class LiveAutoSolveRangeTests(unittest.TestCase):
         r=build_live_hu_solver_setup(hand(events,{"p2","p3"}),self.chart,rake_pct=5)
         self.assertTrue(r["supported"],r)
         self.assertEqual((r["root"]["oop_player_id"],r["root"]["ip_player_id"]),("p2","p3"))
+
+    def test_all_15_open_flat_call_defense_nodes_resolve(self):
+        position_to_player={"BTN":"p0","SB":"p1","BB":"p2","UTG":"p3","HJ":"p4","CO":"p5"}
+        preflop_order=("UTG","HJ","CO","BTN","SB","BB")
+        cases=[
+            ("UTG","HJ"),("UTG","CO"),("UTG","BTN"),("UTG","SB"),("UTG","BB"),
+            ("HJ","CO"),("HJ","BTN"),("HJ","SB"),("HJ","BB"),
+            ("CO","BTN"),("CO","SB"),("CO","BB"),
+            ("BTN","SB"),("BTN","BB"),("SB","BB"),
+        ]
+        for opener,caller in cases:
+            events=[]
+            for pos in preflop_order:
+                pid=position_to_player[pos]
+                if pos==opener:
+                    events.append({"type":"action","street":"preflop","player":pid,
+                                   "action":"raise","target":3500 if opener=="SB" else 2500})
+                elif pos==caller:
+                    events.append({"type":"action","street":"preflop","player":pid,"action":"call"})
+                else:
+                    events.append({"type":"action","street":"preflop","player":pid,"action":"fold"})
+            events.append({"type":"street","street":"flop","board":["As","Kd","7c"]})
+            result=build_live_hu_solver_setup(
+                hand(events,{position_to_player[opener],position_to_player[caller]}),
+                self.chart,rake_pct=5)
+            self.assertTrue(result["supported"],(opener,caller,result))
+            self.assertEqual(result["root"]["preflop_nodes"]["open"],OPEN_NODE[opener])
+            self.assertEqual(result["root"]["preflop_nodes"]["call"],CALL_NODE[(opener,caller)])
 
     def test_short_handed_table_is_rejected_not_mapped_to_six_max_positions(self):
         events=[
