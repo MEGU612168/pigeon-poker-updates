@@ -239,3 +239,5 @@ def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_
 # Build v1.3.41 after actual table rake/cap integration.
 
 # Candidate archive path checked.
+
+# Rebuild after adding the v1.3.41 updater and stable-release assembly steps.
