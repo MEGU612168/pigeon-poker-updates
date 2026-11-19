@@ -151,7 +151,7 @@ class LiveAutoSolveRangeTests(unittest.TestCase):
         source="AKs:0.5000,AA:1.0000,KQs:0.1250,72o:0.0000,AKo:0.7500"
         self.assertEqual(
             to_gto_plus_range_text(source),
-            "AA,AKo,[75]AKo[/75],[50]AKs[/50],[12.5]KQs[/12.5]"
+            "AA,[75]AKo[/75],[50]AKs[/50],[12.5]KQs[/12.5]"
         )
 
     def test_gto_plus_converter_rejects_invalid_or_ambiguous_ranges(self):
@@ -172,8 +172,8 @@ class LiveAutoSolveRangeTests(unittest.TestCase):
         ]
         r=build_live_hu_solver_setup(hand(events,{"p0","p1"}),self.chart,rake_pct=5)
         self.assertTrue(r["supported"],r)
-        self.assertEqual(r["root"]["oop_range_gto_plus"],"[40]AKs[/40],AA")
-        self.assertEqual(r["root"]["ip_range_gto_plus"],"[50]AKs[/50],AA")
+        self.assertEqual(r["root"]["oop_range_gto_plus"],"AA,[40]AKs[/40]")
+        self.assertEqual(r["root"]["ip_range_gto_plus"],"AA,[50]AKs[/50]")
 
 
 if __name__=="__main__":
