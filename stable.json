@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.44",
-  "published_at": "2026-11-19T15:05:45Z",
-  "release_notes": "GTO+ 1.9.1のOOP/IPレンジ入力欄を実測位置で識別し、既存テキストを保護したままネイティブEditへの書込み・読戻し・復元を診断。GTO+独自の角括弧付き頻度形式へレンジを変換する機能を追加。入力欄の確認だけを行い、レンジ確定・Board/Pot/Stack/Rake変更・Tree構築・Solver実行は行わない。",
+  "version": "1.3.45",
+  "published_at": "2026-11-19T15:09:13Z",
+  "release_notes": "GTO+ 1.9.1のOOP/IPレンジ入力欄をクリック位置・WindowFromPoint・所有関係・Edit IDで特定。空欄である場合のみAAを書込み、読戻し後に空欄へ復元し、OOP/IP双方の閉鎖を画像で検証。復元・閉鎖に失敗した際は手動対応フラグを保持。重み付きレンジをGTO+角括弧形式へ変換。レンジ確定・Board/Pot/Stack/Rake変更・Tree構築・Solver実行は行わない。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.44/payload-updater.zip.b64",
-  "payload_sha256": "5eb68669f54cddb07fb57f2f22826db0715828a0c4bb370a1cc34b1c11472a65",
-  "payload_size": 195986
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.45/payload-updater.zip.b64",
+  "payload_sha256": "64d5fdc63989083cdb8944f8ce325f24da920d34f8f24aa5bcd38a01288075ac",
+  "payload_size": 196185
 }
