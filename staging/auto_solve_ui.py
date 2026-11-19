@@ -140,6 +140,83 @@ def _root_capture_path(windows: list[dict[str, Any]], stage: str) -> str:
     return str(path)
 
 
+def _click_verified_gto_hit_target(user32, root_hwnd: int, root_pid: int,
+                                      RECT, POINT, point_client: tuple[int, int],
+                                      *, label: str) -> dict[str, Any]:
+    """Deliver a measured mouse click to the exact GTO child HWND under the target point.
+
+    This is a fallback for custom-drawn controls whose hit target is the MFC view
+    itself. It never sends messages to a foreign PID or an unrelated HWND.
+    """
+    hwnd = probe.wintypes.HWND(root_hwnd)
+    client = RECT()
+    if not user32.GetClientRect(hwnd, probe.ctypes.byref(client)):
+        raise OSError(f"{label}: GetClientRect failed")
+    origin = POINT(int(client.left), int(client.top))
+    if not user32.ClientToScreen(hwnd, probe.ctypes.byref(origin)):
+        raise OSError(f"{label}: ClientToScreen failed")
+    sx = int(origin.x + int(point_client[0]))
+    sy = int(origin.y + int(point_client[1]))
+    screen_point = POINT(sx, sy)
+    hit = int(user32.WindowFromPoint(screen_point) or 0)
+    if not hit or not user32.IsWindow(probe.wintypes.HWND(hit)):
+        raise RuntimeError(f"{label}: no valid HWND at measured close point")
+    hit_pid = probe._window_pid(user32, hit)
+    hit_class = probe._class_name(user32, hit)
+    hit_id = int(user32.GetDlgCtrlID(probe.wintypes.HWND(hit)))
+    hit_rect = probe._rect(user32, RECT, hit)
+    host = probe._top_level_ancestor(user32, root_hwnd)
+    related = probe._window_is_related_to_embedded_target(
+        user32, hit, root_hwnd, host
+    )
+    if (hit_pid != int(root_pid) or not related
+            or hit_class != "AfxFrameOrView140su" or hit_id != 59648
+            or not user32.IsWindowVisible(probe.wintypes.HWND(hit))
+            or not user32.IsWindowEnabled(probe.wintypes.HWND(hit))
+            or not hit_rect
+            or not (hit_rect[0] <= sx < hit_rect[2]
+                    and hit_rect[1] <= sy < hit_rect[3])):
+        raise RuntimeError(
+            f"{label}: hit target is not the exact GTO drawing view; "
+            f"pid={hit_pid}, class={hit_class}, id={hit_id}, related={related}"
+        )
+
+    local = POINT(sx, sy)
+    if not user32.ScreenToClient(probe.wintypes.HWND(hit),
+                                 probe.ctypes.byref(local)):
+        raise OSError(f"{label}: ScreenToClient on exact hit target failed")
+    lx, ly = int(local.x), int(local.y)
+    if not (0 <= lx <= 0x7FFF and 0 <= ly <= 0x7FFF):
+        raise RuntimeError(f"{label}: hit target client point is out of range")
+    lparam = (ly << 16) | (lx & 0xFFFF)
+
+    send = user32.SendMessageW
+    send.argtypes = [probe.wintypes.HWND, probe.wintypes.UINT,
+                     probe.ctypes.c_size_t, probe.ctypes.c_ssize_t]
+    send.restype = probe.ctypes.c_ssize_t
+    move_result = send(probe.wintypes.HWND(hit), 0x0200, 0, lparam)  # WM_MOUSEMOVE
+    down_result = send(probe.wintypes.HWND(hit), 0x0201, 0x0001, lparam)  # WM_LBUTTONDOWN
+    up_result = send(probe.wintypes.HWND(hit), 0x0202, 0, lparam)  # WM_LBUTTONUP
+    time.sleep(0.35)
+    return {
+        "action": "direct_mouse_message_click",
+        "label": label,
+        "target_hwnd": int(root_hwnd),
+        "target_pid": int(root_pid),
+        "hit_hwnd": hit,
+        "hit_pid": hit_pid,
+        "hit_class": hit_class,
+        "hit_control_id": hit_id,
+        "hit_rect_screen": hit_rect,
+        "hit_related_to_exact_host": related,
+        "client_point_on_hit_target": [lx, ly],
+        "screen_point": [sx, sy],
+        "wm_mousemove_result": int(move_result),
+        "wm_lbuttondown_result": int(down_result),
+        "wm_lbuttonup_result": int(up_result),
+    }
+
+
 def _click_exact_client(user32, root_hwnd: int, root_pid: int,
                         RECT, POINT, point: tuple[int, int], *,
                         label: str) -> dict[str, Any]:
