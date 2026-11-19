@@ -995,15 +995,48 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     oop_close_check = _bmp_region_difference_ratio(baseline_path, oop_closed_path)
     all_captures.extend(w["capture"] for w in oop_closed_windows)
     oop_closed_ok = oop_close_check["ratio"] <= 0.01
+    oop_native_retry = None
+    oop_native_retry_windows = []
+    oop_native_retry_check = None
+    oop_native_retry_error = None
+    if not oop_closed_ok:
+        try:
+            oop_native_retry = _click_verified_gto_hit_target(
+                user32, target_hwnd, target_pid, RECT, POINT, _OOP_CLOSE_CENTER,
+                label="close_oop_range_editor_native_retry"
+            )
+            actions.append(oop_native_retry)
+            oop_native_retry_windows = _capture_related_windows(
+                user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                target_hwnd, target_pid, output_dir, stem, "oop_editor_after_native_close"
+            )
+            oop_native_retry_path = _root_capture_path(
+                oop_native_retry_windows, "oop_editor_after_native_close"
+            )
+            oop_native_retry_check = _bmp_region_difference_ratio(
+                baseline_path, oop_native_retry_path
+            )
+            all_captures.extend(w["capture"] for w in oop_native_retry_windows)
+            oop_closed_ok = oop_native_retry_check["ratio"] <= 0.01
+        except Exception as exc:
+            oop_native_retry_error = f"{type(exc).__name__}: {exc}"
     stages.append({
         "stage": "oop_range_editor",
-        "status": "opened_and_closed_by_measured_x" if oop_closed_ok else "close_not_verified",
+        "status": (
+            "opened_and_closed_by_measured_x" if oop_closed_ok and oop_native_retry is None
+            else "opened_and_closed_by_native_view_retry" if oop_closed_ok
+            else "close_not_verified"
+        ),
         "open_click": oop_click,
         "open_windows": oop_windows,
         "open_overlay_difference": oop_appearance,
         "close_click": close_click,
         "windows_after_x": oop_closed_windows,
         "baseline_difference_after_x": oop_close_check,
+        "native_close_retry": oop_native_retry,
+        "native_close_retry_error": oop_native_retry_error,
+        "windows_after_native_close": oop_native_retry_windows,
+        "baseline_difference_after_native_close": oop_native_retry_check,
         "visually_closed": oop_closed_ok,
         "range_text_changed": False,
         "range_committed": False,
@@ -1058,11 +1091,40 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             ip_close_check = _bmp_region_difference_ratio(baseline_path, ip_closed_path)
             all_captures.extend(w["capture"] for w in ip_closed_windows)
             ip_closed_ok = ip_close_check["ratio"] <= 0.01
+            ip_native_retry = None
+            ip_native_retry_windows = []
+            ip_native_retry_check = None
+            ip_native_retry_error = None
+            if not ip_closed_ok:
+                try:
+                    ip_native_retry = _click_verified_gto_hit_target(
+                        user32, target_hwnd, target_pid, RECT, POINT, _OOP_CLOSE_CENTER,
+                        label="close_ip_range_editor_native_retry"
+                    )
+                    actions.append(ip_native_retry)
+                    ip_native_retry_windows = _capture_related_windows(
+                        user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                        target_hwnd, target_pid, output_dir, stem, "ip_editor_after_native_close"
+                    )
+                    ip_native_retry_path = _root_capture_path(
+                        ip_native_retry_windows, "ip_editor_after_native_close"
+                    )
+                    ip_native_retry_check = _bmp_region_difference_ratio(
+                        baseline_path, ip_native_retry_path
+                    )
+                    all_captures.extend(w["capture"] for w in ip_native_retry_windows)
+                    ip_closed_ok = ip_native_retry_check["ratio"] <= 0.01
+                except Exception as exc:
+                    ip_native_retry_error = f"{type(exc).__name__}: {exc}"
             manual_close_required = (manual_close_required or not ip_closed_ok
                                      or not ip_source_probe.get("window_position_restore_verified", True))
             ip_editor_result = {
                 "stage": "ip_range_editor",
-                "status": "opened_and_closed_by_measured_x" if ip_closed_ok else "close_not_verified",
+                "status": (
+                    "opened_and_closed_by_measured_x" if ip_closed_ok and ip_native_retry is None
+                    else "opened_and_closed_by_native_view_retry" if ip_closed_ok
+                    else "close_not_verified"
+                ),
                 "open_click": ip_click,
                 "open_windows": ip_windows,
                 "open_overlay_difference": ip_appearance,
@@ -1070,6 +1132,10 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                 "close_click": ip_close_click,
                 "windows_after_x": ip_closed_windows,
                 "baseline_difference_after_x": ip_close_check,
+                "native_close_retry": ip_native_retry,
+                "native_close_retry_error": ip_native_retry_error,
+                "windows_after_native_close": ip_native_retry_windows,
+                "baseline_difference_after_native_close": ip_native_retry_check,
                 "visually_closed": ip_closed_ok,
                 "range_committed": False,
             }
@@ -1131,6 +1197,29 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                 board_after_path = _root_capture_path(board_after_x_windows, "board_input_after_x")
                 board_close_check = _bmp_region_difference_ratio(baseline_path, board_after_path)
                 all_captures.extend(w["capture"] for w in board_after_x_windows)
+                board_native_retry = None
+                board_after_native_windows = []
+                board_native_retry_check = None
+                if board_close_check["ratio"] > 0.01:
+                    board_native_retry = _click_verified_gto_hit_target(
+                        user32, target_hwnd, target_pid, RECT, POINT, _BOARD_CLOSE_CENTER,
+                        label="close_board_selector_native_retry"
+                    )
+                    actions.append(board_native_retry)
+                    board_after_native_windows = _capture_related_windows(
+                        user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                        target_hwnd, target_pid, output_dir, stem, "board_input_after_native_close"
+                    )
+                    board_after_native_path = _root_capture_path(
+                        board_after_native_windows, "board_input_after_native_close"
+                    )
+                    board_native_retry_check = _bmp_region_difference_ratio(
+                        baseline_path, board_after_native_path
+                    )
+                    all_captures.extend(w["capture"] for w in board_after_native_windows)
+                    if board_native_retry_check["ratio"] <= 0.01:
+                        board_close_check = board_native_retry_check
+                        board_after_x_windows = board_after_native_windows
             except Exception as exc:
                 board_close_error = f"{type(exc).__name__}: {exc}"
         board_closed_ok = bool(
@@ -1154,6 +1243,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "focus_snapshot": board_focus,
             "close_click": board_close_click,
             "close_error": board_close_error,
+            "native_close_retry": board_native_retry if board_dialog_detected else None,
+            "windows_after_native_close": board_after_native_windows if board_dialog_detected else [],
+            "baseline_difference_after_native_close": board_native_retry_check if board_dialog_detected else None,
             "windows_after_x": board_after_x_windows,
             "baseline_difference_after_x": board_close_check,
             "visually_closed": board_closed_ok,
@@ -1162,9 +1254,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         stages.append(board_input_result)
 
     report = {
-        "schema_version": 8,
+        "schema_version": 9,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_ip_source_view_focus_and_native_edit_discovery_v8",
+        "probe": "verified_gto_plus_oop_ip_source_view_focus_native_edit_and_native_close_retry_v9",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -1242,8 +1334,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "Before the Source field focus click, WindowFromPoint must resolve either to an exact GTO-owned native Edit or to the measured AfxFrameOrView140su id=59648 covering the field. Foreign overlays cause a no-click, no-write stop. If the view receives focus but no unique native Edit appears at the measured field, no keyboard input is sent.",
             "If a foreign window covers the Source field, only the exact embedded GTO child is temporarily shifted within its verified parent-client coordinate system; the exact original parent-relative position is restored and verified immediately after the field probe. The host window and other processes are not moved.",
             "OOP and IP Source Edit fields are tested with AA only when the exact field is hit-tested and originally blank; text is read back and restored. Done is never clicked.",
-            "The OOP/IP range editor is dismissed with its measured X button and visually checked against baseline pixels.",
-            "The Board selector is dismissed with its measured X button and visually checked against baseline pixels. No board text is entered and no card is selected.",
+            "The OOP/IP range editor is first dismissed with its measured X button; when the overlay remains, one direct WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP retry is sent only to the verified GTO drawing view under that exact point and rechecked against baseline pixels.",
+            "The Board selector is first dismissed with its measured X button; when it remains, the same exact-view-only mouse-message retry is used and visually checked. No board text is entered and no card is selected.",
             "No range is committed; no Board/Pot/Stack/Rake is changed; Build Tree and Solver are not run.",
             "Escape is sent only when the detected selector belongs to the exact GTO process and that process owns keyboard focus.",
         ],
