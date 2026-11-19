@@ -1,0 +1,278 @@
+name: Build Pigeon Poker screenshot-range CPU update
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.39/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch verified v1.3.38 package with screenshot-derived preflop policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import time
+          import urllib.request
+          import zipfile
+          import zlib
+
+          root = pathlib.Path(".")
+          version = "1.3.39"
+          release_dir = root / "releases" / ("v" + version)
+          release_dir.mkdir(parents=True, exist_ok=True)
+
+          # Reconstruct the screenshot-derived strategy module staged as five
+          # independently committed Base64 parts. Reject truncation/corruption.
+          encoded_module = "".join(
+              (root / f"staging/preflop-screenshot-module.part-{i}").read_text(encoding="ascii").strip()
+              for i in range(5)
+          )
+          compressed_module = base64.b64decode(encoded_module, validate=True)
+          module_source = zlib.decompress(compressed_module)
+          module_text = module_source.decode("utf-8")
+          ast.parse(module_text, filename="preflop_screenshot_ranges.py")
+          if "3380" not in module_text or "20" not in module_text:
+              raise SystemExit("Screenshot policy module is missing the expected range dataset.")
+
+          # Download only the currently published stable package and verify its
+          # manifest hash and size before using it as the update base.
+          manifest = json.loads((root / "stable.json").read_text(encoding="utf-8"))
+          if manifest.get("version") != "1.3.38":
+              raise SystemExit("Expected stable v1.3.38; refusing to patch an unexpected base.")
+          with urllib.request.urlopen(manifest["payload_url"], timeout=90) as response:
+              old_encoded = response.read().decode("ascii")
+          old_payload = base64.b64decode(old_encoded, validate=True)
+          if len(old_payload) != int(manifest["payload_size"]):
+              raise SystemExit("Base package size mismatch.")
+          if hashlib.sha256(old_payload).hexdigest() != manifest["payload_sha256"]:
+              raise SystemExit("Base package SHA-256 mismatch.")
+
+          with zipfile.ZipFile(io.BytesIO(old_payload), "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Base package ZIP CRC check failed.")
+              files = {info.filename: archive.read(info.filename) for info in archive.infolist() if not info.is_dir()}
+
+          required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
+          if not required.issubset(files):
+              raise SystemExit("Base update package is missing required application files.")
+          main = files["PigeonPoker.pyw"].decode("utf-8")
+
+          # Import the new local strategy adapter.
+          old_import = "from pigeon_poker.multitable import MultiTableRegistry, next_big_blind_index_after_rotation"
+          new_import = "from pigeon_poker.preflop_screenshot_ranges import choose_preflop_action\n" + old_import
+          if main.count(old_import) != 1:
+              raise SystemExit("Could not uniquely locate the PigeonPoker multitable import.")
+          main = main.replace(old_import, new_import, 1)
+
+          # Precompute the normal CPU policy as a level-specific deviation option,
+          # then replace it with the screenshot-derived mixed range where covered.
+          old_fallback = (
+              '                    if not (session is not None and session.hand_token == id(hand) and session.context is not None):\n'
+              '                        fallback_decision = cpu.choose_action(hand, pid)'
+          )
+          new_fallback = (
+              '                    if not (session is not None and session.hand_token == id(hand) and session.context is not None):\n'
+              '                        fallback_decision = cpu.choose_action(hand, pid)\n'
+              '                        if hand.street == "preflop":\n'
+              '                            try:\n'
+              '                                range_decision = choose_preflop_action(\n'
+              '                                    table, hand, pid, cpu, fallback_decision)\n'
+              '                                if range_decision is not None:\n'
+              '                                    fallback_decision = range_decision\n'
+              '                            except Exception as range_exc:\n'
+              '                                self.jobs.put(("cash_cpu_range_warning", {\n'
+              '                                    "table_id": table_id, "error": str(range_exc)}))'
+          )
+          if main.count(old_fallback) != 1:
+              raise SystemExit("Could not uniquely locate the cash CPU fallback decision block.")
+          main = main.replace(old_fallback, new_fallback, 1)
+
+          # Distinguish range-driven decisions in the activity log and strategy DB.
+          main = main.replace(
+              '                    gto_used = False\n',
+              '                    gto_used = False\n                    chart_used = False\n',
+              1
+          )
+          old_action_line = (
+              '                        table.act(pid, decision.action, decision.amount)\n'
+              '                        event_action = str(decision.action)\n'
+              '                        event_amount = decision.amount\n'
+              '                        line = (\n'
+              '                            f"{actor_name}: {decision.action.upper()}"\n'
+              '                            + (f" ${decision.amount/100:.2f}" if decision.amount is not None else "")\n'
+              '                            + f" [fallback, equity≈{decision.equity_estimate:.0%}]"\n'
+              '                        )\n'
+              '                        decisions.append(line)\n'
+              '                        action_label = self._describe_action(actor_name, decision.action, decision.amount, hand.big_blind)\n'
+              '                        source_status = (\n'
+              '                            "VIP role specification only • level-5 local fallback (not exact GTO)"\n'
+              '                            if is_vip_mode(active_mode) else\n'
+              '                            "Pool fallback policy • GTO+ unsupported here (preflop/multiway)"\n'
+              '                            if not gto_supported else\n'
+              '                            "Pool fallback policy • GTO+ exact match unavailable for this spot"\n'
+              '                        )'
+          )
+          new_action_line = (
+              '                        table.act(pid, decision.action, decision.amount)\n'
+              '                        event_action = str(decision.action)\n'
+              '                        event_amount = decision.amount\n'
+              '                        chart_used = getattr(decision, "source", "") == "screenshot-range"\n'
+              '                        if chart_used:\n'
+              '                            line = (\n'
+              '                                f"{actor_name}: {decision.action.upper()}"\n'
+              '                                + (f" ${decision.amount/100:.2f}" if decision.amount is not None else "")\n'
+              '                                + f" [image range {decision.node_id}/{decision.hand_class} • {decision.action_frequency*100:.1f}%]"\n'
+              '                            )\n'
+              '                            source_status = f"Screenshot-derived preflop range • {decision.node_id}"\n'
+              '                        else:\n'
+              '                            line = (\n'
+              '                                f"{actor_name}: {decision.action.upper()}"\n'
+              '                                + (f" ${decision.amount/100:.2f}" if decision.amount is not None else "")\n'
+              '                                + f" [fallback, equity≈{decision.equity_estimate:.0%}]"\n'
+              '                            )\n'
+              '                            source_status = (\n'
+              '                                "VIP role specification only • level-5 local fallback (not exact GTO)"\n'
+              '                                if is_vip_mode(active_mode) else\n'
+              '                                "Pool fallback policy • GTO+ unsupported here (preflop/multiway)"\n'
+              '                                if not gto_supported else\n'
+              '                                "Pool fallback policy • GTO+ exact match unavailable for this spot"\n'
+              '                            )\n'
+              '                        decisions.append(line)\n'
+              '                        action_label = self._describe_action(actor_name, decision.action, decision.amount, hand.big_blind)'
+          )
+          if main.count(old_action_line) != 1:
+              raise SystemExit("Could not uniquely locate the fallback action/log block.")
+          main = main.replace(old_action_line, new_action_line, 1)
+
+          old_record = (
+              '                            self.store.record_cpu_decision(\n'
+              '                                fallback_key, "fallback_unsupported", event_action,\n'
+              '                                table_id=str(table_id or ""),\n'
+              '                                hand_number=int(getattr(table, "hand_number", 0) or 0),\n'
+              '                                actor_id=str(pid), details={"street": hand.street,\n'
+              '                                    "board": list(hand.board), "reason": source_status})'
+          )
+          new_record = (
+              '                            self.store.record_cpu_decision(\n'
+              '                                fallback_key, "preflop_screenshot_range" if chart_used else "fallback_unsupported", event_action,\n'
+              '                                table_id=str(table_id or ""),\n'
+              '                                hand_number=int(getattr(table, "hand_number", 0) or 0),\n'
+              '                                actor_id=str(pid), details={"street": hand.street,\n'
+              '                                    "board": list(hand.board), "reason": source_status,\n'
+              '                                    "range_node": getattr(decision, "node_id", ""),\n'
+              '                                    "range_hand": getattr(decision, "hand_class", ""),\n'
+              '                                    "range_frequency": getattr(decision, "action_frequency", None)})'
+          )
+          if main.count(old_record) != 1:
+              raise SystemExit("Could not uniquely locate CPU decision-history recording.")
+          main = main.replace(old_record, new_record, 1)
+
+          old_event = (
+              '                        "gto_used": gto_used,\n'
+              '                        "street": hand.street, "pot": hand.pot,'
+          )
+          new_event = (
+              '                        "gto_used": gto_used,\n'
+              '                        "strategy_source": "screenshot-preflop-range" if chart_used else ("gtoplus" if gto_used else "local-fallback"),\n'
+              '                        "street": hand.street, "pot": hand.pot,'
+          )
+          if main.count(old_event) != 1:
+              raise SystemExit("Could not uniquely locate CPU action event metadata.")
+          main = main.replace(old_event, new_event, 1)
+
+          ast.parse(main, filename="PigeonPoker.pyw")
+          compile(module_text, "preflop_screenshot_ranges.py", "exec")
+          files["PigeonPoker.pyw"] = main.encode("utf-8")
+          files["pigeon_poker/preflop_screenshot_ranges.py"] = module_source
+          files["VERSION.txt"] = (version + "\n").encode("utf-8")
+
+          # Final smoke tests against all screenshot nodes and basic card classes.
+          module_ns = {}
+          exec(compile(module_text, "preflop_screenshot_ranges.py", "exec"), module_ns)
+          data = module_ns["_data"]()
+          if len(data.get("nodes", {})) != 20 or len(data.get("rows", [])) != 3380:
+              raise SystemExit("Range dataset count validation failed.")
+          if module_ns["_hand_class"](type("P", (), {"hole_cards": ["As", "Kd"]})()) != "AKo":
+              raise SystemExit("Card class parser smoke test failed.")
+
+          payload_buffer = io.BytesIO()
+          with zipfile.ZipFile(payload_buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as output:
+              for name in sorted(files):
+                  output.writestr(name, files[name])
+          payload = payload_buffer.getvalue()
+          with zipfile.ZipFile(io.BytesIO(payload), "r") as output:
+              if output.testzip() is not None:
+                  raise SystemExit("New update package ZIP CRC test failed.")
+              names = set(output.namelist())
+              if not required.issubset(names) or "pigeon_poker/preflop_screenshot_ranges.py" not in names:
+                  raise SystemExit("New update package file set is incomplete.")
+              if output.read("VERSION.txt").decode().strip() != version:
+                  raise SystemExit("New update package version check failed.")
+              ast.parse(output.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
+              ast.parse(output.read("pigeon_poker/preflop_screenshot_ranges.py").decode("utf-8"),
+                        filename="pigeon_poker/preflop_screenshot_ranges.py")
+
+          encoded_payload = base64.b64encode(payload).decode("ascii")
+          payload_path = release_dir / "payload-updater.zip.b64"
+          payload_path.write_text(encoded_payload, encoding="ascii")
+          release_meta = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": version,
+              "published_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+              "package_mode": "full",
+              "release_notes": "スクリーンショットから復元した6-maxプリフロップ20ノードをCPUへ接続。169ハンドクラスの混合頻度を確率抽選し、未対応の局面は既存CPU判断へフォールバック。CPUレベル別の逸脱率を維持。",
+              "payload_sha256": hashlib.sha256(payload).hexdigest(),
+              "payload_size": len(payload),
+              "files": sorted(files),
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(release_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": version,
+              "published_at": release_meta["published_at"],
+              "release_notes": release_meta["release_notes"],
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": f"https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v{version}/payload-updater.zip.b64",
+              "payload_sha256": release_meta["payload_sha256"],
+              "payload_size": len(payload),
+          }
+          (root / "stable.json").write_text(
+              json.dumps(stable, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+          print(json.dumps({
+              "version": version, "payload_size": len(payload),
+              "sha256": stable["payload_sha256"],
+              "range_nodes": len(data["nodes"]), "hand_rows": len(data["rows"]),
+              "files": sorted(files),
+          }, ensure_ascii=False))
+          PY
+
+      - name: Publish v1.3.39
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stable.json releases/v1.3.39/
+          git commit -m "Release Pigeon Poker v1.3.39 screenshot preflop CPU ranges"
+          git push
