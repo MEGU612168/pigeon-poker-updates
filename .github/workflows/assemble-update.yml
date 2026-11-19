@@ -28,6 +28,7 @@ jobs:
           import json
           import os
           import pathlib
+          import re
           import struct
           import zipfile
           import zlib
@@ -35,19 +36,32 @@ jobs:
 
           root = pathlib.Path(".")
           releases = root / "releases"
-          candidates = sorted(
+          candidates = [
               p.parent for p in releases.glob("*/payload.ready")
               if p.is_file()
-          )
+          ]
           if not candidates:
               print("No completed release marker found; nothing to publish.")
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
                   out.write("publish=false\n")
               raise SystemExit(0)
-          if len(candidates) != 1:
-              raise SystemExit("Expected exactly one payload.ready release marker; found: " + ", ".join(map(str, candidates)))
 
-          release_dir = candidates[0]
+          def candidate_version_key(path):
+              meta_path = path / "release.json"
+              if not meta_path.is_file():
+                  raise SystemExit("Release marker has no release.json: " + str(path))
+              candidate_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+              candidate_version = str(candidate_meta.get("version", ""))
+              numbers = re.findall(r"\\d+", candidate_version)
+              if not numbers:
+                  raise SystemExit("Release marker has an invalid version: " + str(path))
+              return tuple(int(number) for number in numbers)
+
+          candidates.sort(key=candidate_version_key)
+          release_dir = candidates[-1]
+          if len(candidates) > 1:
+              print("Multiple release markers found; selecting newest version: " + str(release_dir))
+              print("Older pending markers will be cleaned after successful publication.")
           meta_path = release_dir / "release.json"
           parts_manifest_path = release_dir / "payload.parts.json"
           if not meta_path.is_file() or not parts_manifest_path.is_file():
@@ -187,6 +201,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add stable.json "${{ steps.build.outputs.release_dir }}/payload-updater.zip.b64"
+          # Remove all processed/stale trigger markers so they cannot block the next release.
+          find releases -mindepth 2 -maxdepth 2 -type f -name payload.ready -delete
+          git add -u releases
           if git diff --cached --quiet; then
             echo "Manifest and payload are already current."
             exit 0
