@@ -143,6 +143,7 @@ class LiveAutoSolveRangeTests(unittest.TestCase):
         self.assertEqual(r["root"]["pot_bb"],5.0)
         self.assertEqual(r["root"]["effective_stack_bb"],9.0)
         self.assertEqual(len(r["postflop_line"]),2)
+        self.assertEqual(r["required_tree_sizes"]["flop"]["bet_percentages"],[50.0])
 
 
 if __name__=="__main__":
