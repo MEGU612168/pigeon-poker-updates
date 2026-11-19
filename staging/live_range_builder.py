@@ -155,3 +155,5 @@ def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_
                        "Bet-tree sizes and solver precision settings must be included in the resulting tree identity.",
                        "Unsupported preflop lines are rejected rather than assigned guessed ranges."]
     }
+
+# candidate validation trigger: include this deterministic source in the v1.3.41-dev build.
