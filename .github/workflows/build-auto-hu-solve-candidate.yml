@@ -102,7 +102,7 @@ jobs:
                       for y in range(70,440):
                           for x in range(110,500):
                               i=(y*w+x)*4
-                              px[i:i+4]=b"\\x40\\x80\\xC0\\x00"
+                              px[i:i+4]=bytes((0x40,0x80,0xC0,0))
                   header=b"BM"+struct.pack("<IHHI",54+len(px),0,0,54)
                   dib=struct.pack("<IiiHHIIiiII",40,w,-h,1,32,0,len(px),0,0,0,0)
                   pathlib.Path(path).write_bytes(header+dib+px)
