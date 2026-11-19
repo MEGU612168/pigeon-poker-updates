@@ -113,6 +113,9 @@ jobs:
           assert "manual_close_required = (not oop_closed_ok" in ui_source
           assert "or not ip_closed_ok" in ui_source
           assert "_temporary_source_field_window_adjustment" in ui_source
+          assert "_source_field_occlusion_shift" in ui_source
+          assert "ScreenToClient" in ui_source
+          assert "original_parent_client_xy" in ui_source
           assert "window_position_restore_verified" in ui_source
           assert "close_oop_range_editor" in ui_source
           assert "to_gto_plus_range_text" in pathlib.Path("staging/auto_hu_solve_candidate/live_range_builder.py").read_text(encoding="utf-8")
@@ -131,7 +134,10 @@ jobs:
               (pkg/"ui_probe.py").write_text(probe_source,encoding="utf-8")
               (pkg/"auto_solve_ui.py").write_text(ui_source,encoding="utf-8")
               sys.path.insert(0,td)
-              from probe_pkg.auto_solve_ui import _bmp_region_difference_ratio, _build_tree_dialog_is_visible
+              from probe_pkg.auto_solve_ui import (_bmp_region_difference_ratio,
+                  _build_tree_dialog_is_visible, _source_field_occlusion_shift)
+              assert _source_field_occlusion_shift([331,673,631,695],[271,672,497,720],5)==28
+              assert _source_field_occlusion_shift([331,640,631,662],[271,672,497,720],5)==0
               root_only = [{"is_embedded_root": True}]
               root_and_popup = [{"is_embedded_root": True}, {"is_embedded_root": False}]
               assert not _build_tree_dialog_is_visible({"ratio": 0.0}, root_only)
@@ -237,7 +243,7 @@ jobs:
               "version": "1.3.46",
               "published_at": datetime.datetime.now(datetime.timezone.utc).isoformat(
                   timespec="seconds").replace("+00:00", "Z"),
-              "release_notes": "GTO+ 1.9.1のSource欄はクリック前にWindowFromPointで実際の入力欄か検証し、別ウィンドウに遮られていればクリック・書込みを中止。OOP/IPレンジ画面とBoard選択画面は実測したXで閉じ、画像差分で確認。AAの一時入力は空欄かつ正確なEdit欄を特定できた場合だけ読戻し・復元。レンジ確定・Board/Pot/Stack/Rake変更・Tree構築・Solver実行は行わない。",
+              "release_notes": "GTO+ 1.9.1のSource欄はクリック前にWindowFromPointで実際の入力欄か検証。別ウィンドウに遮られていれば埋込GTO子ウィンドウのみ親座標内で一時移動し、元の位置を復元・検証。OOP/IPレンジ画面とBoard選択画面は実測したXで閉じ、画像差分で確認。AAの一時入力は正確なEdit欄を特定できた場合だけ読戻し・復元。レンジ確定・Board/Pot/Stack/Rake変更・Tree構築・Solver実行は行わない。",
               "package_mode": "full"
           }
           (release/"release.json").write_text(
