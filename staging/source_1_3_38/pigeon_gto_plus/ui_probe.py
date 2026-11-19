@@ -1097,6 +1097,17 @@ def _click_oop_editor_done(user32, root_hwnd: int, RECT, POINT) -> dict[str, Any
     host = _top_level_ancestor(user32, root_hwnd)
     if not host or not user32.IsWindow(wintypes.HWND(host)):
         raise RuntimeError("Could not resolve Pigeon host window; OOP Done click not sent")
+    hit_hwnd = int(user32.WindowFromPoint(screen) or 0)
+    if not hit_hwnd or not _window_is_related_to_embedded_target(
+            user32, hit_hwnd, root_hwnd, host):
+        raise RuntimeError(
+            f"OOP Done target is not inside the exact embedded GTO+ ownership chain "
+            f"(hit_hwnd={hit_hwnd}, hit_pid={_window_pid(user32, hit_hwnd) if hit_hwnd else None}); "
+            "no click sent"
+        )
+    hit_pid = _window_pid(user32, hit_hwnd)
+    hit_class = _class_name(user32, hit_hwnd)
+    hit_rect = _rect(user32, RECT, hit_hwnd)
     previous_foreground = int(user32.GetForegroundWindow() or 0)
     previous_cursor = POINT()
     have_cursor = bool(user32.GetCursorPos(ctypes.byref(previous_cursor)))
@@ -1130,6 +1141,8 @@ def _click_oop_editor_done(user32, root_hwnd: int, RECT, POINT) -> dict[str, Any
         "button_rect_client": button_rect_client, "click_client": [cx, cy],
         "click_screen": [int(screen.x), int(screen.y)],
         "foreground_verified": True, "foreground_host_hwnd": int(host),
+        "button_hit_hwnd": int(hit_hwnd), "button_hit_pid": hit_pid,
+        "button_hit_class": hit_class, "button_hit_rect_screen": hit_rect,
         "set_foreground_window_return": set_foreground,
         "previous_foreground_hwnd": previous_foreground,
     }
