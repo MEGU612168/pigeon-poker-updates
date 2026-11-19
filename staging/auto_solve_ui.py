@@ -693,9 +693,19 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     report = {
         "schema_version": 4,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_visual_gto_plus_setup_dialog_discovery",
+        "probe": "verified_gto_plus_oop_ip_source_and_board_input_calibration_v4",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
+        "input_calibration": {
+            "method": "WindowFromPoint plus exact GTO PID, related HWND ownership chain, Edit control ID 5458, and measured field geometry",
+            "test_value": "AA",
+            "original_field_must_be_empty": True,
+            "source_text_readback_required": True,
+            "original_text_restore_readback_required": True,
+            "done_button_clicked": False,
+            "range_committed": False,
+            "board_text_entered": False,
+        },
         "coordinate_reference": {
             "client_size": list(_REFERENCE_SIZE),
             "oop_matrix_rect": list(_OOP_MATRIX_RECT),
