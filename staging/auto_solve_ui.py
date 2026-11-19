@@ -275,126 +275,263 @@ def _source_field_underlay_is_verified_edit(observation: dict[str, Any] | None,
         return False
 
 
-def _temporary_source_field_window_adjustment(user32, root_hwnd: int,
-                                                 RECT) -> dict[str, Any]:
-    """Move only the exact GTO top-level window enough to expose its lower Source field.
+def _source_field_occlusion_shift(source_rect_screen: list[int],
+                                    occluder_rect_screen: list[int],
+                                    margin: int = 5) -> int:
+    """Smallest upward shift that puts the measured source field above an intersecting overlay."""
+    if len(source_rect_screen) != 4 or len(occluder_rect_screen) != 4:
+        raise ValueError("screen rectangles must contain left, top, right, bottom")
+    sx0, sy0, sx1, sy1 = map(int, source_rect_screen)
+    ox0, oy0, ox1, oy1 = map(int, occluder_rect_screen)
+    intersects = sx0 < ox1 and sx1 > ox0 and sy0 < oy1 and sy1 > oy0
+    if not intersects:
+        return 0
+    return max(0, sy1 - (oy0 - max(0, int(margin))))
 
-    The original screen position is returned for a checked restoration immediately
-    after the reversible field probe. Child windows are never moved with screen
-    coordinates because their SetWindowPos coordinates are parent-relative.
+
+def _temporary_source_field_window_adjustment(user32, root_hwnd: int,
+                                                 RECT, POINT) -> dict[str, Any]:
+    """Temporarily move the GTO child within its real parent to clear a foreign overlay.
+
+    Embedded GTO+ is a WS_CHILD window. Its SetWindowPos coordinates are parent-client
+    coordinates, not screen coordinates. The original parent-relative position is
+    recorded and restored by the caller, then verified through GetWindowRect.
     """
     hwnd = probe.wintypes.HWND(root_hwnd)
     original_rect = probe._rect(user32, RECT, root_hwnd)
     if not original_rect:
         return {"status": "window_rect_unavailable", "moved": False}
     style = int(user32.GetWindowLongW(hwnd, -16))
-    if style & 0x40000000:  # WS_CHILD
+    parent = int(user32.GetParent(hwnd) or 0)
+    host = probe._top_level_ancestor(user32, root_hwnd)
+    root_pid = probe._window_pid(user32, root_hwnd)
+    if not (style & 0x40000000):  # WS_CHILD
         return {
-            "status": "not_moved_child_window",
+            "status": "not_a_child_window",
             "moved": False,
             "window_style": style,
+            "original_rect": original_rect,
+        }
+    if not parent or not user32.IsWindow(probe.wintypes.HWND(parent)):
+        return {"status": "exact_parent_unavailable", "moved": False,
+                "window_style": style, "original_rect": original_rect}
+    parent_top = probe._top_level_ancestor(user32, parent)
+    if (not host or int(parent_top or 0) != int(host)
+            or probe._window_pid(user32, parent) != probe._window_pid(user32, host)):
+        return {
+            "status": "parent_ownership_not_verified",
+            "moved": False,
+            "window_style": style,
+            "parent_hwnd": parent,
+            "parent_pid": probe._window_pid(user32, parent),
+            "host_hwnd": int(host or 0),
             "original_rect": original_rect,
         }
 
-    work = RECT()
-    try:
-        spi = user32.SystemParametersInfoW
-        spi.argtypes = [probe.wintypes.UINT, probe.wintypes.UINT,
-                        probe.ctypes.c_void_p, probe.wintypes.UINT]
-        spi.restype = probe.wintypes.BOOL
-        got_work = bool(spi(0x0030, 0, probe.ctypes.byref(work), 0))  # SPI_GETWORKAREA
-    except Exception:
-        got_work = False
-    if not got_work:
-        return {
-            "status": "work_area_unavailable",
-            "moved": False,
-            "window_style": style,
-            "original_rect": original_rect,
-        }
+    parent_origin = POINT(int(original_rect[0]), int(original_rect[1]))
+    if not user32.ScreenToClient(probe.wintypes.HWND(parent),
+                                 probe.ctypes.byref(parent_origin)):
+        return {"status": "parent_client_position_unavailable", "moved": False,
+                "parent_hwnd": parent, "original_rect": original_rect}
 
     client = RECT()
     if not user32.GetClientRect(hwnd, probe.ctypes.byref(client)):
         return {"status": "client_rect_unavailable", "moved": False,
-                "original_rect": original_rect}
-    origin = POINT(int(client.left), int(client.top))
-    if not user32.ClientToScreen(hwnd, probe.ctypes.byref(origin)):
+                "parent_hwnd": parent, "original_rect": original_rect}
+    client_origin = POINT(int(client.left), int(client.top))
+    if not user32.ClientToScreen(hwnd, probe.ctypes.byref(client_origin)):
         return {"status": "client_origin_unavailable", "moved": False,
-                "original_rect": original_rect}
-    source_bottom = int(origin.y + _RANGE_SOURCE_FIELD_RECT[3])
-    work_bottom = int(work.bottom)
-    if source_bottom <= work_bottom - 8:
+                "parent_hwnd": parent, "original_rect": original_rect}
+
+    source_rect_screen = [
+        int(client_origin.x + _RANGE_SOURCE_FIELD_RECT[0]),
+        int(client_origin.y + _RANGE_SOURCE_FIELD_RECT[1]),
+        int(client_origin.x + _RANGE_SOURCE_FIELD_RECT[2]),
+        int(client_origin.y + _RANGE_SOURCE_FIELD_RECT[3]),
+    ]
+    source_center = POINT(
+        int(client_origin.x + _RANGE_SOURCE_FIELD_CENTER[0]),
+        int(client_origin.y + _RANGE_SOURCE_FIELD_CENTER[1]),
+    )
+    under = int(user32.WindowFromPoint(source_center) or 0)
+    under_record = None
+    if under:
+        under_record = {
+            "hwnd": under,
+            "pid": probe._window_pid(user32, under),
+            "class": probe._class_name(user32, under),
+            "control_id": int(user32.GetDlgCtrlID(probe.wintypes.HWND(under))),
+            "title": probe._window_text(user32, under),
+            "rect_screen": probe._rect(user32, RECT, under),
+            "visible": bool(user32.IsWindowVisible(probe.wintypes.HWND(under))),
+            "enabled": bool(user32.IsWindowEnabled(probe.wintypes.HWND(under))),
+            "related_to_exact_host": probe._window_is_related_to_embedded_target(
+                user32, under, root_hwnd, host
+            ),
+        }
+    if not under_record or under_record["pid"] == root_pid:
         return {
-            "status": "already_inside_work_area",
+            "status": "source_point_not_occluded_by_foreign_window",
             "moved": False,
             "window_style": style,
+            "parent_hwnd": parent,
             "original_rect": original_rect,
-            "work_area": [int(work.left), int(work.top), int(work.right), int(work.bottom)],
-            "source_field_bottom_screen_before": source_bottom,
+            "original_parent_client_xy": [int(parent_origin.x), int(parent_origin.y)],
+            "source_rect_screen": source_rect_screen,
+            "window_from_point_before": under_record,
         }
 
-    width = int(original_rect[2] - original_rect[0])
-    height = int(original_rect[3] - original_rect[1])
-    work_height = int(work.bottom - work.top)
-    if height <= work_height - 16:
-        target_y = int(work.top + 8)
-    else:
-        client_offset_y = int(origin.y - original_rect[1])
-        target_y = int(work.bottom - 8 - _RANGE_SOURCE_FIELD_RECT[3] - client_offset_y)
-        target_y = max(int(work.top + 4), target_y)
-    try:
-        set_pos = user32.SetWindowPos
-        set_pos.argtypes = [probe.wintypes.HWND, probe.wintypes.HWND,
-                            probe.wintypes.INT, probe.wintypes.INT,
-                            probe.wintypes.INT, probe.wintypes.INT,
-                            probe.wintypes.UINT]
-        set_pos.restype = probe.wintypes.BOOL
-        moved = bool(set_pos(hwnd, probe.wintypes.HWND(0),
-                             int(original_rect[0]), target_y, 0, 0,
-                             0x0001 | 0x0004 | 0x0010))  # NOSIZE|NOZORDER|NOACTIVATE
-    except Exception:
-        moved = False
+    occluder_rect = under_record.get("rect_screen")
+    if not occluder_rect:
+        return {
+            "status": "foreign_occluder_geometry_unavailable",
+            "moved": False,
+            "window_style": style,
+            "parent_hwnd": parent,
+            "original_rect": original_rect,
+            "original_parent_client_xy": [int(parent_origin.x), int(parent_origin.y)],
+            "source_rect_screen": source_rect_screen,
+            "window_from_point_before": under_record,
+        }
+    shift = _source_field_occlusion_shift(source_rect_screen, occluder_rect, margin=5)
+    if shift <= 0:
+        return {
+            "status": "foreign_hit_target_without_measured_rect_intersection",
+            "moved": False,
+            "window_style": style,
+            "parent_hwnd": parent,
+            "original_rect": original_rect,
+            "original_parent_client_xy": [int(parent_origin.x), int(parent_origin.y)],
+            "source_rect_screen": source_rect_screen,
+            "window_from_point_before": under_record,
+        }
+
+    new_x = int(parent_origin.x)
+    new_y = int(parent_origin.y - shift)
+    set_pos = user32.SetWindowPos
+    set_pos.argtypes = [probe.wintypes.HWND, probe.wintypes.HWND,
+                        probe.wintypes.INT, probe.wintypes.INT,
+                        probe.wintypes.INT, probe.wintypes.INT,
+                        probe.wintypes.UINT]
+    set_pos.restype = probe.wintypes.BOOL
+    moved = bool(set_pos(hwnd, probe.wintypes.HWND(0), new_x, new_y, 0, 0,
+                         0x0001 | 0x0004 | 0x0010))  # NOSIZE|NOZORDER|NOACTIVATE
     if not moved:
         return {
-            "status": "temporary_move_failed",
+            "status": "temporary_child_move_failed",
             "moved": False,
             "window_style": style,
+            "parent_hwnd": parent,
             "original_rect": original_rect,
-            "target_y": target_y,
-            "work_area": [int(work.left), int(work.top), int(work.right), int(work.bottom)],
+            "original_parent_client_xy": [int(parent_origin.x), int(parent_origin.y)],
+            "target_parent_client_xy": [new_x, new_y],
+            "shift_up": shift,
+            "window_from_point_before": under_record,
         }
 
-    new_rect = probe._rect(user32, RECT, root_hwnd)
-    new_origin = POINT(int(client.left), int(client.top))
-    origin_ok = bool(user32.ClientToScreen(hwnd, probe.ctypes.byref(new_origin)))
-    new_source_bottom = int(new_origin.y + _RANGE_SOURCE_FIELD_RECT[3]) if origin_ok else 10**9
+    temporary_rect = probe._rect(user32, RECT, root_hwnd)
+    new_client_origin = POINT(int(client.left), int(client.top))
+    origin_ok = bool(user32.ClientToScreen(hwnd, probe.ctypes.byref(new_client_origin)))
+    new_source_rect = ([
+        int(new_client_origin.x + _RANGE_SOURCE_FIELD_RECT[0]),
+        int(new_client_origin.y + _RANGE_SOURCE_FIELD_RECT[1]),
+        int(new_client_origin.x + _RANGE_SOURCE_FIELD_RECT[2]),
+        int(new_client_origin.y + _RANGE_SOURCE_FIELD_RECT[3]),
+    ] if origin_ok else None)
+    new_center = POINT(
+        int(new_client_origin.x + _RANGE_SOURCE_FIELD_CENTER[0]) if origin_ok else 0,
+        int(new_client_origin.y + _RANGE_SOURCE_FIELD_CENTER[1]) if origin_ok else 0,
+    )
+    under_after = int(user32.WindowFromPoint(new_center) or 0) if origin_ok else 0
+    after_record = None
+    if under_after:
+        after_record = {
+            "hwnd": under_after,
+            "pid": probe._window_pid(user32, under_after),
+            "class": probe._class_name(user32, under_after),
+            "control_id": int(user32.GetDlgCtrlID(probe.wintypes.HWND(under_after))),
+            "rect_screen": probe._rect(user32, RECT, under_after),
+        }
     verified = bool(
-        new_rect and abs(int(new_rect[1]) - target_y) <= 3
-        and origin_ok and new_source_bottom <= work_bottom - 2
+        temporary_rect
+        and abs(int(temporary_rect[1]) - (int(original_rect[1]) - shift)) <= 3
+        and origin_ok and new_source_rect
+        and new_source_rect[3] <= int(occluder_rect[1]) - 4
+        and after_record and after_record["pid"] == root_pid
     )
     if not verified:
-        set_pos(hwnd, probe.wintypes.HWND(0), int(original_rect[0]),
-                int(original_rect[1]), 0, 0, 0x0001 | 0x0004 | 0x0010)
+        set_pos(hwnd, probe.wintypes.HWND(0), int(parent_origin.x), int(parent_origin.y),
+                0, 0, 0x0001 | 0x0004 | 0x0010)
+        restored = probe._rect(user32, RECT, root_hwnd)
         return {
-            "status": "temporary_move_not_verified",
+            "status": "temporary_child_move_not_verified",
             "moved": False,
             "window_style": style,
+            "parent_hwnd": parent,
             "original_rect": original_rect,
-            "observed_rect_after_move": new_rect,
-            "target_y": target_y,
-            "source_field_bottom_screen_after": new_source_bottom,
-            "work_area": [int(work.left), int(work.top), int(work.right), int(work.bottom)],
+            "original_parent_client_xy": [int(parent_origin.x), int(parent_origin.y)],
+            "observed_rect_after_move": temporary_rect,
+            "source_rect_screen_after": new_source_rect,
+            "window_from_point_after": after_record,
+            "attempted_restore_rect": restored,
+            "shift_up": shift,
         }
     return {
-        "status": "temporarily_moved_into_work_area",
+        "status": "temporarily_moved_child_above_foreign_overlay",
         "moved": True,
         "window_style": style,
+        "parent_hwnd": parent,
         "original_rect": original_rect,
-        "temporary_rect": new_rect,
-        "target_y": target_y,
-        "source_field_bottom_screen_before": source_bottom,
-        "source_field_bottom_screen_after": new_source_bottom,
-        "work_area": [int(work.left), int(work.top), int(work.right), int(work.bottom)],
+        "original_parent_client_xy": [int(parent_origin.x), int(parent_origin.y)],
+        "temporary_parent_client_xy": [new_x, new_y],
+        "temporary_rect": temporary_rect,
+        "source_rect_screen_before": source_rect_screen,
+        "source_rect_screen_after": new_source_rect,
+        "window_from_point_before": under_record,
+        "window_from_point_after": after_record,
+        "shift_up": shift,
+    }
+
+
+def _restore_source_field_window_position(user32, root_hwnd: int,
+                                          RECT, position: dict[str, Any]) -> dict[str, Any]:
+    """Restore the exact original position using the coordinate system of the HWND."""
+    if not position.get("moved"):
+        return {"attempted": False, "verified": True,
+                "status": position.get("status", "not_moved")}
+    original = position.get("original_rect") or []
+    if len(original) != 4:
+        return {"attempted": False, "verified": False, "status": "original_rect_missing"}
+    hwnd = probe.wintypes.HWND(root_hwnd)
+    if int(position.get("window_style", 0)) & 0x40000000:
+        parent = int(position.get("parent_hwnd") or 0)
+        xy = position.get("original_parent_client_xy") or []
+        if not parent or len(xy) != 2:
+            return {"attempted": False, "verified": False,
+                    "status": "original_parent_coordinates_missing"}
+        x, y = map(int, xy)
+    else:
+        parent = 0
+        x, y = int(original[0]), int(original[1])
+    ok = bool(user32.SetWindowPos(
+        hwnd, probe.wintypes.HWND(0), x, y, 0, 0,
+        0x0001 | 0x0004 | 0x0010
+    ))
+    current = RECT()
+    rect_ok = bool(user32.GetWindowRect(hwnd, probe.ctypes.byref(current)))
+    current_rect = ([int(current.left), int(current.top), int(current.right), int(current.bottom)]
+                    if rect_ok else None)
+    verified = bool(ok and current_rect
+                    and abs(current_rect[0]-int(original[0])) <= 2
+                    and abs(current_rect[1]-int(original[1])) <= 2)
+    return {
+        "attempted": True,
+        "verified": verified,
+        "set_window_pos": ok,
+        "parent_hwnd": parent or None,
+        "restore_coordinates": [x, y],
+        "restored_rect": current_rect,
+        "status": "restored" if verified else "restore_not_verified",
     }
 
 
@@ -403,7 +540,7 @@ def _probe_source_field_readback_restore(user32, root_hwnd: int,
                                            RECT, POINT, output_dir: Path,
                                            stem: str, role: str) -> dict[str, Any]:
     """Expose the lower input on screen, run the guarded test, then restore the window."""
-    position = _temporary_source_field_window_adjustment(user32, root_hwnd, RECT)
+    position = _temporary_source_field_window_adjustment(user32, root_hwnd, RECT, POINT)
     result = None
     restore = {"attempted": False, "verified": True, "status": "not_moved"}
     try:
@@ -413,23 +550,7 @@ def _probe_source_field_readback_restore(user32, root_hwnd: int,
         )
     finally:
         if position.get("moved"):
-            # Use the same RECT class as the GTO probe API for exact window-rect readback.
-            hwnd = probe.wintypes.HWND(root_hwnd)
-            original = position.get("original_rect") or []
-            ok = bool(user32.SetWindowPos(
-                hwnd, probe.wintypes.HWND(0), int(original[0]), int(original[1]),
-                0, 0, 0x0001 | 0x0004 | 0x0010
-            )) if len(original) == 4 else False
-            current = RECT()
-            rect_ok = bool(user32.GetWindowRect(hwnd, probe.ctypes.byref(current)))
-            current_rect = ([int(current.left), int(current.top), int(current.right), int(current.bottom)]
-                            if rect_ok else None)
-            verified = bool(ok and current_rect
-                            and abs(current_rect[0]-int(original[0])) <= 2
-                            and abs(current_rect[1]-int(original[1])) <= 2)
-            restore = {"attempted": True, "verified": verified,
-                       "set_window_pos": ok, "restored_rect": current_rect,
-                       "status": "restored" if verified else "restore_not_verified"}
+            restore = _restore_source_field_window_position(user32, root_hwnd, RECT, position)
     if result is None:
         raise RuntimeError(f"{role} source field probe did not return a result")
     result["temporary_window_adjustment"] = position
@@ -911,13 +1032,13 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
-            "move_only_exact_gto_top_level_window": True,
-            "only_when_source_field_outside_monitor_work_area": True,
-            "child_window_reposition_prohibited": True,
-            "original_position_restore_readback_required": True,
+            "move_only_exact_gto_embedded_child": True,
+            "child_move_uses_exact_parent_client_coordinates": True,
+            "only_when_source_field_is_hit_by_foreign_overlay": True,
+            "original_parent_relative_position_restore_readback_required": True,
         },
         "input_calibration": {
-            "method": "temporary top-level reposition into the monitor work area when needed, then WindowFromPoint plus exact GTO PID, related HWND ownership chain, Edit control ID 5458, and measured field geometry",
+            "method": "temporary child reposition in verified parent-client coordinates when WindowFromPoint hits a foreign overlay, then exact GTO PID, related HWND ownership chain, Edit control ID 5458, and measured field geometry",
             "test_value": "AA",
             "original_field_must_be_empty": True,
             "source_text_readback_required": True,
@@ -981,7 +1102,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         "notes": [
             "Only the exact Pigeon-embedded GTO+ HWND/PID was operated.",
             "Before any Source field click, WindowFromPoint must resolve to a visible, enabled Edit id=5458 belonging to this exact GTO process and embedded-window ownership chain. Foreign overlays cause a no-click, no-write stop.",
-            "A lower Source field outside the monitor work area is reached only after a temporary, verified top-level window move; the exact original window position is restored and verified immediately after the field probe.",
+            "If a foreign window covers the Source field, only the exact embedded GTO child is temporarily shifted within its verified parent-client coordinate system; the exact original parent-relative position is restored and verified immediately after the field probe. The host window and other processes are not moved.",
             "OOP and IP Source Edit fields are tested with AA only when the exact field is hit-tested and originally blank; text is read back and restored. Done is never clicked.",
             "The OOP/IP range editor is dismissed with its measured X button and visually checked against baseline pixels.",
             "The Board selector is dismissed with its measured X button and visually checked against baseline pixels. No board text is entered and no card is selected.",
