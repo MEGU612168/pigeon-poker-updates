@@ -1,0 +1,284 @@
+name: Build Pigeon Poker screenshot preflop CPU update
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.39/build.request"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pigeon-preflop-v1-3-39
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, test and stage v1.3.39 from current stable package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast, base64, datetime, hashlib, importlib, json, pathlib, random
+          import shutil, sys, tempfile, urllib.request, zipfile
+          from io import BytesIO
+
+          root = pathlib.Path(".")
+          manifest = json.loads((root / "stable.json").read_text(encoding="utf-8"))
+          if manifest.get("version") != "1.3.38":
+              raise SystemExit("Unexpected base version: " + str(manifest.get("version")))
+          encoded = urllib.request.urlopen(manifest["payload_url"], timeout=90).read()
+          payload = base64.b64decode(encoded, validate=True)
+          if hashlib.sha256(payload).hexdigest() != manifest["payload_sha256"]:
+              raise SystemExit("Stable package SHA-256 mismatch")
+          if len(payload) != int(manifest["payload_size"]):
+              raise SystemExit("Stable package size mismatch")
+
+          app = root / "build_v1_3_39"
+          if app.exists():
+              shutil.rmtree(app)
+          app.mkdir()
+          with zipfile.ZipFile(BytesIO(payload), "r") as src:
+              bad = src.testzip()
+              if bad:
+                  raise SystemExit("Base ZIP CRC failure: " + bad)
+              for info in src.infolist():
+                  name = pathlib.PurePosixPath(info.filename)
+                  if name.is_absolute() or ".." in name.parts or chr(92) in info.filename or name.as_posix() != info.filename:
+                      raise SystemExit("Unsafe base path: " + info.filename)
+                  target = app / info.filename
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(src.read(info.filename))
+
+          main_path = app / "PigeonPoker.pyw"
+          if not main_path.is_file():
+              raise SystemExit("PigeonPoker.pyw missing from current stable package")
+          main = main_path.read_text(encoding="utf-8")
+
+          import_anchor = (
+              "from pigeon_poker.auto_fold_chart import (default_auto_fold_chart, normalize_auto_fold_chart,\n"
+              "    should_auto_fold, POSITIONS, RANKS_DESC, all_hand_classes)\n"
+          )
+          import_add = import_anchor + "from pigeon_poker.preflop_range_policy import choose_preflop_range_decision\n"
+          if "from pigeon_poker.preflop_range_policy import choose_preflop_range_decision" not in main:
+              if main.count(import_anchor) != 1:
+                  raise SystemExit("Could not safely locate CPU import anchor")
+              main = main.replace(import_anchor, import_add, 1)
+
+          old_decision = (
+              "                    fallback_decision = None\n"
+              "                    if not (session is not None and session.hand_token == id(hand) and session.context is not None):\n"
+              "                        fallback_decision = cpu.choose_action(hand, pid)\n"
+          )
+          new_decision = (
+              "                    fallback_decision = None\n"
+              "                    if not (session is not None and session.hand_token == id(hand) and session.context is not None):\n"
+              "                        if hand.street == \"preflop\":\n"
+              "                            try:\n"
+              "                                fallback_decision = choose_preflop_range_decision(\n"
+              "                                    hand, pid, rng=cpu.rng, level=cpu.level,\n"
+              "                                    fallback_provider=lambda: cpu.choose_action(hand, pid))\n"
+              "                            except Exception:\n"
+              "                                fallback_decision = None\n"
+              "                            if fallback_decision is None:\n"
+              "                                fallback_decision = cpu.choose_action(hand, pid)\n"
+              "                        else:\n"
+              "                            fallback_decision = cpu.choose_action(hand, pid)\n"
+          )
+          if "choose_preflop_range_decision(" not in main:
+              if main.count(old_decision) != 1:
+                  raise SystemExit("Could not safely locate live CPU decision point")
+              main = main.replace(old_decision, new_decision, 1)
+
+          old_log = (
+              "                        line = (\n"
+              "                            f\"{actor_name}: {decision.action.upper()}\"\n"
+              "                            + (f\" " + chr(36) + "{decision.amount/100:.2f}\" if decision.amount is not None else \"\")\n"
+              "                            + f\" [fallback, equity≈{decision.equity_estimate:.0%}]\"\n"
+              "                        )\n"
+              "                        decisions.append(line)\n"
+              "                        action_label = self._describe_action(actor_name, decision.action, decision.amount, hand.big_blind)\n"
+              "                        source_status = (\n"
+              "                            \"VIP role specification only • level-5 local fallback (not exact GTO)\"\n"
+              "                            if is_vip_mode(active_mode) else\n"
+              "                            \"Pool fallback policy • GTO+ unsupported here (preflop/multiway)\"\n"
+              "                            if not gto_supported else\n"
+              "                            \"Pool fallback policy • GTO+ exact match unavailable for this spot\"\n"
+              "                        )\n"
+          )
+          new_log = (
+              "                        is_chart_decision = (getattr(decision, \"strategy_source\", \"\") == \"screenshot_preflop_range\")\n"
+              "                        if is_chart_decision:\n"
+              "                            line = (f\"{actor_name}: {decision.action.upper()}\"\n"
+              "                                    + ((\" $\" + f\"{decision.amount/100:.2f}\") if decision.amount is not None else \"\")\n"
+              "                                    + f\" [Pio range {decision.node_id} • Lv.{decision.cpu_level}]\")\n"
+              "                        else:\n"
+              "                            line = (\n"
+              "                                f\"{actor_name}: {decision.action.upper()}\"\n"
+              "                                + ((\" $\" + f\"{decision.amount/100:.2f}\") if decision.amount is not None else \"\")\n"
+              "                                + f\" [fallback, equity≈{decision.equity_estimate:.0%}]\"\n"
+              "                            )\n"
+              "                        decisions.append(line)\n"
+              "                        action_label = self._describe_action(actor_name, decision.action, decision.amount, hand.big_blind)\n"
+              "                        source_status = (\n"
+              "                            f\"Screenshot-derived preflop chart • {decision.node_id}\" if is_chart_decision else\n"
+              "                            \"VIP role specification only • level-5 local fallback (not exact GTO)\"\n"
+              "                            if is_vip_mode(active_mode) else\n"
+              "                            \"Pool fallback policy • GTO+ unsupported here (preflop/multiway)\"\n"
+              "                            if not gto_supported else\n"
+              "                            \"Pool fallback policy • GTO+ exact match unavailable for this spot\"\n"
+              "                        )\n"
+          )
+          if main.count(old_log) != 1:
+              raise SystemExit("Could not safely locate CPU action/source logging block")
+          main = main.replace(old_log, new_log, 1)
+
+          old_source = '                                fallback_key, "fallback_unsupported", event_action,'
+          new_source = '                                fallback_key, "preflop_chart" if is_chart_decision else "fallback_unsupported", event_action,'
+          if main.count(old_source) != 1:
+              raise SystemExit("Could not safely locate CPU source recording")
+          main = main.replace(old_source, new_source, 1)
+
+          old_details = (
+              '                                actor_id=str(pid), details={"street": hand.street,\n'
+              '                                    "board": list(hand.board), "reason": source_status})'
+          )
+          new_details = (
+              '                                actor_id=str(pid), details={"street": hand.street,\n'
+              '                                    "board": list(hand.board), "reason": source_status,\n'
+              '                                    "node_id": getattr(decision, "node_id", ""),\n'
+              '                                    "combo": getattr(decision, "combo", ""),\n'
+              '                                    "cpu_level": getattr(decision, "cpu_level", None)})'
+          )
+          if main.count(old_details) != 1:
+              raise SystemExit("Could not safely locate CPU decision detail recording")
+          main = main.replace(old_details, new_details, 1)
+
+          ast.parse(main, filename="PigeonPoker.pyw")
+          main_path.write_text(main, encoding="utf-8", newline="\n")
+
+          module_names = [
+              "preflop_range_data_part_1.py", "preflop_range_data_part_2.py",
+              "preflop_range_data.py", "preflop_range_policy.py",
+          ]
+          package_dir = app / "pigeon_poker"
+          package_dir.mkdir(parents=True, exist_ok=True)
+          for name in module_names:
+              src = root / "staging" / name
+              if not src.is_file():
+                  raise SystemExit("Missing prepared module: " + str(src))
+              (package_dir / name).write_bytes(src.read_bytes())
+
+          with tempfile.TemporaryDirectory() as td:
+              test_pkg = pathlib.Path(td) / "pigeon_poker"
+              test_pkg.mkdir()
+              (test_pkg / "__init__.py").write_text("", encoding="utf-8")
+              for name in module_names:
+                  shutil.copy2(package_dir / name, test_pkg / name)
+              sys.path.insert(0, td)
+              try:
+                  policy = importlib.import_module("pigeon_poker.preflop_range_policy")
+                  summary = policy.chart_summary()
+                  assert summary == {"nodes": 20, "hand_rows": 3380}, summary
+                  assert policy.hand_class_from_cards(["As", "Ks"]) == "AKs"
+                  assert policy.hand_class_from_cards(["Kd", "As"]) == "AKo"
+
+                  class Player:
+                      def __init__(self, pid, cards=()):
+                          self.player_id, self.name = pid, pid
+                          self.hole_cards = list(cards)
+                          self.street_contribution = 0
+                  class Hand:
+                      def __init__(self):
+                          self.players = [Player("p" + str(i), ["As", "Ks"] if i == 3 else ()) for i in range(6)]
+                          self.seat_by_id = {p.player_id: i for i, p in enumerate(self.players)}
+                          self.dealer_index, self.big_blind, self.events = 0, 1000, []
+                      def player(self, pid):
+                          return self.players[self.seat_by_id[pid]]
+                      def legal_actions(self, pid):
+                          return {"actions": ["raise", "call", "fold"], "min_target": 2000, "max_target": 100000}
+                  hand = Hand()
+                  assert policy.match_preflop_node(hand, "p3") == "01_UTG_OPEN"
+                  decision = policy.choose_preflop_range_decision(hand, "p3", rng=random.Random(1), level=5)
+                  assert decision and decision.node_id == "01_UTG_OPEN" and decision.action == "raise"
+                  assert decision.amount == 2500, decision
+                  hand.events = [{"type": "action", "street": "preflop", "player_id": "p3",
+                                  "action": "raise", "target": 2500}]
+                  hand.players[4].hole_cards = ["As", "Ks"]
+                  hand.players[3].street_contribution = 2500
+                  assert policy.match_preflop_node(hand, "p4") == "06_HJ_VS_UTG"
+                  defend = policy.choose_preflop_range_decision(hand, "p4", rng=random.Random(2), level=5)
+                  assert defend and defend.node_id == "06_HJ_VS_UTG"
+                  for node in policy._data()["nodes"].values():
+                      for combo, mix in node["hands"].items():
+                          assert abs(sum(float(v) for v in mix.values()) - 1.0) < .0001, (combo, mix)
+                  print("Preflop CPU tests passed:", summary)
+              finally:
+                  sys.path.pop(0)
+                  for key in list(sys.modules):
+                      if key == "pigeon_poker" or key.startswith("pigeon_poker."):
+                          del sys.modules[key]
+
+          (app / "VERSION.txt").write_text("1.3.39\n", encoding="utf-8")
+          for path in app.rglob("*.py"):
+              ast.parse(path.read_text(encoding="utf-8"), filename=str(path.relative_to(app)))
+
+          release_dir = root / "releases" / "v1.3.39"
+          if release_dir.exists():
+              shutil.rmtree(release_dir)
+          release_dir.mkdir(parents=True)
+          zip_path = release_dir / "payload.zip"
+          files = sorted(p for p in app.rglob("*") if p.is_file())
+          with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as out:
+              for path in files:
+                  out.write(path, path.relative_to(app).as_posix())
+          with zipfile.ZipFile(zip_path) as check:
+              if check.testzip() is not None:
+                  raise SystemExit("New update ZIP CRC failure")
+              names = set(check.namelist())
+              required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
+                          "pigeon_poker/preflop_range_data.py",
+                          "pigeon_poker/preflop_range_policy.py"}
+              if not required.issubset(names):
+                  raise SystemExit("Update ZIP is missing required app files")
+              for name in names:
+                  path = pathlib.PurePosixPath(name)
+                  if path.is_absolute() or ".." in path.parts or chr(92) in name:
+                      raise SystemExit("Unsafe output path: " + name)
+
+          blob = base64.b64encode(zip_path.read_bytes()).decode("ascii")
+          chunk_size = 60000
+          parts = []
+          for offset in range(0, len(blob), chunk_size):
+              name = f"payload.part-{offset // chunk_size:03d}"
+              (release_dir / name).write_text(blob[offset:offset + chunk_size], encoding="ascii")
+              parts.append(name)
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": parts}, indent=2) + "\n", encoding="utf-8")
+          meta = {
+              "schema_version": 1, "product": "pigeon-poker", "channel": "stable",
+              "version": "1.3.39",
+              "published_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+              "release_notes": "v1.3.38の全機能を維持。作成済みの20ノード・3,380ハンド頻度を通常対戦CPUのプリフロップ判断へ接続。Lv.1〜5の既存逸脱率と未対応ノードの従来判断を維持。",
+              "package_mode": "full",
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          (release_dir / "payload.ready").write_text("tested v1.3.39 build\n", encoding="utf-8")
+          print(json.dumps({"version": "1.3.39", "files": len(files), "zip_bytes": zip_path.stat().st_size,
+                            "payload_parts": len(parts), "sha256": hashlib.sha256(zip_path.read_bytes()).hexdigest()}))
+          zip_path.unlink()
+          PY
+      - name: Commit tested update payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add releases/v1.3.39/
+          git commit -m "Build Pigeon Poker v1.3.39 preflop range CPU integration"
+          git push
