@@ -143,9 +143,17 @@ jobs:
                   total += info.file_size
                   if len(names) > 500 or total > 18 * 1024 * 1024:
                       raise SystemExit("Update file count or uncompressed size limit exceeded.")
-              required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
-              if not required.issubset(names):
-                  raise SystemExit("Required update files are missing.")
+              package_mode = str(meta.get("package_mode", "full")).strip().lower()
+              if package_mode == "updater-only":
+                  required = {"pigeon_updater.py", "VERSION.txt"}
+                  if set(names) != required:
+                      raise SystemExit("Updater-only package must contain exactly pigeon_updater.py and VERSION.txt.")
+              elif package_mode == "full":
+                  required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
+                  if not required.issubset(names):
+                      raise SystemExit("Required full update files are missing.")
+              else:
+                  raise SystemExit("Unsupported package_mode: " + package_mode)
               bundled_version = archive.read("VERSION.txt").decode("utf-8").strip()
               if bundled_version != version:
                   raise SystemExit("VERSION.txt does not match release.json.")
@@ -158,7 +166,7 @@ jobs:
               "version": version,
               "published_at": str(meta.get("published_at", "")),
               "release_notes": str(meta.get("release_notes", "修正と改善")),
-              "package_mode": "full",
+              "package_mode": str(meta.get("package_mode", "full")).strip().lower(),
               "payload_encoding": "base64",
               "payload_url": f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/main/{release_dir.as_posix()}/payload-updater.zip.b64",
               "payload_sha256": hashlib.sha256(payload).hexdigest(),
