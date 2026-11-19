@@ -394,3 +394,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+# Build marker: read-only calibrated UI probe; no setup fields or solver commands are changed.
