@@ -245,10 +245,10 @@ jobs:
               from probe_pkg.auto_solve_ui import (_bmp_region_difference_ratio,
                   _OOP_MATRIX_RECT, _RANGE_EDITOR_VERIFY_ROI,
                   _bmp_matrix_center_signature, _matrix_signature_is_empty,
-                  _matrix_signature_is_aa_only, _build_tree_dialog_is_visible, _source_field_occlusion_shift,
+                  _matrix_signature_is_aa_only, _matrix_signature_matches_selected_cells,
+                  _build_tree_dialog_is_visible, _source_field_occlusion_shift,
                   _source_field_underlay_is_verified_gto_view,
-                  _source_field_underlay_is_verified_edit,
-                  _source_field_occlusion_shift)
+                  _source_field_underlay_is_verified_edit)
               assert _source_field_occlusion_shift([331,673,631,695],[271,672,497,720],5)==28
               assert _source_field_occlusion_shift([331,640,631,662],[271,672,497,720],5)==0
               good_view={"pid":9984,"class":"AfxFrameOrView140su","control_id":59648,
@@ -304,24 +304,28 @@ jobs:
                   pathlib.Path(td)/"overlay.bmp",
                   _RANGE_EDITOR_VERIFY_ROI
               )["ratio"] > 0.05
-              def matrix_bmp(path, active_aa=False):
+              def matrix_bmp(path, active_cells=()):
                   w,h=665,570
                   px=bytearray(w*h*4)
-                  if active_aa:
-                      # AA matrix-cell sample point is (29, 91) in the 665x570 client.
-                      i=(91*w+29)*4
+                  # Cell-center sample points: AA=(29,91), AKs=(33,91).
+                  for x,y in active_cells:
+                      i=(y*w+x)*4
                       px[i:i+4]=bytes((0x20,0x80,0xE0,0))
                   header=b"BM"+struct.pack("<IHHI",54+len(px),0,0,54)
                   dib=struct.pack("<IiiHHIIiiII",40,w,-h,1,32,0,len(px),0,0,0,0)
                   pathlib.Path(path).write_bytes(header+dib+px)
-              matrix_bmp(pathlib.Path(td)/"matrix_empty.bmp",False)
-              matrix_bmp(pathlib.Path(td)/"matrix_aa.bmp",True)
+              matrix_bmp(pathlib.Path(td)/"matrix_empty.bmp",())
+              matrix_bmp(pathlib.Path(td)/"matrix_aa.bmp",((29,91),))
+              matrix_bmp(pathlib.Path(td)/"matrix_aa_aks.bmp",((29,91),(33,91)))
               empty_sig=_bmp_matrix_center_signature(pathlib.Path(td)/"matrix_empty.bmp")
               aa_sig=_bmp_matrix_center_signature(pathlib.Path(td)/"matrix_aa.bmp")
+              aa_aks_sig=_bmp_matrix_center_signature(pathlib.Path(td)/"matrix_aa_aks.bmp")
               assert _OOP_MATRIX_RECT == (27,89,79,141)
               assert empty_sig["roi"] == [27,89,79,141]
               assert _matrix_signature_is_empty(empty_sig)
               assert _matrix_signature_is_aa_only(aa_sig,empty_sig)
+              assert _matrix_signature_matches_selected_cells(aa_aks_sig,empty_sig,[0,1])
+              assert not _matrix_signature_matches_selected_cells(aa_sig,empty_sig,[0,1])
           assert "def _run_auto_solve_ui_probe" in main
           updater=pathlib.Path("staging/auto_hu_solve_candidate/pigeon_updater.py").read_text(encoding="utf-8")
           ast.parse(updater,filename="pigeon_updater.py")
