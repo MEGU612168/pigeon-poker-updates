@@ -266,12 +266,35 @@ def _source_field_underlay_is_verified_edit(observation: dict[str, Any] | None,
         return (
             int(observation.get("pid", -1)) == int(target_pid)
             and str(observation.get("class", "")) == "Edit"
-            and int(observation.get("control_id", -1)) == 5458
             and observation.get("related_to_exact_host") is True
             and observation.get("visible") is True
             and observation.get("enabled") is True
             and isinstance(observation.get("rect_screen"), list)
             and len(observation["rect_screen"]) == 4
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _source_field_underlay_is_verified_gto_view(observation: dict[str, Any] | None,
+                                                 target_pid: int,
+                                                 source_point_screen: tuple[int, int]) -> bool:
+    """Permit a single focus-only click when the measured field is drawn by GTO's own view."""
+    if not isinstance(observation, dict):
+        return False
+    try:
+        rect = observation.get("rect_screen")
+        x, y = map(int, source_point_screen)
+        return (
+            int(observation.get("pid", -1)) == int(target_pid)
+            and str(observation.get("class", "")) == "AfxFrameOrView140su"
+            and int(observation.get("control_id", -1)) == 59648
+            and observation.get("related_to_exact_host") is True
+            and observation.get("visible") is True
+            and observation.get("enabled") is True
+            and isinstance(rect, list) and len(rect) == 4
+            and int(rect[0]) <= x < int(rect[2])
+            and int(rect[1]) <= y < int(rect[3])
         )
     except (TypeError, ValueError):
         return False
@@ -613,12 +636,16 @@ def _probe_source_field_readback_restore_at_current_position(user32, root_hwnd: 
         "tree_built": False,
         "solver_run": False,
     }
-    if not _source_field_underlay_is_verified_edit(under_record, target_pid):
+    hit_native_edit = _source_field_underlay_is_verified_edit(under_record, target_pid)
+    hit_gto_view = _source_field_underlay_is_verified_gto_view(
+        under_record, target_pid, source_screen
+    )
+    if not (hit_native_edit or hit_gto_view):
         foreign = bool(under_record and int(under_record.get("pid", -1)) != target_pid)
         return {
             **base,
             "status": "source_field_occluded_by_foreign_window" if foreign
-                      else "source_field_not_hit_testing_expected_native_edit",
+                      else "source_field_not_hit_testing_verified_gto_surface",
             "text_changed": False,
             "click_sent": False,
             "write_sent": False,
@@ -629,12 +656,28 @@ def _probe_source_field_readback_restore_at_current_position(user32, root_hwnd: 
         user32, root_hwnd, target_pid, RECT, POINT,
         _RANGE_SOURCE_FIELD_CENTER, label="focus_range_source_field"
     )
+    after_hwnd = int(user32.WindowFromPoint(point) or 0)
+    after_record = None
+    if after_hwnd:
+        after_record = {
+            "hwnd": after_hwnd,
+            "pid": probe._window_pid(user32, after_hwnd),
+            "class": probe._class_name(user32, after_hwnd),
+            "control_id": int(user32.GetDlgCtrlID(probe.wintypes.HWND(after_hwnd))),
+            "title": probe._window_text(user32, after_hwnd),
+            "rect_screen": probe._rect(user32, RECT, after_hwnd),
+            "visible": bool(user32.IsWindowVisible(probe.wintypes.HWND(after_hwnd))),
+            "enabled": bool(user32.IsWindowEnabled(probe.wintypes.HWND(after_hwnd))),
+            "related_to_exact_host": probe._window_is_related_to_embedded_target(
+                user32, after_hwnd, root_hwnd, host
+            ),
+        }
     focus = probe._gui_thread_focus_snapshot(
         user32, RECT, POINT, root_hwnd, host,
         source_point_screen=source_screen
     )
     roots, children_by_root = probe._all_hwnds(user32, EnumWindowsProc, EnumChildProc)
-    candidate_hwnds = {int(root_hwnd), int(host or 0), int(under or 0)}
+    candidate_hwnds = {int(root_hwnd), int(host or 0), int(under or 0), int(after_hwnd or 0)}
     for top in roots:
         top = int(top)
         if (top == int(root_hwnd) or top == int(host)
@@ -680,15 +723,27 @@ def _probe_source_field_readback_restore_at_current_position(user32, root_hwnd: 
     base.update({
         "field_click": click,
         "focus_snapshot": focus,
-        "window_from_point_after_click": under_record,
+        "window_from_point_after_click": after_record,
+        "pre_click_hit_kind": "native_edit" if hit_native_edit else "gto_custom_view",
+        "focus_only_click": bool(hit_gto_view),
         "edit_candidates": edit_candidates,
         "candidate_count": len(matches),
         "click_sent": True,
     })
     edits = matches
     if len(edits) != 1:
-        return {**base, "status": "native_source_edit_missing_or_ambiguous",
-                "text_changed": False, "source_controls": probe._batch_child_controls(user32, RECT, root_hwnd)}
+        status = (
+            "gto_view_focused_no_unique_native_edit_created"
+            if hit_gto_view and len(edits) == 0
+            else "native_source_edit_missing_or_ambiguous"
+        )
+        return {
+            **base, "status": status,
+            "text_changed": False,
+            "write_sent": False,
+            "source_controls": probe._batch_child_controls(user32, RECT, root_hwnd),
+            "post_click_window_from_point": after_record,
+        }
     edit_hwnd, edit_rect = edits[0]
     if (probe._window_pid(user32, edit_hwnd) != probe._window_pid(user32, root_hwnd)
             or probe._class_name(user32, edit_hwnd) != "Edit"
@@ -759,7 +814,7 @@ def _probe_source_field_readback_restore_at_current_position(user32, root_hwnd: 
     )
     return {
         **base, "status": status, "edit_hwnd": int(edit_hwnd),
-        "edit_control_id": 5458, "edit_class": "Edit",
+        "edit_control_id": int(user32.GetDlgCtrlID(probe.wintypes.HWND(edit_hwnd))), "edit_class": "Edit",
         "edit_rect_screen": edit_rect, "edit_rect_client": relative_rect,
         "center_delta": delta, "original_text_length": len(original),
         "test_text": "AA", "test_write_readback": test_readback,
@@ -1028,9 +1083,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         stages.append(board_input_result)
 
     report = {
-        "schema_version": 6,
+        "schema_version": 7,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_ip_source_hit_test_and_parent_relative_child_move_v6",
+        "probe": "verified_gto_plus_oop_ip_source_view_focus_and_native_edit_discovery_v7",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -1040,9 +1095,11 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "original_parent_relative_position_restore_readback_required": True,
         },
         "input_calibration": {
-            "method": "temporary child reposition in verified parent-client coordinates when WindowFromPoint hits a foreign overlay, then exact GTO PID, related HWND ownership chain, Edit control ID 5458, and measured field geometry",
+            "method": "temporary child reposition in verified parent-client coordinates when WindowFromPoint hits a foreign overlay; focus-only click is allowed on exact GTO view 59648, followed by unique native Edit discovery by PID, ownership, class, and measured field geometry",
             "test_value": "AA",
             "original_field_must_be_empty": True,
+            "focus_only_click_allowed_on_verified_gto_view": True,
+            "no_keyboard_input_without_unique_native_edit": True,
             "source_text_readback_required": True,
             "original_text_restore_readback_required": True,
             "done_button_clicked": False,
@@ -1103,7 +1160,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         },
         "notes": [
             "Only the exact Pigeon-embedded GTO+ HWND/PID was operated.",
-            "Before any Source field click, WindowFromPoint must resolve to a visible, enabled Edit id=5458 belonging to this exact GTO process and embedded-window ownership chain. Foreign overlays cause a no-click, no-write stop.",
+            "Before the Source field focus click, WindowFromPoint must resolve either to an exact GTO-owned native Edit or to the measured AfxFrameOrView140su id=59648 covering the field. Foreign overlays cause a no-click, no-write stop. If the view receives focus but no unique native Edit appears at the measured field, no keyboard input is sent.",
             "If a foreign window covers the Source field, only the exact embedded GTO child is temporarily shifted within its verified parent-client coordinate system; the exact original parent-relative position is restored and verified immediately after the field probe. The host window and other processes are not moved.",
             "OOP and IP Source Edit fields are tested with AA only when the exact field is hit-tested and originally blank; text is read back and restored. Done is never clicked.",
             "The OOP/IP range editor is dismissed with its measured X button and visually checked against baseline pixels.",
