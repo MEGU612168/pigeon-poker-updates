@@ -82,21 +82,22 @@ def to_gto_plus_range_text(weighted_range: str) -> str:
         if ":" not in token:
             raise ValueError(f"weighted range token has no weight: {token!r}")
         hand, raw_weight = (part.strip() for part in token.rsplit(":", 1))
-        hand = hand.upper()
-        valid_pair = len(hand) == 2 and hand[0] == hand[1] and hand[0] in rank_order
+        normalized = hand.upper()
+        valid_pair = len(normalized) == 2 and normalized[0] == normalized[1] and normalized[0] in rank_order
         valid_nonpair = (
-            len(hand) == 3
-            and hand[0] in rank_order
-            and hand[1] in rank_order
-            and hand[0] != hand[1]
-            and rank_order.index(hand[0]) > rank_order.index(hand[1])
-            and hand[2] in "SO"
+            len(normalized) == 3
+            and normalized[0] in rank_order
+            and normalized[1] in rank_order
+            and normalized[0] != normalized[1]
+            and rank_order.index(normalized[0]) > rank_order.index(normalized[1])
+            and normalized[2] in "SO"
         )
         if not (valid_pair or valid_nonpair):
             raise ValueError(f"unsupported GTO+ starting-hand class: {hand!r}")
-        if hand in seen:
-            raise ValueError(f"duplicate hand class in weighted range: {hand}")
-        seen.add(hand)
+        if normalized in seen:
+            raise ValueError(f"duplicate hand class in weighted range: {normalized}")
+        seen.add(normalized)
+        hand = normalized if valid_pair else normalized[:2] + normalized[2].lower()
         try:
             weight = float(raw_weight)
         except (TypeError, ValueError) as exc:
