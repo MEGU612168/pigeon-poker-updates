@@ -1,0 +1,129 @@
+name: Build and publish Pigeon Poker v1.3.38 layout fix
+
+on:
+  push:
+    branches:
+      - chatgpt/layout-v138
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout patch
+        uses: actions/checkout@v4
+
+      - name: Apply viewport fix, verify ZIP and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git worktree add /tmp/pigeon-main origin/main
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import subprocess
+          import zipfile
+          from datetime import datetime, timezone
+
+          workspace = pathlib.Path(".").resolve()
+          repo = pathlib.Path("/tmp/pigeon-main")
+          manifest_path = repo / "stable.json"
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          if manifest.get("version") != "1.3.37":
+              raise SystemExit("Stable version changed; stop rather than overwrite: " + str(manifest.get("version")))
+
+          base_path = repo / "releases/v1.3.37/payload-full.zip.b64"
+          payload = base64.b64decode(base_path.read_text(encoding="ascii"), validate=True)
+          if hashlib.sha256(payload).hexdigest() != manifest["payload_sha256"]:
+              raise SystemExit("v1.3.37 SHA-256 mismatch")
+          if len(payload) != int(manifest["payload_size"]):
+              raise SystemExit("v1.3.37 size mismatch")
+
+          work = pathlib.Path("/tmp/pigeon-v138-package")
+          work.mkdir(parents=True, exist_ok=True)
+          original = io.BytesIO(payload)
+          with zipfile.ZipFile(original, "r") as source:
+              bad = source.testzip()
+              if bad:
+                  raise SystemExit("Base ZIP CRC failure: " + bad)
+              for info in source.infolist():
+                  target = work / info.filename
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(source.read(info.filename))
+
+          patch_path = workspace / "tools/v138-layout.patch"
+          subprocess.run(["patch", "--batch", "--forward", "-p1", "-i", str(patch_path)],
+                         cwd=work, check=True)
+
+          app_path = work / "PigeonPoker.pyw"
+          app_source = app_path.read_text(encoding="utf-8")
+          ast.parse(app_source, filename="PigeonPoker.pyw")
+          assert "height=max(viewport_height, requested_height)" in app_source
+          assert "height=max(1, event.height, frame.winfo_reqheight())" in app_source
+          (work / "VERSION.txt").write_text("1.3.38\\n", encoding="utf-8")
+
+          output = io.BytesIO()
+          with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as target:
+              with zipfile.ZipFile(original, "r") as source:
+                  for info in source.infolist():
+                      if info.filename == "PigeonPoker.pyw":
+                          data = app_path.read_bytes()
+                      elif info.filename == "VERSION.txt":
+                          data = b"1.3.38\\n"
+                      else:
+                          data = source.read(info.filename)
+                      target.writestr(info, data)
+
+          final_payload = output.getvalue()
+          with zipfile.ZipFile(io.BytesIO(final_payload), "r") as check:
+              bad = check.testzip()
+              if bad:
+                  raise SystemExit("v1.3.38 ZIP CRC failure: " + bad)
+              required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
+              if not required.issubset(set(check.namelist())):
+                  raise SystemExit("Required update files are missing.")
+              if check.read("VERSION.txt").decode("utf-8").strip() != "1.3.38":
+                  raise SystemExit("VERSION.txt mismatch")
+              ast.parse(check.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
+
+          release_dir = repo / "releases/v1.3.38"
+          release_dir.mkdir(parents=True, exist_ok=True)
+          encoded = base64.b64encode(final_payload).decode("ascii")
+          (release_dir / "payload-updater.zip.b64").write_text(encoded, encoding="ascii")
+          (release_dir / "payload-full.zip.b64").write_text(encoded, encoding="ascii")
+          published_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+          digest = hashlib.sha256(final_payload).hexdigest()
+          new_manifest = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": "1.3.38",
+              "published_at": published_at,
+              "release_notes": "v1.3.37の全機能を維持。スクロール用Canvas内のページフレームをウィンドウ表示領域まで拡張し、Notebookと各ページが画面いっぱいに表示されるよう修正。長いページは従来どおりスクロール可能。",
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.38/payload-updater.zip.b64",
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+          }
+          manifest_path.write_text(json.dumps(new_manifest, ensure_ascii=False, indent=2) + "\\n",
+                                   encoding="utf-8")
+          (release_dir / "release.json").write_text(
+              json.dumps(new_manifest, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+          print(json.dumps({"version":"1.3.38","base":"1.3.37","size":len(final_payload),
+                            "sha256":digest}, ensure_ascii=False))
+          PY
+
+          cd /tmp/pigeon-main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stable.json releases/v1.3.38
+          git commit -m "Publish Pigeon Poker v1.3.38 full-height scroll viewport fix"
+          git push origin HEAD:main
