@@ -1,0 +1,100 @@
+@@ -1324,12 +1357,11 @@
+         if hand is not None and not hand.finished:
+             state["cash_sitout_pending"] = True
+             state["cash_action_feed"] = "一時離席予約中 • このハンド終了後に休止"
+-            # If HERO can act now, fold normally and keep the table/session.
+-            if (table_id == self.active_cash_table_id and not self.cash_busy
+-                    and hand.next_to_act == "hero"):
+-                self._cash_human_action("fold")
+-            else:
+-                self._refresh_table_windows()
++            # A sit-out request is not a poker action. HERO continues to play
++            # normally until the hand ends; never auto-fold to honour this flag.
++            if table_id == self.active_cash_table_id:
++                self._save_active_cash_slot()
++            self._refresh_table_windows()
+             return
+         state["cash_sitting_out"] = True
+         state["cash_sitout_pending"] = False
+@@ -2180,14 +2212,6 @@
+             slot_state["cash_busy"] = False
+             self._show_allin_decision(table_id)
+             return
+-        if (not is_cpu_turn and bool(slot_state.get("cash_sitout_pending", False))
+-                and not self.cash_busy and not hand.finished):
+-            # Keep the pending flag set until _update_cash_after_action settles
+-            # the hand and converts it to cash_sitting_out. Clearing it here
+-            # would accidentally schedule the next Rush hand instead of pausing.
+-            self.cash_log_lines.append("SIT OUT: completing the current hand, then preserving the table")
+-            self._cash_human_action("fold")
+-            return
+         client = getattr(self.integration, "_client", None)
+         connected = bool(client is not None and client.connected)
+         tree_files = [path for path in self.tree_files if path.is_file()]
+@@ -2678,6 +2702,11 @@
+                     self.cash_log_lines.append("AUTO REBUY skipped: insufficient account balance")
+             self._refresh_cash_history()
+             self._refresh_ggcare()
++            if bool(active_state.get("cash_sitting_out", False)):
++                # Redraw only after all end-of-hand fees and Auto Rebuy have settled.
++                if self.active_cash_table_id:
++                    self._redraw_floating_table(self.active_cash_table_id)
++                self._refresh_table_windows()
+             # Normal showdowns get a short result beat. A fast-fold immediately
+             # deals a fresh hand, with no result screen or opponent wait.
+             if (not self.cash_gto_spot_mode and hero.stack > 0
+@@ -2818,11 +2847,13 @@
+     def _leave_cash_table(self, *, confirmed: bool = False):
+         if self.cash_table is None or self.active_cash_table_id is None:
+             return
++        active_slot = self.multi_tables.get(self.active_cash_table_id)
++        sitting_out = bool(active_slot and active_slot.state.get("cash_sitting_out", False))
+         if self.cash_busy:
+             messagebox.showinfo("Cash & Rush", "CPUの処理中です。テーブル退出の確認後、CPU処理の中断を待って退出します。",
+                                 parent=self.table_windows.get(self.active_cash_table_id, {}).get("window", self))
+             return
+-        if not confirmed:
++        if not confirmed and not sitting_out:
+             if not self._ask_table_confirmation(
+                     self.active_cash_table_id, "テーブル退出", "このテーブルから退出しますか？\n進行中のハンドがあればフォールドして、残りのスタックをウォレットへ戻します。"):
+                 return
+@@ -3337,13 +3368,6 @@
+             timebank_actions, "BUY +30s • 1BB",
+             lambda tid=table_id: self._toggle_paid_timebank(tid), "normal")
+         paid_timebank_button.pack(side="left", padx=(1, 8))
+-        squeeze_check = tk.Checkbutton(
+-            utility_actions, text="カードスクイーズ", variable=self.card_squeeze_enabled_var,
+-            command=self._save_squeeze_preference, bg=COLORS["panel"], fg=COLORS["muted"],
+-            activebackground=COLORS["panel"], activeforeground=COLORS["text"],
+-            selectcolor="#0b1727", font=("Segoe UI", 8), bd=0, padx=4,
+-            cursor="hand2")
+-        squeeze_check.pack(side="left", padx=(12, 0))
+         postflop_auto_fold_var = tk.BooleanVar(value=bool(slot.state.get("postflop_auto_fold", False)))
+         postflop_auto_fold_check = tk.Checkbutton(
+             timebank_actions, text="POSTFLOP AUTO-FOLD", variable=postflop_auto_fold_var,
+@@ -3371,7 +3395,6 @@
+             "sitout_before_bb_var": sitout_before_bb_var,
+             "timebank_button": timebank_button, "paid_timebank_button": paid_timebank_button,
+             "timer_canvas_item": None,
+-            "squeeze_check": squeeze_check,
+             "postflop_auto_fold_var": postflop_auto_fold_var,
+             "postflop_auto_fold_check": postflop_auto_fold_check,
+             "bet_target": bet_target_var, "bet_target_cents": bet_target_cents_var,
+@@ -3885,7 +3908,7 @@
+             suit_map = {"s": "♠", "h": "♥", "d": "♦", "c": "♣"}
+             symbol = suit_map.get(suit, "♠")
+             rank_text = {"T": "10"}.get(rank, rank)
+-            color = card_face_color(rank + suit, bool(self.appearance.get("four_color_deck", False)))
++            color = _playing_card_ink(rank, suit, bool(self.appearance.get("four_color_deck", False)))
+ 
+             def point(u, v):
+                 return project(u, v, surface_z)
+@@ -4043,7 +4066,7 @@
+         suit_map = {"s": "♠", "h": "♥", "d": "♦", "c": "♣"}
+         symbol = suit_map.get(suit, "♠")
+         rank_text = {"T": "10"}.get(rank, rank)
+-        ink = card_face_color(rank + suit, bool(self.appearance.get("four_color_deck", False)))
++        ink = _playing_card_ink(rank, suit, bool(self.appearance.get("four_color_deck", False)))
+         # The index is on the near corner, so it becomes visible early in the
+         # sweep. The large centre pip follows later as the curl reaches it.
+         rank_pt = point(.14, .86)
