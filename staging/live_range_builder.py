@@ -19,6 +19,11 @@ def _result(reason: str, **fields) -> dict[str, Any]:
 def _seat_positions(hand: Any):
     players=list(getattr(hand,"players",()) or ())
     if len(players)!=6: return None
+    # Only derive six-max chart positions when all six seats actually received
+    # cards. A short-handed table uses different positional labels and must not
+    # be silently mapped onto a full-ring six-max chart.
+    dealt=[p for p in players if len(list(getattr(p,"hole_cards",()) or ()))==2]
+    if len(dealt)!=6: return None
     try: dealer=int(hand.dealer_index)%6
     except (AttributeError,TypeError,ValueError): return None
     positions={}
@@ -61,7 +66,7 @@ def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_
     builder rejects 3-bets, limps, nonstandard opens and unsupported seat lines.
     """
     positions=_seat_positions(hand)
-    if positions is None: return _result("six-max seat/button data unavailable")
+    if positions is None: return _result("requires six dealt players and a valid six-max button position")
     eligible=[str(p.player_id) for p in getattr(hand,"players",()) if bool(getattr(p,"eligible",False))]
     if len(eligible)!=2: return _result(f"requires exactly two eligible players; found {len(eligible)}")
     actions=_preflop_actions(hand)
