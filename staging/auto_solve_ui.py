@@ -32,6 +32,8 @@ _RANGE_SOURCE_FIELD_RECT = (112, 427, 412, 449)
 _RANGE_SOURCE_FIELD_CENTER = (262, 438)
 _BOARD_INPUT_RECT = (23, 230, 85, 248)
 _BOARD_INPUT_CENTER = (54, 239)
+_BOARD_CLOSE_RECT = (277, 71, 291, 85)
+_BOARD_CLOSE_CENTER = (284, 78)
 _BUILD_TREE_RECT = (24, 253, 85, 276)
 _BUILD_TREE_CENTER = (54, 265)
 _DIALOG_ROI = (100, 60, 515, 460)
@@ -144,6 +146,7 @@ def _click_exact_client(user32, root_hwnd: int, root_pid: int,
         "open_ip_range_editor": _IP_MATRIX_RECT,
         "focus_range_source_field": _RANGE_SOURCE_FIELD_RECT,
         "focus_board_input": _BOARD_INPUT_RECT,
+        "close_board_selector": _BOARD_CLOSE_RECT,
         "close_oop_range_editor": _OOP_CLOSE_RECT,
         "open_build_tree_setup": _BUILD_TREE_RECT,
     }
@@ -252,23 +255,38 @@ def _build_tree_dialog_is_visible(appearance: dict[str, Any],
     return popup_detected or ratio > 0.01
 
 
+def _source_field_underlay_is_verified_edit(observation: dict[str, Any] | None,
+                                             target_pid: int) -> bool:
+    """True only when WindowFromPoint resolves to the expected Edit owned by this GTO+."""
+    if not isinstance(observation, dict):
+        return False
+    try:
+        return (
+            int(observation.get("pid", -1)) == int(target_pid)
+            and str(observation.get("class", "")) == "Edit"
+            and int(observation.get("control_id", -1)) == 5458
+            and observation.get("related_to_exact_host") is True
+            and observation.get("visible") is True
+            and observation.get("enabled") is True
+            and isinstance(observation.get("rect_screen"), list)
+            and len(observation["rect_screen"]) == 4
+        )
+    except (TypeError, ValueError):
+        return False
+
+
 def _probe_source_field_readback_restore(user32, root_hwnd: int,
                                            EnumWindowsProc, EnumChildProc,
                                            RECT, POINT, output_dir: Path,
                                            stem: str, role: str) -> dict[str, Any]:
-    """Test the exact GTO+ Source Edit using AA, then restore the original text.
+    """Read back and restore the Source Edit only when it is the actual hit-tested HWND.
 
-    The test never clicks Done. It writes only when exactly one visible Edit
-    control with GTO+ control ID 5458 is found at the measured source-field
-    location and its original content is blank. The exact original value is
-    read back after restoration before the caller may proceed.
+    Crucially, WindowFromPoint is checked before any click. A task-switcher or any
+    other foreign overlay over the input point causes a no-click, no-write return.
     """
     if role not in {"OOP", "IP"}:
         raise ValueError("role must be OOP or IP")
-    click = _click_exact_client(
-        user32, root_hwnd, probe._window_pid(user32, root_hwnd), RECT, POINT,
-        _RANGE_SOURCE_FIELD_CENTER, label="focus_range_source_field"
-    )
+    target_pid = probe._window_pid(user32, root_hwnd)
     client = RECT()
     if not user32.GetClientRect(probe.wintypes.HWND(root_hwnd), probe.ctypes.byref(client)):
         raise OSError(f"{role} Source field GetClientRect failed: {probe.ctypes.get_last_error()}")
@@ -278,14 +296,13 @@ def _probe_source_field_readback_restore(user32, root_hwnd: int,
     host = probe._top_level_ancestor(user32, root_hwnd)
     source_screen = (int(origin.x + _RANGE_SOURCE_FIELD_CENTER[0]),
                      int(origin.y + _RANGE_SOURCE_FIELD_CENTER[1]))
-    focus = probe._gui_thread_focus_snapshot(
-        user32, RECT, POINT, root_hwnd, host,
-        source_point_screen=source_screen
-    )
     point = POINT(*source_screen)
     under = int(user32.WindowFromPoint(point) or 0)
     under_record = None
     if under:
+        related = probe._window_is_related_to_embedded_target(
+            user32, under, root_hwnd, host
+        )
         under_record = {
             "hwnd": under,
             "pid": probe._window_pid(user32, under),
@@ -295,15 +312,45 @@ def _probe_source_field_readback_restore(user32, root_hwnd: int,
             "rect_screen": probe._rect(user32, RECT, under),
             "visible": bool(user32.IsWindowVisible(probe.wintypes.HWND(under))),
             "enabled": bool(user32.IsWindowEnabled(probe.wintypes.HWND(under))),
+            "related_to_exact_host": related,
+        }
+    base = {
+        "stage": f"{role.lower()}_source_field",
+        "field_click": None,
+        "window_from_point_before_click": under_record,
+        "target_pid": target_pid,
+        "root_hwnd": int(root_hwnd),
+        "host_hwnd": int(host or 0),
+        "range_committed": False,
+        "tree_built": False,
+        "solver_run": False,
+    }
+    if not _source_field_underlay_is_verified_edit(under_record, target_pid):
+        foreign = bool(under_record and int(under_record.get("pid", -1)) != target_pid)
+        return {
+            **base,
+            "status": "source_field_occluded_by_foreign_window" if foreign
+                      else "source_field_not_hit_testing_expected_native_edit",
+            "text_changed": False,
+            "click_sent": False,
+            "write_sent": False,
+            "source_controls": probe._batch_child_controls(user32, RECT, root_hwnd),
         }
 
+    click = _click_exact_client(
+        user32, root_hwnd, target_pid, RECT, POINT,
+        _RANGE_SOURCE_FIELD_CENTER, label="focus_range_source_field"
+    )
+    focus = probe._gui_thread_focus_snapshot(
+        user32, RECT, POINT, root_hwnd, host,
+        source_point_screen=source_screen
+    )
     roots, children_by_root = probe._all_hwnds(user32, EnumWindowsProc, EnumChildProc)
     candidate_hwnds = {int(root_hwnd), int(host or 0), int(under or 0)}
     for top in roots:
         top = int(top)
         if (top == int(root_hwnd) or top == int(host)
-                or probe._window_is_related_to_embedded_target(
-                    user32, top, root_hwnd, host)):
+                or probe._window_is_related_to_embedded_target(user32, top, root_hwnd, host)):
             candidate_hwnds.add(top)
             candidate_hwnds.update(int(child) for child in children_by_root.get(top, []))
     direct_children = []
@@ -314,7 +361,6 @@ def _probe_source_field_readback_restore(user32, root_hwnd: int,
     user32.EnumChildWindows(probe.wintypes.HWND(root_hwnd), child_callback, 0)
     candidate_hwnds.update(direct_children)
 
-    target_pid = probe._window_pid(user32, root_hwnd)
     edit_candidates = []
     matches = []
     for candidate in sorted(candidate_hwnds):
@@ -326,15 +372,10 @@ def _probe_source_field_readback_restore(user32, root_hwnd: int,
         rect = probe._rect(user32, RECT, candidate)
         pid = probe._window_pid(user32, candidate)
         control_id = int(user32.GetDlgCtrlID(probe.wintypes.HWND(candidate)))
-        related = probe._window_is_related_to_embedded_target(
-            user32, candidate, root_hwnd, host
-        )
+        related = probe._window_is_related_to_embedded_target(user32, candidate, root_hwnd, host)
         if rect:
             center = [(rect[0] + rect[2]) // 2, (rect[1] + rect[3]) // 2]
-            delta = [
-                abs(center[0] - source_screen[0]),
-                abs(center[1] - source_screen[1]),
-            ]
+            delta = [abs(center[0] - source_screen[0]), abs(center[1] - source_screen[1])]
         else:
             delta = [999999, 999999]
         observation = {
@@ -345,25 +386,17 @@ def _probe_source_field_readback_restore(user32, root_hwnd: int,
             "enabled": bool(user32.IsWindowEnabled(probe.wintypes.HWND(candidate))),
         }
         edit_candidates.append(observation)
-        if (pid == target_pid and control_id == 5458 and related and rect
-                and delta[0] <= 35 and delta[1] <= 20
-                and observation["visible"] and observation["enabled"]):
+        if _source_field_underlay_is_verified_edit(observation, target_pid) and delta[0] <= 35 and delta[1] <= 20:
             matches.append((candidate, rect))
 
-    base = {
-        "stage": f"{role.lower()}_source_field",
+    base.update({
         "field_click": click,
         "focus_snapshot": focus,
-        "window_from_point": under_record,
+        "window_from_point_after_click": under_record,
         "edit_candidates": edit_candidates,
         "candidate_count": len(matches),
-        "target_pid": target_pid,
-        "root_hwnd": int(root_hwnd),
-        "host_hwnd": int(host or 0),
-        "range_committed": False,
-        "tree_built": False,
-        "solver_run": False,
-    }
+        "click_sent": True,
+    })
     edits = matches
     if len(edits) != 1:
         return {**base, "status": "native_source_edit_missing_or_ambiguous",
