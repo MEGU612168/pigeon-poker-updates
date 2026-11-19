@@ -162,7 +162,7 @@ jobs:
           main_path.write_text(main, encoding="utf-8", newline="\n")
 
           module_names = [
-              "preflop_range_data_part_1.py", "preflop_range_data_part_2.py",
+              "preflop_range_data_part_1.py", "preflop_range_data_part_2.py", "preflop_range_data_part_3.py",
               "preflop_range_data.py", "preflop_range_policy.py",
           ]
           package_dir = app / "pigeon_poker"
