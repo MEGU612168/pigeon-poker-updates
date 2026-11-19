@@ -98,7 +98,9 @@ jobs:
           assert '"schema_version": 4' in ui_source
           assert "_bmp_region_difference_ratio" in ui_source
           assert "_build_tree_dialog_is_visible" in ui_source
-          assert "click_no_dialog_detected" in ui_source
+          assert '"stage": "ip_range_editor"' in ui_source
+          assert '"stage": "board_input"' in ui_source
+          assert "source_field_test_incomplete" in ui_source
           assert "_probe_source_field_readback_restore" in ui_source
           assert "close_oop_range_editor" in ui_source
           assert "to_gto_plus_range_text" in pathlib.Path("staging/auto_hu_solve_candidate/live_range_builder.py").read_text(encoding="utf-8")
