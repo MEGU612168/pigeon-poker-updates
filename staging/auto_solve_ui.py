@@ -910,6 +910,12 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         "probe": "verified_gto_plus_oop_ip_source_hit_test_and_board_selector_close_v5",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
+        "window_position_policy": {
+            "move_only_exact_gto_top_level_window": True,
+            "only_when_source_field_outside_monitor_work_area": True,
+            "child_window_reposition_prohibited": True,
+            "original_position_restore_readback_required": True,
+        },
         "input_calibration": {
             "method": "temporary top-level reposition into the monitor work area when needed, then WindowFromPoint plus exact GTO PID, related HWND ownership chain, Edit control ID 5458, and measured field geometry",
             "test_value": "AA",
@@ -997,6 +1003,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"IP range editor: {ip_editor_result['status'] if ip_editor_result else 'not_attempted'}",
         f"Board input: {board_input_result['status'] if board_input_result else 'not_attempted'}",
         f"Source click sent: {bool(oop_source_probe.get('click_sent', False))}",
+        f"Temporary GTO window move: {oop_source_probe.get('temporary_window_adjustment', {}).get('status', 'not_reported')}",
         f"Temporary GTO window move restored: {bool(oop_source_probe.get('window_position_restore_verified', True))}",
         f"Manual close required: {manual_close_required}",
         "Range/board/pot/stack/rake changed: no",
