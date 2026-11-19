@@ -1,0 +1,41 @@
+--- a/PigeonPoker.pyw
++++ b/PigeonPoker.pyw
+@@ -419,11 +419,33 @@
+         content = tk.Frame(canvas, bg=COLORS["bg"])
+         window_id = canvas.create_window((0, 0), window=content, anchor="nw")
+ 
+-        def _sync_scroll_region(_event=None, target=canvas):
+-            target.configure(scrollregion=target.bbox("all"))
+-
+-        def _fit_content_width(event, target=canvas, item=window_id):
+-            target.itemconfigure(item, width=event.width)
++        def _sync_scroll_region(_event=None, target=canvas,
++                                frame=content, item=window_id):
++            # A canvas window otherwise keeps only the Frame's requested height.
++            # Expanding child widgets such as Notebooks then collapse to their
++            # natural request size, leaving a large unused area below them.
++            # Fill the viewport when content is short, while preserving the
++            # full requested height for pages that genuinely need scrolling.
++            try:
++                viewport_height = max(1, target.winfo_height())
++                requested_height = max(1, frame.winfo_reqheight())
++                target.itemconfigure(item, height=max(viewport_height, requested_height))
++                target.configure(scrollregion=target.bbox("all"))
++            except tk.TclError:
++                return
++
++        def _fit_content_width(event, target=canvas, item=window_id,
++                               frame=content):
++            try:
++                target.itemconfigure(
++                    item,
++                    width=max(1, event.width),
++                    height=max(1, event.height, frame.winfo_reqheight()),
++                )
++                target.after_idle(lambda: _sync_scroll_region(
++                    target=target, frame=frame, item=item))
++            except tk.TclError:
++                return
+ 
+         content.bind("<Configure>", _sync_scroll_region, add="+")
+         canvas.bind("<Configure>", _fit_content_width, add="+")
