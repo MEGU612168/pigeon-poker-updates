@@ -43,6 +43,8 @@ _RANGE_EDITOR_DONE_CENTER = (460, 434)
 _BUILD_TREE_RECT = (24, 253, 85, 276)
 _BUILD_TREE_CENTER = (54, 265)
 _DIALOG_ROI = (100, 60, 515, 460)
+# Exclude left-side hover tooltips while keeping most of the range editor panel.
+_RANGE_EDITOR_VERIFY_ROI = (240, 60, 515, 460)
 
 
 def _client_geometry(user32, hwnd: int, RECT) -> tuple[int, int]:
@@ -1032,7 +1034,9 @@ def _run_oop_aa_commit_roundtrip(
             remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
         windows = capture_windows(label + "_after_done")
         path = _root_capture_path(windows, label + "_after_done")
-        appearance = _bmp_region_difference_ratio(baseline_path, path)
+        appearance = _bmp_region_difference_ratio(
+            baseline_path, path, _RANGE_EDITOR_VERIFY_ROI
+        )
         retry = None
         closed = not remaining and appearance["ratio"] <= 0.01
         if not closed:
@@ -1049,11 +1053,14 @@ def _run_oop_aa_commit_roundtrip(
                 remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
             windows = capture_windows(label + "_after_native_done")
             path = _root_capture_path(windows, label + "_after_native_done")
-            appearance = _bmp_region_difference_ratio(baseline_path, path)
+            appearance = _bmp_region_difference_ratio(
+                baseline_path, path, _RANGE_EDITOR_VERIFY_ROI
+            )
             closed = not remaining and appearance["ratio"] <= 0.01
         return closed, windows, {
             "click": done, "native_retry": retry,
             "baseline_difference": appearance,
+            "comparison_roi": list(_RANGE_EDITOR_VERIFY_ROI),
             "visible_source_edits_remaining": len(remaining),
         }
 
@@ -1216,7 +1223,7 @@ def _run_oop_aa_commit_roundtrip(
         final_path = _root_capture_path(restore_windows, "oop_aa_restore_after_done")
         final_signature = _bmp_matrix_center_signature(final_path)
         final_dialog_difference = _bmp_region_difference_ratio(
-            baseline_path, final_path
+            baseline_path, final_path, _RANGE_EDITOR_VERIFY_ROI
         )
         restored = (
             final_signature["samples"] == baseline_signature["samples"]
@@ -1645,9 +1652,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         stages.append(board_input_result)
 
     report = {
-        "schema_version": 11,
+        "schema_version": 12,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_aa_commit_roundtrip_and_clear_restore_v11_cell_centers",
+        "probe": "verified_gto_plus_oop_aa_commit_roundtrip_and_clear_restore_v12_tooltip_safe_close",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -1674,6 +1681,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         },
         "coordinate_reference": {
             "oop_matrix_cell_sample_centers": {"first": [29, 91], "step": [4, 4], "rows": 13, "columns": 13},
+            "range_editor_verification_roi": list(_RANGE_EDITOR_VERIFY_ROI),
             "client_size": list(_REFERENCE_SIZE),
             "oop_matrix_rect": list(_OOP_MATRIX_RECT),
             "oop_matrix_center": list(_OOP_MATRIX_CENTER),
