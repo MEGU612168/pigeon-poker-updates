@@ -58,7 +58,7 @@ jobs:
                   target.parent.mkdir(parents=True, exist_ok=True)
                   target.write_bytes(source.read(info.filename))
 
-          patch_path = workspace / "tools/v138-layout.patch"
+          patch_path = workspace / "tools/v138-layout-v2.patch"
           subprocess.run(["patch", "--batch", "--forward", "-p1", "-i", str(patch_path)],
                          cwd=work, check=True)
 
