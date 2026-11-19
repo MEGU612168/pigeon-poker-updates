@@ -558,7 +558,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     # Never click Done: the test text is read back and restored before closing.
     ip_editor_result = None
     board_input_result = None
-    manual_close_required = False
+    manual_close_required = not oop_closed_ok
     continue_after_oop = oop_closed_ok and oop_source_probe.get("status") != "source_field_test_incomplete"
     if continue_after_oop:
         ip_click = _click_exact_client(
@@ -597,6 +597,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             ip_close_check = _bmp_region_difference_ratio(baseline_path, ip_closed_path)
             all_captures.extend(w["capture"] for w in ip_closed_windows)
             ip_closed_ok = ip_close_check["ratio"] <= 0.01
+            manual_close_required = manual_close_required or not ip_closed_ok
             ip_editor_result = {
                 "stage": "ip_range_editor",
                 "status": "opened_and_closed_by_measured_x" if ip_closed_ok else "close_not_verified",
@@ -666,7 +667,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             not board_dialog_detected
             or (board_close_check and board_close_check["ratio"] <= 0.01)
         )
-        manual_close_required = board_dialog_detected and not board_closed_ok
+        manual_close_required = manual_close_required or (board_dialog_detected and not board_closed_ok)
         board_input_result = {
             "stage": "board_input",
             "status": (
