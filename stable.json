@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.39",
-  "published_at": "2026-11-19T09:44:52Z",
-  "release_notes": "スクリーンショットから復元した6-maxプリフロップ20ノードをCPUへ接続。169ハンドクラスの混合頻度を確率抽選し、未対応の局面は既存CPU判断へフォールバック。CPUレベル別の逸脱率を維持。",
+  "version": "1.3.40",
+  "published_at": "2026-11-19T10:29:28Z",
+  "release_notes": "v1.3.39のプリフロップ20ノード接続を修正。エンジンの実際のアクション履歴キー「player」を読み取り、UTG/HJ/CO/BTN/SB/BBのオープン・対オープン15局面をCPUが頻度参照。20ノード・3,380行を自動検証。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.39/payload-updater.zip.b64",
-  "payload_sha256": "666d57f71ebc1b3fb5fcfd6384dac5055145577b0269a215274d315104a00f96",
-  "payload_size": 194648
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.40/payload-updater.zip.b64",
+  "payload_sha256": "2a673efed7a33850150f56c0cb056ffb4cda66ca536d2db559dde2d9607d3023",
+  "payload_size": 194658
 }
