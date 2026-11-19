@@ -1,0 +1,121 @@
+@@ -4552,20 +4575,8 @@
+                 self._restore_cash_slot(previous_id)
+ 
+     def _board_squeeze_start_index(self, hand, previous_board_count: int) -> int | None:
+-        """Return the first turn/river card eligible for GG-style board squeeze.
+-
+-        GGPoker's published Hold'em/Rush & Cash condition is an all-in showdown
+-        with a pot strictly larger than 100 BB.  The flop is never squeezed;
+-        only unrevealed turn/river cards are candidates.
+-        """
+-        if hand is None or not hand.finished or len(hand.board) != 5:
+-            return None
+-        if not any(player.all_in for player in hand.players):
+-            return None
+-        if int(hand.pot) <= int(hand.big_blind) * 100:
+-            return None
+-        start = max(3, int(previous_board_count))
+-        return start if start < 5 else None
++        """Squeeze presentation has been removed; community cards reveal normally."""
++        return None
+ 
+     def _animate_board_reveal(self, table_id: str | None, target_board: list[str],
+                               ready_event: threading.Event | None=None,
+@@ -5216,7 +5227,9 @@
+             self._switch_cash_table(table_id)
+         if self.active_cash_table_id != table_id:
+             return
+-        if not self._ask_table_confirmation(
++        slot = self.multi_tables.get(table_id)
++        sitting_out = bool(slot and slot.state.get("cash_sitting_out", False))
++        if not sitting_out and not self._ask_table_confirmation(
+                 table_id, "テーブル退出", "このテーブルから退出しますか？\n進行中のハンドがあればフォールドして、残りのスタックをウォレットへ戻します。"):
+             return
+         if self.cash_busy:
+@@ -5755,6 +5768,20 @@
+                 legal_signature,
+             )
+             rebuild_actions = record.get("action_signature") != action_signature
++            if bool(state.get("cash_sitting_out", False)):
++                if rebuild_actions:
++                    for frame in (actions_frame, sizes_frame):
++                        for child in frame.winfo_children():
++                            child.destroy()
++                    record["bet_action_button"] = None
++                    record["action_signature"] = action_signature
++                record["status"].set("SITTING OUT • TABLE PAUSED")
++                record["detail"].set("YOUR SEAT AND STACK ARE PRESERVED • PRESS RESUME TO RETURN")
++                record["event"].set("Only your seat remains. No hand, board, opponents or pot are active.")
++                record["sitout_button"].configure(
++                    text="再開", command=lambda tid=slot.table_id: self._resume_cash_table(tid), state="normal")
++                self._sync_timebank_controls(slot.table_id)
++                continue
+             if rebuild_actions:
+                 for frame in (actions_frame, sizes_frame):
+                     for child in frame.winfo_children():
+@@ -5776,7 +5803,7 @@
+                 elif bool(state.get("cash_busy", False)):
+                     thinker = state.get("cash_thinking_player")
+                     if state.get("cash_deal_busy", False):
+-                        record["status"].set("DEALING / SQUEEZE")
++                        record["status"].set("DEALING")
+                     elif thinker:
+                         name = next((p.name for p in hand.players if p.player_id == thinker), "Opponent")
+                         record["status"].set(f"{name} THINKING…")
+@@ -5812,15 +5839,6 @@
+                         auto_fold_check.pack(side="left", padx=(12, 0))
+                 except tk.TclError:
+                     pass
+-            # Sit-out keeps the cash table, table ID, seat and remaining stack alive.
+-            if bool(state.get("cash_sitting_out", False)):
+-                record["status"].set("SITTING OUT • TABLE PRESERVED")
+-                record["detail"].set("YOUR SEAT AND STACK ARE PRESERVED • PRESS RESUME TO RETURN")
+-                record["sitout_button"].configure(text="再開", command=lambda tid=slot.table_id: self._resume_cash_table(tid), state="normal")
+-                # The persistent utility button changes to RESUME; avoid a
+-                # duplicate action-dock button stealing space from betting controls.
+-                self._sync_timebank_controls(slot.table_id)
+-                continue
+             if bool(state.get("cash_sitout_pending", False)):
+                 record["sitout_button"].configure(text="離席予約中", command=lambda tid=slot.table_id: self._cancel_table_sitout(tid), state="normal")
+             else:
+@@ -5866,7 +5884,7 @@
+                     record["status"].set(f"{phase} DEALING…")
+                     busy_text = f"{phase} • cards turning over…"
+                 elif state.get("cash_deal_busy", False):
+-                    record["status"].set("DEALING / SQUEEZE")
++                    record["status"].set("DEALING")
+                     busy_text = "Cards are being dealt…"
+                 elif state.get("cash_thinking_player"):
+                     thinker = next((p.name for p in hand.players if p.player_id == state.get("cash_thinking_player")), "Opponent")
+@@ -6103,6 +6121,30 @@
+                 gy = felt_cy + (v - .505) * h
+                 canvas.create_line(gx, gy, gx + 2.2, gy + .8,
+                                    fill=grain, width=1, tags=("felt_grain",))
++        if special_state.get("cash_sitting_out", False):
++            hero_seat = next((seat for seat in (getattr(table, "seats", []) or [])
++                              if str(seat.get("id", "")) == "hero"), None) if table is not None else None
++            hero_stack = int(hero_seat.get("stack", 0) or 0) if hero_seat else 0
++            canvas.create_text(w*.5, h*.43, text="一時離席中", fill="#f4d68b",
++                               font=("Segoe UI", 18, "bold"), tags=("sitout_empty_table",))
++            canvas.create_text(w*.5, h*.49, text="TABLE PAUSED • YOUR SEAT IS RESERVED",
++                               fill="#b8cfc3", font=("Segoe UI", 9, "bold"),
++                               tags=("sitout_empty_table",))
++            # The player stays seated; every opponent, card, board and pot/chip
++            # graphic is intentionally omitted until RESUME starts a new hand.
++            seat_x, seat_y = w*.5, h*.82
++            panel_w, panel_h = min(210, w*.32), 54
++            canvas.create_rectangle(seat_x-panel_w/2, seat_y-panel_h/2,
++                                    seat_x+panel_w/2, seat_y+panel_h/2,
++                                    fill="#173d32", outline="#d3b36d", width=2,
++                                    tags=("sitout_hero_seat",))
++            canvas.create_text(seat_x, seat_y-8, text="YOU", fill="#ffffff",
++                               font=("Segoe UI", 10, "bold"), tags=("sitout_hero_seat",))
++            canvas.create_text(seat_x, seat_y+12,
++                               text=self._format_table_chips(hero_stack, getattr(table, "big_blind", self.cash_bb)),
++                               fill="#f5dfaa", font=("Segoe UI", 9, "bold"),
++                               tags=("sitout_hero_seat",))
++            return
+         if table is None or table.hand is None:
+             canvas.create_text(w/2, h/2, text="CASH & RUSH  •  WAITING FOR HAND", fill="white",
+                                font=("Segoe UI", 16, "bold"))
+         hand = table.hand
