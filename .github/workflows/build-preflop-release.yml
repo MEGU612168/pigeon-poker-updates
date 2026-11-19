@@ -45,8 +45,7 @@ jobs:
           module_source = zlib.decompress(compressed_module)
           module_text = module_source.decode("utf-8")
           ast.parse(module_text, filename="preflop_screenshot_ranges.py")
-          if "3380" not in module_text or "20" not in module_text:
-              raise SystemExit("Screenshot policy module is missing the expected range dataset.")
+          # Full dataset shape is validated after loading the module below.
 
           # Download only the currently published stable package and verify its
           # manifest hash and size before using it as the update base.
