@@ -154,6 +154,9 @@ class LiveAutoSolveRangeTests(unittest.TestCase):
             "AA,AKo:0.75,AKs:0.5,KQs:0.125"
         )
 
+    def test_gto_plus_single_pair_half_weight_serialization(self):
+        self.assertEqual(to_gto_plus_range_text("AA:0.5000"), "AA:0.5")
+
     def test_gto_plus_converter_rejects_invalid_or_ambiguous_ranges(self):
         for source in ("AKs", "AKs:1.2", "AKs:-0.1", "A2x:0.5", "AKs:0.5,AKs:0.2"):
             with self.subTest(source=source):
