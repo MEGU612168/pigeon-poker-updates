@@ -247,3 +247,5 @@ def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_
 # Rebuild v1.3.41 with direct stable-manifest publication.
 
 # Rebuild v1.3.42 with visual dialog verification.
+
+# Rebuild v1.3.42 after bundling the diagnostic's ui_probe dependency.
