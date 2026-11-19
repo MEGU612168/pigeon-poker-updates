@@ -24,7 +24,7 @@ from typing import Any
 from . import ui_probe as probe
 
 _REFERENCE_SIZE = (665, 570)
-_OOP_MATRIX_RECT = (27, 88, 82, 144)
+_OOP_MATRIX_RECT = (27, 89, 79, 141)
 _OOP_MATRIX_CENTER = (54, 116)
 _OOP_CLOSE_RECT = (488, 66, 504, 84)
 _OOP_CLOSE_CENTER = (496, 75)
@@ -1436,8 +1436,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     board_input_result = None
     manual_close_required = (not oop_closed_ok
                              or not oop_source_probe.get("window_position_restore_verified", True)
-                             or bool(oop_roundtrip.get("manual_close_required"))
-                             or not oop_roundtrip_ok)
+                             or bool(oop_roundtrip.get("manual_close_required")))
     continue_after_oop = (oop_closed_ok
                           and oop_source_probe.get("status") != "source_field_test_incomplete"
                           and oop_source_probe.get("window_position_restore_verified", True)
@@ -1646,9 +1645,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         stages.append(board_input_result)
 
     report = {
-        "schema_version": 10,
+        "schema_version": 11,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_aa_commit_roundtrip_and_clear_restore_v10",
+        "probe": "verified_gto_plus_oop_aa_commit_roundtrip_and_clear_restore_v11_cell_centers",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -1665,7 +1664,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "no_keyboard_input_without_unique_native_edit": True,
             "source_text_readback_required": True,
             "original_text_restore_readback_required": True,
-            "done_button_clicked_for_oop_aa_test": True,
+            "done_button_clicked_for_oop_aa_test": bool(oop_roundtrip.get("range_committed_temporarily")),
             "oop_aa_committed_temporarily": bool(oop_roundtrip.get("range_committed_temporarily")),
             "oop_aa_only_matrix_reflection_verified": bool(oop_roundtrip.get("aa_only_matrix_reflection_verified")),
             "oop_aa_restored": bool(oop_roundtrip.get("range_restored")),
@@ -1674,6 +1673,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "temporary_window_position_restore_required": True,
         },
         "coordinate_reference": {
+            "oop_matrix_cell_sample_centers": {"first": [29, 91], "step": [4, 4], "rows": 13, "columns": 13},
             "client_size": list(_REFERENCE_SIZE),
             "oop_matrix_rect": list(_OOP_MATRIX_RECT),
             "oop_matrix_center": list(_OOP_MATRIX_CENTER),
