@@ -1026,9 +1026,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         stages.append(board_input_result)
 
     report = {
-        "schema_version": 5,
+        "schema_version": 6,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_ip_source_hit_test_and_board_selector_close_v5",
+        "probe": "verified_gto_plus_oop_ip_source_hit_test_and_parent_relative_child_move_v6",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
