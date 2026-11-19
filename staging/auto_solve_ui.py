@@ -36,6 +36,10 @@ _BOARD_INPUT_RECT = (23, 230, 85, 248)
 _BOARD_INPUT_CENTER = (54, 239)
 _BOARD_CLOSE_RECT = (277, 71, 291, 85)
 _BOARD_CLOSE_CENTER = (284, 78)
+_RANGE_EDITOR_CLEAR_RECT = (417, 307, 502, 331)
+_RANGE_EDITOR_CLEAR_CENTER = (460, 319)
+_RANGE_EDITOR_DONE_RECT = (417, 422, 502, 447)
+_RANGE_EDITOR_DONE_CENTER = (460, 434)
 _BUILD_TREE_RECT = (24, 253, 85, 276)
 _BUILD_TREE_CENTER = (54, 265)
 _DIALOG_ROI = (100, 60, 515, 460)
@@ -226,6 +230,8 @@ def _click_exact_client(user32, root_hwnd: int, root_pid: int,
         "focus_range_source_field": _RANGE_SOURCE_FIELD_RECT,
         "focus_board_input": _BOARD_INPUT_RECT,
         "close_board_selector": _BOARD_CLOSE_RECT,
+        "clear_range_editor": _RANGE_EDITOR_CLEAR_RECT,
+        "commit_range_editor_done": _RANGE_EDITOR_DONE_RECT,
         "close_oop_range_editor": _OOP_CLOSE_RECT,
         "open_build_tree_setup": _BUILD_TREE_RECT,
     }
@@ -903,6 +909,362 @@ def _probe_source_field_readback_restore_at_current_position(user32, root_hwnd: 
         "text_changed": not restore_verified, "range_committed": False, "done_clicked": False,
     }
 
+
+
+def _bmp_matrix_center_signature(path: str | Path,
+                                 roi: tuple[int, int, int, int] = _OOP_MATRIX_RECT) -> dict[str, Any]:
+    """Read one interior pixel per cell from the 13x13 miniature range matrix."""
+    data = Path(path).read_bytes()
+    if len(data) < 54 or data[:2] != b"BM":
+        raise ValueError("matrix capture is not a Windows BMP")
+    offset = struct.unpack_from("<I", data, 10)[0]
+    width, signed_height, planes, bpp, compression = struct.unpack_from("<iiHHI", data, 18)
+    height = abs(signed_height)
+    if width <= 0 or height <= 0 or planes != 1 or bpp != 32 or compression != 0:
+        raise ValueError("matrix capture is not an uncompressed 32-bit BMP")
+    stride = ((width*bpp+31)//32)*4
+    if offset + stride*height > len(data):
+        raise ValueError("matrix BMP pixel data is truncated")
+    x0, y0, x1, y1 = roi
+    if not (0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height):
+        raise ValueError(f"matrix ROI outside capture dimensions: {roi}")
+    samples: list[list[int]] = []
+    for row in range(13):
+        y = int(y0 + (row + 0.5) * (y1-y0) / 13)
+        source_y = y if signed_height < 0 else height-1-y
+        for col in range(13):
+            x = int(x0 + (col + 0.5) * (x1-x0) / 13)
+            index = offset + source_y*stride + x*4
+            blue, green, red = data[index], data[index+1], data[index+2]
+            samples.append([red, green, blue])
+    return {"roi": list(roi), "samples": samples}
+
+
+def _matrix_signature_is_empty(signature: dict[str, Any], threshold: int = 16) -> bool:
+    samples = (signature or {}).get("samples")
+    return (
+        isinstance(samples, list) and len(samples) == 169
+        and all(
+            isinstance(rgb, list) and len(rgb) == 3
+            and max(int(channel) for channel in rgb) <= int(threshold)
+            for rgb in samples
+        )
+    )
+
+
+def _matrix_signature_is_aa_only(
+    signature: dict[str, Any], baseline: dict[str, Any], threshold: int = 16
+) -> bool:
+    samples = (signature or {}).get("samples")
+    base = (baseline or {}).get("samples")
+    if not isinstance(samples, list) or not isinstance(base, list):
+        return False
+    if len(samples) != 169 or len(base) != 169:
+        return False
+    changed = [
+        i for i, (current, original) in enumerate(zip(samples, base))
+        if max(abs(int(current[c])-int(original[c])) for c in range(3)) > threshold
+    ]
+    return (
+        changed == [0]
+        and max(int(channel) for channel in samples[0]) > threshold
+    )
+
+
+def _run_oop_aa_commit_roundtrip(
+    user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+    output_dir: Path, stem: str, target_hwnd: int, target_pid: int,
+    host_hwnd: int, baseline_path: str
+) -> dict[str, Any]:
+    """Commit OOP=AA once, verify its cell, then clear and prove exact restoration.
+
+    Runs only when all 169 OOP mini-matrix sample points are black. If any
+    existing range is present, it refuses to use Clear. It never touches IP,
+    Board, pot, stack, rake, Build Tree, or Solver.
+    """
+    report: dict[str, Any] = {
+        "stage": "oop_aa_commit_roundtrip",
+        "status": "not_started",
+        "test_range": "AA",
+        "test_range_weight": 1.0,
+        "range_committed_temporarily": False,
+        "range_restored": False,
+        "tree_built": False,
+        "solver_run": False,
+        "actions": [],
+        "captures": [],
+        "capture_windows": [],
+        "manual_close_required": False,
+    }
+    baseline_signature = _bmp_matrix_center_signature(baseline_path)
+    report["baseline_matrix_signature"] = baseline_signature
+    if not _matrix_signature_is_empty(baseline_signature):
+        report["status"] = "skipped_initial_oop_range_not_empty"
+        report["note"] = "The OOP matrix is not visually empty; Clear was not used and no range was changed."
+        return report
+
+    position: dict[str, Any] = {"moved": False, "status": "not_attempted"}
+    editor_open = False
+    test_committed = False
+
+    def capture_windows(stage: str):
+        windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, stage
+        )
+        report["capture_windows"].extend(windows)
+        return windows
+
+    def add_capture(capture):
+        if capture:
+            report["captures"].append(capture)
+
+    def close_editor_via_done(label: str) -> tuple[bool, list[dict[str, Any]], dict[str, Any] | None]:
+        done = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _RANGE_EDITOR_DONE_CENTER, label="commit_range_editor_done"
+        )
+        report["actions"].append(done)
+        deadline = time.monotonic() + 1.5
+        remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
+        while remaining and time.monotonic() < deadline:
+            time.sleep(0.10)
+            remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
+        windows = capture_windows(label + "_after_done")
+        path = _root_capture_path(windows, label + "_after_done")
+        appearance = _bmp_region_difference_ratio(baseline_path, path)
+        retry = None
+        closed = not remaining and appearance["ratio"] <= 0.01
+        if not closed:
+            retry = _click_verified_gto_hit_target(
+                user32, target_hwnd, target_pid, RECT, POINT,
+                _RANGE_EDITOR_DONE_CENTER,
+                label=label + "_done_native_retry"
+            )
+            report["actions"].append(retry)
+            deadline = time.monotonic() + 1.5
+            remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
+            while remaining and time.monotonic() < deadline:
+                time.sleep(0.10)
+                remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
+            windows = capture_windows(label + "_after_native_done")
+            path = _root_capture_path(windows, label + "_after_native_done")
+            appearance = _bmp_region_difference_ratio(baseline_path, path)
+            closed = not remaining and appearance["ratio"] <= 0.01
+        return closed, windows, {
+            "click": done, "native_retry": retry,
+            "baseline_difference": appearance,
+            "visible_source_edits_remaining": len(remaining),
+        }
+
+    try:
+        open_click = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _OOP_MATRIX_CENTER, label="open_oop_range_editor"
+        )
+        report["actions"].append(open_click)
+        time.sleep(0.55)
+        opened_windows = capture_windows("oop_aa_roundtrip_editor_open")
+        opened_path = _root_capture_path(opened_windows, "oop_aa_roundtrip_editor_open")
+        opened_appearance = _bmp_region_difference_ratio(baseline_path, opened_path)
+        report["editor_open_difference"] = opened_appearance
+        if opened_appearance["ratio"] < 0.05:
+            raise RuntimeError("OOP editor did not visibly open; no test range was entered")
+        editor_open = True
+
+        position = _temporary_source_field_window_adjustment(
+            user32, target_hwnd, RECT, POINT
+        )
+        report["temporary_window_adjustment"] = position
+        source_probe = _probe_source_field_readback_restore_at_current_position(
+            user32, target_hwnd, EnumWindowsProc, EnumChildProc,
+            RECT, POINT, output_dir, stem, "OOP"
+        )
+        report["source_field_probe"] = source_probe
+        if source_probe.get("temporary_capture"):
+            add_capture(source_probe["temporary_capture"])
+        if source_probe.get("restored_capture"):
+            add_capture(source_probe["restored_capture"])
+        if source_probe.get("status") != "write_readback_and_restore_verified":
+            raise RuntimeError(
+                "OOP Source field did not pass the reversible blank-field test: "
+                + str(source_probe.get("status"))
+            )
+        edit_hwnd = int(source_probe.get("edit_hwnd") or 0)
+        if (
+            not edit_hwnd
+            or not user32.IsWindow(probe.wintypes.HWND(edit_hwnd))
+            or probe._window_pid(user32, edit_hwnd) != int(target_pid)
+            or probe._class_name(user32, edit_hwnd) != "Edit"
+            or int(user32.GetDlgCtrlID(probe.wintypes.HWND(edit_hwnd))) != 5458
+            or not probe._window_is_related_to_embedded_target(
+                user32, edit_hwnd, target_hwnd, host_hwnd
+            )
+        ):
+            raise RuntimeError("OOP Source Edit identity changed before commit; no text was committed")
+        original_text = probe._read_native_edit_text(user32, edit_hwnd)
+        if original_text != "":
+            raise RuntimeError("OOP Source field is no longer blank; preserving it and aborting")
+
+        probe._write_native_edit_text(user32, edit_hwnd, "AA")
+        test_readback = probe._read_native_edit_text(user32, edit_hwnd)
+        report["test_source_readback"] = test_readback
+        if test_readback != "AA":
+            probe._write_native_edit_text(user32, edit_hwnd, original_text)
+            raise RuntimeError("AA did not read back exactly; source field was restored and Done was not clicked")
+        typed_capture = probe._batch_capture(
+            user32, target_hwnd, RECT, POINT, output_dir, stem,
+            "oop_aa_roundtrip_before_done"
+        )
+        add_capture(typed_capture)
+        if typed_capture.get("capture_error"):
+            probe._write_native_edit_text(user32, edit_hwnd, original_text)
+            raise RuntimeError("Pre-Done image capture failed; Source field was restored")
+
+        closed_after_test, test_windows, test_done = close_editor_via_done("oop_aa_test")
+        report["test_done"] = test_done
+        editor_open = not closed_after_test
+        if not closed_after_test:
+            edits = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
+            if len(edits) == 1:
+                current_text = probe._read_native_edit_text(user32, edits[0][0])
+                if current_text == "AA":
+                    probe._write_native_edit_text(user32, edits[0][0], "")
+            report["status"] = "test_done_not_closed"
+            report["manual_close_required"] = True
+            report["note"] = "Done could not be visually confirmed; test text may remain in the open editor."
+            return report
+
+        test_committed = True
+        report["range_committed_temporarily"] = True
+        test_path = _root_capture_path(test_windows, "oop_aa_test_after_done")
+        test_signature = _bmp_matrix_center_signature(test_path)
+        aa_visible = _matrix_signature_is_aa_only(test_signature, baseline_signature)
+        report["test_matrix_signature"] = test_signature
+        report["aa_only_matrix_reflection_verified"] = aa_visible
+
+        reopen_click = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _OOP_MATRIX_CENTER, label="open_oop_range_editor"
+        )
+        report["actions"].append(reopen_click)
+        time.sleep(0.55)
+        restore_open_windows = capture_windows("oop_aa_restore_editor_open")
+        restore_open_path = _root_capture_path(
+            restore_open_windows, "oop_aa_restore_editor_open"
+        )
+        restore_open_appearance = _bmp_region_difference_ratio(
+            baseline_path, restore_open_path
+        )
+        report["restore_editor_open_difference"] = restore_open_appearance
+        if restore_open_appearance["ratio"] < 0.05:
+            raise RuntimeError("OOP editor did not reopen for restoration")
+        editor_open = True
+
+        restore_probe = _probe_source_field_readback_restore_at_current_position(
+            user32, target_hwnd, EnumWindowsProc, EnumChildProc,
+            RECT, POINT, output_dir, stem, "OOP"
+        )
+        report["restore_source_field_probe"] = restore_probe
+        if restore_probe.get("temporary_capture"):
+            add_capture(restore_probe["temporary_capture"])
+        if restore_probe.get("restored_capture"):
+            add_capture(restore_probe["restored_capture"])
+        restore_edit = int(restore_probe.get("edit_hwnd") or 0)
+        if (
+            not restore_edit
+            or not user32.IsWindow(probe.wintypes.HWND(restore_edit))
+            or probe._window_pid(user32, restore_edit) != int(target_pid)
+            or probe._class_name(user32, restore_edit) != "Edit"
+            or int(user32.GetDlgCtrlID(probe.wintypes.HWND(restore_edit))) != 5458
+            or not probe._window_is_related_to_embedded_target(
+                user32, restore_edit, target_hwnd, host_hwnd
+            )
+        ):
+            raise RuntimeError("Could not uniquely re-identify OOP Source Edit for restoration")
+        current_text = probe._read_native_edit_text(user32, restore_edit)
+        if current_text == "AA":
+            probe._write_native_edit_text(user32, restore_edit, "")
+            if probe._read_native_edit_text(user32, restore_edit) != "":
+                raise RuntimeError("Could not clear the test-only AA Source text")
+        elif current_text != "":
+            raise RuntimeError(
+                "Source field contains text other than the known AA test; preserved it and stopped"
+            )
+
+        clear_click = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _RANGE_EDITOR_CLEAR_CENTER, label="clear_range_editor"
+        )
+        report["actions"].append(clear_click)
+        time.sleep(0.30)
+        clear_capture = probe._batch_capture(
+            user32, target_hwnd, RECT, POINT, output_dir, stem,
+            "oop_aa_roundtrip_after_clear"
+        )
+        add_capture(clear_capture)
+        if clear_capture.get("capture_error"):
+            raise RuntimeError("Could not capture OOP editor after Clear; Done was not clicked")
+        closed_after_restore, restore_windows, restore_done = close_editor_via_done(
+            "oop_aa_restore"
+        )
+        report["restore_done"] = restore_done
+        editor_open = not closed_after_restore
+        if not closed_after_restore:
+            report["manual_close_required"] = True
+            raise RuntimeError("OOP editor did not close after Clear/Done")
+        final_path = _root_capture_path(restore_windows, "oop_aa_restore_after_done")
+        final_signature = _bmp_matrix_center_signature(final_path)
+        final_dialog_difference = _bmp_region_difference_ratio(
+            baseline_path, final_path
+        )
+        restored = (
+            final_signature["samples"] == baseline_signature["samples"]
+            and final_dialog_difference["ratio"] <= 0.01
+        )
+        report["final_matrix_signature"] = final_signature
+        report["final_matrix_difference"] = _bmp_region_difference_ratio(
+            baseline_path, final_path, _OOP_MATRIX_RECT
+        )
+        report["final_dialog_difference"] = final_dialog_difference
+        report["range_restored"] = restored
+        report["editor_closed_after_restore"] = True
+        report["status"] = (
+            "aa_committed_and_visually_restored"
+            if aa_visible and restored
+            else "aa_commit_not_visually_proven_but_restoration_verified"
+            if restored
+            else "range_restoration_not_verified"
+        )
+        report["note"] = (
+            "AA was committed, its OOP matrix cell was checked, then Clear/Done restored "
+            "the exact 13x13 baseline sample signature. No solver/tree action was performed."
+            if restored else
+            "The test commit was attempted, but the final OOP matrix does not match its baseline."
+        )
+        return report
+    except Exception as exc:
+        report["status"] = "safe_stop_during_oop_roundtrip"
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        report["editor_open_at_stop"] = editor_open
+        report["test_range_may_remain_committed"] = bool(test_committed and not report.get("range_restored"))
+        report["manual_close_required"] = bool(editor_open)
+        return report
+    finally:
+        if position.get("moved"):
+            restore_position = _restore_source_field_window_position(
+                user32, target_hwnd, RECT, position
+            )
+            report["temporary_window_restore"] = restore_position
+            report["window_position_restore_verified"] = bool(
+                restore_position.get("verified")
+            )
+            if not restore_position.get("verified"):
+                report["manual_close_required"] = True
+                if report.get("range_restored"):
+                    report["status"] = "range_restored_but_window_position_restore_failed"
+
+
 def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: int) -> Path:
     if os.name != "nt":
         raise OSError("This GTO+ setup probe is Windows-only.")
@@ -1043,15 +1405,42 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     })
     stages.append(oop_source_probe)
 
+    # Stage 1b: one reversible OOP=AA commit test. Clear is allowed only after
+    # the starting OOP matrix has been proven empty by all 169 sample points.
+    oop_roundtrip = _run_oop_aa_commit_roundtrip(
+        user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+        output_dir, stem, target_hwnd, target_pid, host, baseline_path
+    )
+    actions.extend(oop_roundtrip.get("actions", []))
+    for capture in oop_roundtrip.get("captures", []):
+        if capture:
+            all_captures.append(capture)
+    for window in oop_roundtrip.get("capture_windows", []):
+        capture = window.get("capture") if isinstance(window, dict) else None
+        if capture:
+            all_captures.append(capture)
+    stages.append(oop_roundtrip)
+
+    oop_roundtrip_ok = bool(
+        oop_roundtrip.get("range_restored")
+        and oop_roundtrip.get("editor_closed_after_restore")
+        and oop_roundtrip.get("window_position_restore_verified", True)
+    )
+    if oop_roundtrip.get("status") == "skipped_initial_oop_range_not_empty":
+        oop_roundtrip_ok = False
+
     # Stage 2: calibrate the IP Source field using the same reversible AA test.
     # Never click Done: the test text is read back and restored before closing.
     ip_editor_result = None
     board_input_result = None
     manual_close_required = (not oop_closed_ok
-                             or not oop_source_probe.get("window_position_restore_verified", True))
+                             or not oop_source_probe.get("window_position_restore_verified", True)
+                             or bool(oop_roundtrip.get("manual_close_required"))
+                             or not oop_roundtrip_ok)
     continue_after_oop = (oop_closed_ok
                           and oop_source_probe.get("status") != "source_field_test_incomplete"
-                          and oop_source_probe.get("window_position_restore_verified", True))
+                          and oop_source_probe.get("window_position_restore_verified", True)
+                          and oop_roundtrip_ok)
     if continue_after_oop:
         ip_click = _click_exact_client(
             user32, target_hwnd, target_pid, RECT, POINT, _IP_MATRIX_CENTER,
@@ -1256,9 +1645,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         stages.append(board_input_result)
 
     report = {
-        "schema_version": 9,
+        "schema_version": 10,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_ip_source_view_focus_native_edit_and_native_close_retry_v9",
+        "probe": "verified_gto_plus_oop_aa_commit_roundtrip_and_clear_restore_v10",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -1311,6 +1700,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                 for stage in stages if stage.get("stage") == "ip_source_field"
             ),
             "range_committed": False,
+            "oop_test_range_temporarily_committed": bool(oop_roundtrip.get("range_committed_temporarily")),
+            "oop_test_range_restored": bool(oop_roundtrip.get("range_restored")),
             "board_changed": False,
             "pot_changed": False,
             "stack_changed": False,

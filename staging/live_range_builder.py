@@ -60,11 +60,12 @@ def _weighted_range(rows, node_id, action):
     return ",".join(f"{combo}:{weight:.4f}" for combo,weight in selected),len(selected)
 
 def to_gto_plus_range_text(weighted_range: str) -> str:
-    """Convert internal HAND:WEIGHT pairs into GTO+'s bracket-weighted range syntax.
+    """Convert HAND:WEIGHT pairs to GTO+'s native weighted-range text syntax.
 
-    Example: 'AA:1.0000,AKs:0.5000,KQo:0.0000' -> 'AA,[50]AKs[/50]'.
-    GTO+ uses percentages inside square-bracket blocks; unbracketed hands are 100%.
-    Example output: AA,[50]AKs[/50] (full weight AA, half-frequency AKs).
+    GTO+ release notes document weighted inputs in the form
+    AA-77:0.8,AKs-A4s:0.3. Full-weight hands are emitted without a suffix;
+    partial weights use a fractional suffix such as AKs:0.5; zero-weight hands
+    are omitted.
     """
     if not isinstance(weighted_range, str):
         raise TypeError("weighted_range must be a string")
@@ -72,8 +73,7 @@ def to_gto_plus_range_text(weighted_range: str) -> str:
         return ""
 
     rank_order = "23456789TJQKA"
-    full_weight: list[str] = []
-    weighted_groups: dict[float, list[str]] = {}
+    parsed: list[tuple[str, float]] = []
     seen: set[str] = set()
 
     for raw_token in weighted_range.split(","):
@@ -84,7 +84,11 @@ def to_gto_plus_range_text(weighted_range: str) -> str:
             raise ValueError(f"weighted range token has no weight: {token!r}")
         hand, raw_weight = (part.strip() for part in token.rsplit(":", 1))
         normalized = hand.upper()
-        valid_pair = len(normalized) == 2 and normalized[0] == normalized[1] and normalized[0] in rank_order
+        valid_pair = (
+            len(normalized) == 2
+            and normalized[0] == normalized[1]
+            and normalized[0] in rank_order
+        )
         valid_nonpair = (
             len(normalized) == 3
             and normalized[0] in rank_order
@@ -98,31 +102,30 @@ def to_gto_plus_range_text(weighted_range: str) -> str:
         if normalized in seen:
             raise ValueError(f"duplicate hand class in weighted range: {normalized}")
         seen.add(normalized)
-        hand = normalized if valid_pair else normalized[:2] + normalized[2].lower()
+        normalized_hand = (
+            normalized if valid_pair else normalized[:2] + normalized[2].lower()
+        )
         try:
             weight = float(raw_weight)
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"invalid weight for {hand}: {raw_weight!r}") from exc
+            raise ValueError(
+                f"invalid weight for {normalized_hand}: {raw_weight!r}"
+            ) from exc
         if not 0.0 <= weight <= 1.0:
-            raise ValueError(f"weight for {hand} is outside 0..1: {weight}")
-        if weight <= 0.0:
-            continue
-        if weight >= 1.0:
-            full_weight.append(hand)
-            continue
-        percentage = round(weight * 100.0, 4)
-        if percentage <= 0.0:
-            continue
-        weighted_groups.setdefault(percentage, []).append(hand)
+            raise ValueError(
+                f"weight for {normalized_hand} is outside 0..1: {weight}"
+            )
+        if weight > 0.0:
+            parsed.append((normalized_hand, weight))
 
-    sections: list[str] = []
-    if full_weight:
-        sections.append(",".join(sorted(full_weight)))
-    for percentage in sorted(weighted_groups, reverse=True):
-        value = f"{percentage:.4f}".rstrip("0").rstrip(".")
-        hands = ",".join(sorted(weighted_groups[percentage]))
-        sections.append(f"[{value}]{hands}[/{value}]")
-    return ",".join(sections)
+    output: list[str] = []
+    for hand, weight in sorted(parsed, key=lambda item: item[0]):
+        if weight >= 1.0:
+            output.append(hand)
+        else:
+            value = f"{weight:.4f}".rstrip("0").rstrip(".")
+            output.append(f"{hand}:{value}")
+    return ",".join(output)
 
 
 def _required_tree_sizes(postflop_line, oop_player_id: str, ip_player_id: str):
