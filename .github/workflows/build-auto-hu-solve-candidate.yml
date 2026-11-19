@@ -58,8 +58,8 @@ jobs:
               if "def _run_auto_solve_ui_probe" not in main:
                   raise SystemExit("Stable base is missing the GTO+ diagnostic action")
               # The probe now commits a temporary OOP=AA test, then clears and verifies restoration.
-              if "import zipfile\\n" not in main:
-                  main=main.replace("import json\\n","import json\\nimport zipfile\\n",1)
+              if "import zipfile\n" not in main:
+                  main=main.replace("import json\n","import json\nimport zipfile\n",1)
               ui_replacements = [
                   ("Read-only calibration of the exact embedded GTO+ range/Build Tree dialogs.",
                    "Run a reversible OOP=AA range commit/clear test and inspect the setup dialogs."),
