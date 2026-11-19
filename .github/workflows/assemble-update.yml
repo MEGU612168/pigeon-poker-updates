@@ -52,7 +52,7 @@ jobs:
                   raise SystemExit("Release marker has no release.json: " + str(path))
               candidate_meta = json.loads(meta_path.read_text(encoding="utf-8"))
               candidate_version = str(candidate_meta.get("version", ""))
-              numbers = re.findall(r"\\d+", candidate_version)
+              numbers = [part for part in candidate_version.lstrip("v").split(".") if part.isdigit()]
               if not numbers:
                   raise SystemExit("Release marker has an invalid version: " + str(path))
               return tuple(int(number) for number in numbers)
