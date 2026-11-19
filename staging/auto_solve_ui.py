@@ -275,7 +275,197 @@ def _source_field_underlay_is_verified_edit(observation: dict[str, Any] | None,
         return False
 
 
+def _temporary_source_field_window_adjustment(user32, root_hwnd: int,
+                                                 RECT) -> dict[str, Any]:
+    """Move only the exact GTO top-level window enough to expose its lower Source field.
+
+    The original screen position is returned for a checked restoration immediately
+    after the reversible field probe. Child windows are never moved with screen
+    coordinates because their SetWindowPos coordinates are parent-relative.
+    """
+    hwnd = probe.wintypes.HWND(root_hwnd)
+    original_rect = probe._rect(user32, RECT, root_hwnd)
+    if not original_rect:
+        return {"status": "window_rect_unavailable", "moved": False}
+    style = int(user32.GetWindowLongW(hwnd, -16))
+    if style & 0x40000000:  # WS_CHILD
+        return {
+            "status": "not_moved_child_window",
+            "moved": False,
+            "window_style": style,
+            "original_rect": original_rect,
+        }
+
+    work = RECT()
+    try:
+        spi = user32.SystemParametersInfoW
+        spi.argtypes = [probe.wintypes.UINT, probe.wintypes.UINT,
+                        probe.ctypes.c_void_p, probe.wintypes.UINT]
+        spi.restype = probe.wintypes.BOOL
+        got_work = bool(spi(0x0030, 0, probe.ctypes.byref(work), 0))  # SPI_GETWORKAREA
+    except Exception:
+        got_work = False
+    if not got_work:
+        return {
+            "status": "work_area_unavailable",
+            "moved": False,
+            "window_style": style,
+            "original_rect": original_rect,
+        }
+
+    client = RECT()
+    if not user32.GetClientRect(hwnd, probe.ctypes.byref(client)):
+        return {"status": "client_rect_unavailable", "moved": False,
+                "original_rect": original_rect}
+    origin = POINT(int(client.left), int(client.top))
+    if not user32.ClientToScreen(hwnd, probe.ctypes.byref(origin)):
+        return {"status": "client_origin_unavailable", "moved": False,
+                "original_rect": original_rect}
+    source_bottom = int(origin.y + _RANGE_SOURCE_FIELD_RECT[3])
+    work_bottom = int(work.bottom)
+    if source_bottom <= work_bottom - 8:
+        return {
+            "status": "already_inside_work_area",
+            "moved": False,
+            "window_style": style,
+            "original_rect": original_rect,
+            "work_area": [int(work.left), int(work.top), int(work.right), int(work.bottom)],
+            "source_field_bottom_screen_before": source_bottom,
+        }
+
+    width = int(original_rect[2] - original_rect[0])
+    height = int(original_rect[3] - original_rect[1])
+    work_height = int(work.bottom - work.top)
+    if height <= work_height - 16:
+        target_y = int(work.top + 8)
+    else:
+        client_offset_y = int(origin.y - original_rect[1])
+        target_y = int(work.bottom - 8 - _RANGE_SOURCE_FIELD_RECT[3] - client_offset_y)
+        target_y = max(int(work.top + 4), target_y)
+    try:
+        set_pos = user32.SetWindowPos
+        set_pos.argtypes = [probe.wintypes.HWND, probe.wintypes.HWND,
+                            probe.wintypes.INT, probe.wintypes.INT,
+                            probe.wintypes.INT, probe.wintypes.INT,
+                            probe.wintypes.UINT]
+        set_pos.restype = probe.wintypes.BOOL
+        moved = bool(set_pos(hwnd, probe.wintypes.HWND(0),
+                             int(original_rect[0]), target_y, 0, 0,
+                             0x0001 | 0x0004 | 0x0010))  # NOSIZE|NOZORDER|NOACTIVATE
+    except Exception:
+        moved = False
+    if not moved:
+        return {
+            "status": "temporary_move_failed",
+            "moved": False,
+            "window_style": style,
+            "original_rect": original_rect,
+            "target_y": target_y,
+            "work_area": [int(work.left), int(work.top), int(work.right), int(work.bottom)],
+        }
+
+    new_rect = probe._rect(user32, RECT, root_hwnd)
+    new_origin = POINT(int(client.left), int(client.top))
+    origin_ok = bool(user32.ClientToScreen(hwnd, probe.ctypes.byref(new_origin)))
+    new_source_bottom = int(new_origin.y + _RANGE_SOURCE_FIELD_RECT[3]) if origin_ok else 10**9
+    verified = bool(
+        new_rect and abs(int(new_rect[1]) - target_y) <= 3
+        and origin_ok and new_source_bottom <= work_bottom - 2
+    )
+    if not verified:
+        set_pos(hwnd, probe.wintypes.HWND(0), int(original_rect[0]),
+                int(original_rect[1]), 0, 0, 0x0001 | 0x0004 | 0x0010)
+        return {
+            "status": "temporary_move_not_verified",
+            "moved": False,
+            "window_style": style,
+            "original_rect": original_rect,
+            "observed_rect_after_move": new_rect,
+            "target_y": target_y,
+            "source_field_bottom_screen_after": new_source_bottom,
+            "work_area": [int(work.left), int(work.top), int(work.right), int(work.bottom)],
+        }
+    return {
+        "status": "temporarily_moved_into_work_area",
+        "moved": True,
+        "window_style": style,
+        "original_rect": original_rect,
+        "temporary_rect": new_rect,
+        "target_y": target_y,
+        "source_field_bottom_screen_before": source_bottom,
+        "source_field_bottom_screen_after": new_source_bottom,
+        "work_area": [int(work.left), int(work.top), int(work.right), int(work.bottom)],
+    }
+
+
+def _restore_source_field_window_position(user32, root_hwnd: int,
+                                          position: dict[str, Any]) -> dict[str, Any]:
+    """Restore the exact original top-left position after a temporary field probe."""
+    if not position.get("moved"):
+        return {"attempted": False, "verified": True,
+                "status": position.get("status", "not_moved")}
+    original = position.get("original_rect")
+    if not isinstance(original, list) or len(original) != 4:
+        return {"attempted": False, "verified": False, "status": "original_rect_missing"}
+    hwnd = probe.wintypes.HWND(root_hwnd)
+    set_pos = user32.SetWindowPos
+    ok = bool(set_pos(hwnd, probe.wintypes.HWND(0), int(original[0]), int(original[1]),
+                      0, 0, 0x0001 | 0x0004 | 0x0010))
+    restored = probe._rect(user32, probe.wintypes.RECT, root_hwnd) if hasattr(probe.wintypes, "RECT") else None
+    if restored is None:
+        # RECT is supplied by the caller API factory; use the original RECT type.
+        return {"attempted": True, "verified": False, "set_window_pos": ok,
+                "status": "restore_rect_readback_unavailable"}
+    verified = bool(ok and abs(int(restored[0])-int(original[0])) <= 2
+                    and abs(int(restored[1])-int(original[1])) <= 2)
+    return {"attempted": True, "verified": verified, "set_window_pos": ok,
+            "restored_rect": restored,
+            "status": "restored" if verified else "restore_not_verified"}
+
+
 def _probe_source_field_readback_restore(user32, root_hwnd: int,
+                                           EnumWindowsProc, EnumChildProc,
+                                           RECT, POINT, output_dir: Path,
+                                           stem: str, role: str) -> dict[str, Any]:
+    """Expose the lower input on screen, run the guarded test, then restore the window."""
+    position = _temporary_source_field_window_adjustment(user32, root_hwnd, RECT)
+    result = None
+    restore = {"attempted": False, "verified": True, "status": "not_moved"}
+    try:
+        result = _probe_source_field_readback_restore_at_current_position(
+            user32, root_hwnd, EnumWindowsProc, EnumChildProc,
+            RECT, POINT, output_dir, stem, role
+        )
+    finally:
+        if position.get("moved"):
+            # Use the same RECT class as the GTO probe API for exact window-rect readback.
+            hwnd = probe.wintypes.HWND(root_hwnd)
+            original = position.get("original_rect") or []
+            ok = bool(user32.SetWindowPos(
+                hwnd, probe.wintypes.HWND(0), int(original[0]), int(original[1]),
+                0, 0, 0x0001 | 0x0004 | 0x0010
+            )) if len(original) == 4 else False
+            current = RECT()
+            rect_ok = bool(user32.GetWindowRect(hwnd, probe.ctypes.byref(current)))
+            current_rect = ([int(current.left), int(current.top), int(current.right), int(current.bottom)]
+                            if rect_ok else None)
+            verified = bool(ok and current_rect
+                            and abs(current_rect[0]-int(original[0])) <= 2
+                            and abs(current_rect[1]-int(original[1])) <= 2)
+            restore = {"attempted": True, "verified": verified,
+                       "set_window_pos": ok, "restored_rect": current_rect,
+                       "status": "restored" if verified else "restore_not_verified"}
+    if result is None:
+        raise RuntimeError(f"{role} source field probe did not return a result")
+    result["temporary_window_adjustment"] = position
+    result["temporary_window_restore"] = restore
+    result["window_position_restore_verified"] = bool(restore.get("verified"))
+    if not result["window_position_restore_verified"]:
+        result["status"] = "source_field_test_incomplete"
+    return result
+
+
+def _probe_source_field_readback_restore_at_current_position(user32, root_hwnd: int,
                                            EnumWindowsProc, EnumChildProc,
                                            RECT, POINT, output_dir: Path,
                                            stem: str, role: str) -> dict[str, Any]:
@@ -591,8 +781,11 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     # Never click Done: the test text is read back and restored before closing.
     ip_editor_result = None
     board_input_result = None
-    manual_close_required = not oop_closed_ok
-    continue_after_oop = oop_closed_ok and oop_source_probe.get("status") != "source_field_test_incomplete"
+    manual_close_required = (not oop_closed_ok
+                             or not oop_source_probe.get("window_position_restore_verified", True))
+    continue_after_oop = (oop_closed_ok
+                          and oop_source_probe.get("status") != "source_field_test_incomplete"
+                          and oop_source_probe.get("window_position_restore_verified", True))
     if continue_after_oop:
         ip_click = _click_exact_client(
             user32, target_hwnd, target_pid, RECT, POINT, _IP_MATRIX_CENTER,
@@ -612,7 +805,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                 user32, target_hwnd, EnumWindowsProc, EnumChildProc,
                 RECT, POINT, output_dir, stem, "IP"
             )
-            actions.append(ip_source_probe["field_click"])
+            if ip_source_probe.get("field_click"):
+                actions.append(ip_source_probe["field_click"])
             for capture_key in ("temporary_capture", "restored_capture"):
                 capture = ip_source_probe.get(capture_key)
                 if capture:
@@ -630,7 +824,8 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             ip_close_check = _bmp_region_difference_ratio(baseline_path, ip_closed_path)
             all_captures.extend(w["capture"] for w in ip_closed_windows)
             ip_closed_ok = ip_close_check["ratio"] <= 0.01
-            manual_close_required = manual_close_required or not ip_closed_ok
+            manual_close_required = (manual_close_required or not ip_closed_ok
+                                     or not ip_source_probe.get("window_position_restore_verified", True))
             ip_editor_result = {
                 "stage": "ip_range_editor",
                 "status": "opened_and_closed_by_measured_x" if ip_closed_ok else "close_not_verified",
@@ -646,7 +841,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             }
             stages.append(ip_editor_result)
             stages.append(ip_source_probe)
-            continue_after_oop = ip_closed_ok and ip_source_probe.get("status") != "source_field_test_incomplete"
+            continue_after_oop = (ip_closed_ok
+                                  and ip_source_probe.get("status") != "source_field_test_incomplete"
+                                  and ip_source_probe.get("window_position_restore_verified", True))
         else:
             ip_editor_result = {
                 "stage": "ip_range_editor",
@@ -737,7 +934,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "input_calibration": {
-            "method": "WindowFromPoint plus exact GTO PID, related HWND ownership chain, Edit control ID 5458, and measured field geometry",
+            "method": "temporary top-level reposition into the monitor work area when needed, then WindowFromPoint plus exact GTO PID, related HWND ownership chain, Edit control ID 5458, and measured field geometry",
             "test_value": "AA",
             "original_field_must_be_empty": True,
             "source_text_readback_required": True,
@@ -745,6 +942,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "done_button_clicked": False,
             "range_committed": False,
             "board_text_entered": False,
+            "temporary_window_position_restore_required": True,
         },
         "coordinate_reference": {
             "client_size": list(_REFERENCE_SIZE),
@@ -790,14 +988,22 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                 and not board_input_result.get("visually_closed")
             ),
             "manual_close_required": manual_close_required,
+            "window_position_restore_failed": bool(
+                not oop_source_probe.get("window_position_restore_verified", True)
+                or any(stage.get("stage") == "ip_source_field"
+                       and not stage.get("window_position_restore_verified", True)
+                       for stage in stages)
+            ),
         },
         "notes": [
             "Only the exact Pigeon-embedded GTO+ HWND/PID was operated.",
             "Before any Source field click, WindowFromPoint must resolve to a visible, enabled Edit id=5458 belonging to this exact GTO process and embedded-window ownership chain. Foreign overlays cause a no-click, no-write stop.",
+            "A lower Source field outside the monitor work area is reached only after a temporary, verified top-level window move; the exact original window position is restored and verified immediately after the field probe.",
             "OOP and IP Source Edit fields are tested with AA only when the exact field is hit-tested and originally blank; text is read back and restored. Done is never clicked.",
             "The OOP/IP range editor is dismissed with its measured X button and visually checked against baseline pixels.",
             "The Board selector is dismissed with its measured X button and visually checked against baseline pixels. No board text is entered and no card is selected.",
             "No range is committed; no Board/Pot/Stack/Rake is changed; Build Tree and Solver are not run.",
+            "When the lower Source field is outside the monitor work area, only the exact GTO top-level window is temporarily moved upward; its original position is read back and restored after the reversible test. Child windows are never moved with screen coordinates.",
             "Escape is sent only when the detected selector belongs to the exact GTO process and that process owns keyboard focus.",
         ],
     }
@@ -814,6 +1020,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"IP range editor: {ip_editor_result['status'] if ip_editor_result else 'not_attempted'}",
         f"Board input: {board_input_result['status'] if board_input_result else 'not_attempted'}",
         f"Source click sent: {bool(oop_source_probe.get('click_sent', False))}",
+        f"Temporary GTO window move restored: {bool(oop_source_probe.get('window_position_restore_verified', True))}",
         f"Manual close required: {manual_close_required}",
         "Range/board/pot/stack/rake changed: no",
         "Tree built: no",
