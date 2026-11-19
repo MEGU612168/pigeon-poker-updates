@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.36",
-  "published_at": "2026-11-19T06:32:00Z",
-  "release_notes": "v1.3.35のCashier/Study Wallet共通残高同期を維持。ロビー上部の大型一括OPENボタンを削除し、NL2〜NL200の各レートカード内にあるOPEN TABLEを主導線に整理。LOBBY、OPEN TABLES、CASHIER、GTO+ ENGINE、POKERCRAFT、GG CARE、SETTINGSの全ページに共通の縦スクロールを追加し、既存の内部スクロール領域は優先して動作するよう調整。",
+  "version": "1.3.37",
+  "published_at": "2026-11-19T07:10:00Z",
+  "release_notes": "v1.3.36ベース。ロビー・キャッシャー・PokerCraftの全Notebookタブにも個別スクロールを追加。一時離席は自動フォールドせず現在のハンドを最後まで進行し、終了後に休止。離席中は自分だけの空テーブル（他プレイヤー・手札・ボード・ポットなし）を表示し、そこからの退席確認は省略。スペードを濃紺、クラブを緑にして視認性を改善。初回配札演出を2倍速、全効果音を低減し配札・着地音はさらに低減。カードスクイーズUIと自動起動を削除。ウォレット同期と各レートのテーブルボタンは維持。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.36/payload-full.zip.b64",
-  "payload_sha256": "51fb2075cd900e85857fc875ae461a31c187135d5a0d39d00fcab0799a6af5ed",
-  "payload_size": 671310
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.37/payload-full.zip.b64",
+  "payload_sha256": "e2955402f371ad87bd31f2efb5a69e1ed5085030d13fdb0d87349d322cbbde5b",
+  "payload_size": 673496
 }
