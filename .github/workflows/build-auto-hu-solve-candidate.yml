@@ -77,9 +77,10 @@ jobs:
                    "AAテストの復元に未達の可能性があります。診断ログを確認してください。Tree/Solverは未実行です。"),
               ]
               for old_text,new_text in ui_replacements:
-                  if old_text not in main:
-                      raise SystemExit("Could not find expected Pigeon UI text: "+old_text)
-                  main=main.replace(old_text,new_text)
+                  if old_text in main:
+                      main=main.replace(old_text,new_text)
+                  elif new_text not in main:
+                      raise SystemExit("Could not find old or already-patched Pigeon UI text: "+old_text)
               success_old = "success = completed.returncode == 0 and report is not None"
               success_new = (
                   "success = completed.returncode == 0 and report is not None" + chr(10)
@@ -99,9 +100,10 @@ jobs:
                   + " " * 24 + "success = False" + chr(10)
                   + " " * 24 + "detail += \" [AA可逆テスト] 診断JSONの確認に失敗: \"+str(exc)"
               )
-              if success_old not in main:
-                  raise SystemExit("Could not locate Pigeon diagnostic success gate")
-              main=main.replace(success_old,success_new,1)
+              if success_old in main:
+                  main=main.replace(success_old,success_new,1)
+              elif "report_safety.get(\"oop_aa_only_matrix_reflection_verified\")" not in main:
+                  raise SystemExit("Could not locate Pigeon diagnostic success gate or its already-patched version")
               target=root/"pigeon_gto_plus"/"live_range_builder.py"
               ui_target=root/"pigeon_gto_plus"/"auto_solve_ui.py"
               target.write_text(module,encoding="utf-8",newline="\n")
