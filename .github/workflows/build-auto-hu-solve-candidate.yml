@@ -110,8 +110,10 @@ jobs:
           assert "source_field_occluded_by_foreign_window" in ui_source
           assert 'label="close_board_selector"' in ui_source
           assert "_BOARD_CLOSE_CENTER" in ui_source
-          assert "manual_close_required = not oop_closed_ok" in ui_source
-          assert "manual_close_required = manual_close_required or not ip_closed_ok" in ui_source
+          assert "manual_close_required = (not oop_closed_ok" in ui_source
+          assert "or not ip_closed_ok" in ui_source
+          assert "_temporary_source_field_window_adjustment" in ui_source
+          assert "window_position_restore_verified" in ui_source
           assert "close_oop_range_editor" in ui_source
           assert "to_gto_plus_range_text" in pathlib.Path("staging/auto_hu_solve_candidate/live_range_builder.py").read_text(encoding="utf-8")
           assert "skipped_no_gto_owned_keyboard_focus" in ui_source
