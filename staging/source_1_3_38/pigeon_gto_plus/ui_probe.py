@@ -345,6 +345,44 @@ _OOP_SINGLE_STEP_REFERENCE = {
     "basis": "pixel-measured from gto_plus_ui_20261119_032055_window_primary.bmp",
 }
 
+# The embedded GTO+ left-side setup controls use fixed client-pixel anchors.
+# The host may add unused vertical space (e.g. 665x570 instead of 680x476),
+# so scaling anchors by the full client height moves clicks away from controls.
+# Keep a conservative envelope to reject accidentally selected host windows.
+_OOP_EMBEDDED_CLIENT_LIMITS = {
+    "min_width": 620,
+    "max_width": 900,
+    "min_height": 450,
+    "max_height": 700,
+    "required_right": 502,
+    "required_bottom": 383,
+}
+
+
+def _validated_oop_client_size(user32, hwnd: int, RECT, stage: str) -> tuple[int, int]:
+    """Validate the calibrated embedded GTO+ view without assuming an exact size."""
+    client = RECT()
+    if not user32.GetClientRect(wintypes.HWND(hwnd), ctypes.byref(client)):
+        raise OSError(f"GetClientRect failed during {stage}: {ctypes.get_last_error()}")
+    width = int(client.right - client.left)
+    height = int(client.bottom - client.top)
+    limits = _OOP_EMBEDDED_CLIENT_LIMITS
+    if not (limits["min_width"] <= width <= limits["max_width"]
+            and limits["min_height"] <= height <= limits["max_height"]):
+        raise RuntimeError(
+            f"{stage}: embedded GTO+ client is outside the calibrated view envelope "
+            f"({limits['min_width']}..{limits['max_width']} x "
+            f"{limits['min_height']}..{limits['max_height']}); "
+            f"actual={width}x{height}; no click or range change sent"
+        )
+    if width <= limits["required_right"] or height <= limits["required_bottom"]:
+        raise RuntimeError(
+            f"{stage}: calibrated OOP controls do not fit in client area "
+            f"{width}x{height}; no click or range change sent"
+        )
+    return width, height
+
+
 
 def _open_oop_range_editor(user32, hwnd: int, RECT, POINT) -> dict[str, Any]:
     """Open the OOP Starting Range Editor on the exact embedded GTO+ target.
@@ -353,23 +391,15 @@ def _open_oop_range_editor(user32, hwnd: int, RECT, POINT) -> dict[str, Any]:
     tolerance), click once in the measured OOP matrix, then return. No hand
     cell, range text, weights, tree, or solver operation is touched.
     """
-    client = RECT()
-    if not user32.GetClientRect(wintypes.HWND(hwnd), ctypes.byref(client)):
-        raise OSError(f"GetClientRect failed: {ctypes.get_last_error()}")
-    width = int(client.right - client.left)
-    height = int(client.bottom - client.top)
-    ref_w, ref_h = _OOP_SINGLE_STEP_REFERENCE["reference_client_size"]
-    if abs(width - ref_w) > 12 or abs(height - ref_h) > 12:
-        raise RuntimeError(
-            f"OOP single-step layout is not the verified embedded size: "
-            f"actual={width}x{height}, reference={ref_w}x{ref_h}; no click sent"
-        )
-    sx, sy = width / float(ref_w), height / float(ref_h)
+    width, height = _validated_oop_client_size(
+        user32, hwnd, RECT, "Open OOP range editor"
+    )
+    # GTO+ keeps these controls at their measured client-pixel positions; extra
+    # blank client height must not rescale the Y coordinate.
     x0, y0, x1, y1 = _OOP_SINGLE_STEP_REFERENCE["oop_range_matrix_rect"]
     anchor_x, anchor_y = _OOP_SINGLE_STEP_REFERENCE["oop_range_matrix_center"]
-    matrix_scaled = [int(round(x0*sx)), int(round(y0*sy)),
-                     int(round(x1*sx)), int(round(y1*sy))]
-    click_x, click_y = int(round(anchor_x*sx)), int(round(anchor_y*sy))
+    matrix_scaled = [int(x0), int(y0), int(x1), int(y1)]
+    click_x, click_y = int(anchor_x), int(anchor_y)
     if not (matrix_scaled[0] <= click_x <= matrix_scaled[2] and
             matrix_scaled[1] <= click_y <= matrix_scaled[3]):
         raise RuntimeError(
@@ -1044,19 +1074,15 @@ _OOP_DONE_BUTTON_REFERENCE = {
 
 def _click_oop_editor_done(user32, root_hwnd: int, RECT, POINT) -> dict[str, Any]:
     """Click only the measured OOP editor 完了 button in the verified embedded layout."""
-    client = RECT()
-    if not user32.GetClientRect(wintypes.HWND(root_hwnd), ctypes.byref(client)):
-        raise OSError(f"GetClientRect failed before OOP Done click: {ctypes.get_last_error()}")
-    width = int(client.right - client.left)
-    height = int(client.bottom - client.top)
-    ref_w, ref_h = _OOP_DONE_BUTTON_REFERENCE["reference_client_size"]
-    if abs(width-ref_w) > 12 or abs(height-ref_h) > 12:
-        raise RuntimeError(f"OOP Done click requires verified {ref_w}x{ref_h} layout; actual={width}x{height}; no click sent")
-    sx, sy = width/float(ref_w), height/float(ref_h)
+    width, height = _validated_oop_client_size(
+        user32, root_hwnd, RECT, "Click OOP editor Done"
+    )
+    # The editor's measured button remains at this fixed client-pixel anchor.
+    # Do not scale it against unused client height.
     x0, y0, x1, y1 = _OOP_DONE_BUTTON_REFERENCE["rect"]
     ax, ay = _OOP_DONE_BUTTON_REFERENCE["center"]
-    scaled_rect = [int(round(x0*sx)), int(round(y0*sy)), int(round(x1*sx)), int(round(y1*sy))]
-    cx, cy = int(round(ax*sx)), int(round(ay*sy))
+    scaled_rect = [int(x0), int(y0), int(x1), int(y1)]
+    cx, cy = int(ax), int(ay)
     if not (scaled_rect[0] <= cx <= scaled_rect[2] and scaled_rect[1] <= cy <= scaled_rect[3]):
         raise RuntimeError(f"OOP Done point outside measured button: point={(cx,cy)} rect={scaled_rect}; no click sent")
     if not (0 <= cx < width and 0 <= cy < height):
@@ -1137,13 +1163,12 @@ def _locate_embedded_oop_source_edit(user32, EnumWindowsProc, EnumChildProc,
     owner chain returns to the exact embedded HWND or its Pigeon host. The screen
     rectangle and control ID are both checked to avoid matching stale GTO.exe instances.
     """
+    width, height = _validated_oop_client_size(
+        user32, root_hwnd, RECT, "Locate OOP Source code field"
+    )
     client = RECT()
     if not user32.GetClientRect(wintypes.HWND(root_hwnd), ctypes.byref(client)):
         raise OSError(f"GetClientRect failed while locating Source code field: {ctypes.get_last_error()}")
-    width, height = int(client.right-client.left), int(client.bottom-client.top)
-    ref_w, ref_h = _OOP_SOURCE_FIELD_REFERENCE["reference_client_size"]
-    if abs(width-ref_w) > 12 or abs(height-ref_h) > 12:
-        raise RuntimeError(f"Source field lookup requires {ref_w}x{ref_h}; actual={width}x{height}")
     origin = POINT(int(client.left), int(client.top))
     if not user32.ClientToScreen(wintypes.HWND(root_hwnd), ctypes.byref(origin)):
         raise OSError(f"ClientToScreen failed while locating Source code field: {ctypes.get_last_error()}")
@@ -1233,13 +1258,9 @@ def _commit_oop_test_range_aa(user32, EnumWindowsProc, EnumChildProc, root_hwnd:
     overwrites non-empty Source code. The helper does not touch IP, board, stacks,
     tree construction, or Solver execution.
     """
-    width_ref, height_ref = _OOP_SINGLE_STEP_REFERENCE["reference_client_size"]
-    client = RECT()
-    if not user32.GetClientRect(wintypes.HWND(root_hwnd), ctypes.byref(client)):
-        raise OSError(f"GetClientRect failed before OOP AA commit: {ctypes.get_last_error()}")
-    width, height = int(client.right-client.left), int(client.bottom-client.top)
-    if abs(width-width_ref) > 12 or abs(height-height_ref) > 12:
-        raise RuntimeError(f"OOP AA commit requires verified {width_ref}x{height_ref} embedded layout; actual={width}x{height}; no range changed")
+    width, height = _validated_oop_client_size(
+        user32, root_hwnd, RECT, "OOP AA commit"
+    )
 
     edits, field_lookup = _locate_embedded_oop_source_edit(
         user32, EnumWindowsProc, EnumChildProc, root_hwnd, RECT, POINT
