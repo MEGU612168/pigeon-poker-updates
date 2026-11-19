@@ -1077,6 +1077,9 @@ def _click_oop_editor_done(user32, root_hwnd: int, RECT, POINT) -> dict[str, Any
     width, height = _validated_oop_client_size(
         user32, root_hwnd, RECT, "Click OOP editor Done"
     )
+    # Retain the original size in the report for diagnostics; click coordinates
+    # themselves remain fixed client-pixel anchors.
+    ref_w, ref_h = _OOP_DONE_BUTTON_REFERENCE["reference_client_size"]
     # The editor's measured button remains at this fixed client-pixel anchor.
     # Do not scale it against unused client height.
     x0, y0, x1, y1 = _OOP_DONE_BUTTON_REFERENCE["rect"]
