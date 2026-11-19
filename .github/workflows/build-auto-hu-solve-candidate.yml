@@ -72,19 +72,19 @@ jobs:
               if "import zipfile\n" not in main:
                   main=main.replace("import json\n","import json\nimport zipfile\n",1)
               ui_replacements = [
-                  ("Read-only calibration of the exact embedded GTO+ range/Build Tree dialogs.",
+                  ("Run a reversible OOP=AA range commit/clear test and inspect the setup dialogs.",
                    "Run a reversible OOP=AA:0.5 weighted commit/clear test and inspect the weight display."),
-                  ("未知HU局面の自動Solve設定を診断（変更なし）",
+                  ("未知HU局面の自動Solve設定を診断（OOP AA可逆テスト）",
                    "未知HU局面の自動Solve設定を診断（OOP 50%重み可逆テスト）"),
-                  ("GTO+のOOPレンジ編集画面とBuild Tree設定画面を開いて撮影し、Escapeで閉じます。文字入力・レンジ確定・Board/Pot/Stack/Rake変更・Tree構築・Solver実行は行いません。",
+                  ("OOPレンジが空の場合のみAAを一時確定してマトリクス反映を確認し、Clear＋完了で元に戻します。空でない場合は変更せず停止。Board/Pot/Stack/Rake・Tree・Solverは操作しません。",
                    "OOPレンジが空の場合のみAA:0.5を一時確定し、AAセルと重み表示を記録後、Clear＋完了で元に戻します。空でない場合は変更せず停止。Board/Pot/Stack/Rake・Tree・Solverは操作しません。"),
-                  ("未知局面Solve用のGTO+画面を安全確認中…（レンジ・設定は変更しません）",
+                  ("未知局面Solve用のGTO+入力を可逆テスト中…（OOP AAを一時確定して復元）",
                    "未知局面Solve用のGTO+入力を可逆テスト中…（OOP AA:0.5を一時確定して復元）"),
-                  ("GTO+画面診断完了（設定変更・Tree構築・Solver実行なし）",
+                  ("GTO+画面診断完了（OOP AAの反映・復元を確認。Tree/Solver未実行）",
                    "GTO+画面診断完了（OOP AA:0.5の一時反映・復元を確認。重み表示画像を保存。Tree/Solver未実行）"),
-                  ("GTO+画面診断は安全停止しました。設定やレンジは変更していません。",
+                  ("GTO+画面診断は安全停止しました。AAテストの反映・復元状態と手動対応フラグをログで確認してください。",
                    "GTO+画面診断は安全停止しました。AA:0.5テストの反映・復元状態と重み表示画像、手動対応フラグをログで確認してください。"),
-                  ("GTO+の設定変更やSolver実行はしていません。",
+                  ("AAテストの復元に未達の可能性があります。診断ログを確認してください。Tree/Solverは未実行です。",
                    "AA:0.5テストの復元に未達の可能性があります。診断ログを確認してください。Tree/Solverは未実行です。"),
               ]
               for old_text,new_text in ui_replacements:
@@ -111,10 +111,21 @@ jobs:
                   + " " * 24 + "success = False" + chr(10)
                   + " " * 24 + "detail += \" [AA可逆テスト] 診断JSONの確認に失敗: \"+str(exc)"
               )
-              if success_old in main:
-                  main=main.replace(success_old,success_new,1)
-              elif "report_safety.get(\"oop_aa_only_matrix_reflection_verified\")" not in main:
-                  raise SystemExit("Could not locate Pigeon diagnostic success gate or its already-patched version")
+              old_gate = 'success = bool(report_safety.get("oop_aa_only_matrix_reflection_verified") and report_safety.get("oop_test_range_restored") and not report_safety.get("manual_close_required"))'
+              new_gate = 'success = bool(report_safety.get("oop_aa_only_matrix_reflection_verified") and report_safety.get("oop_test_range_restored") and report_safety.get("oop_weight_display_capture_saved") and not report_safety.get("manual_close_required"))'
+              if old_gate in main:
+                  main=main.replace(old_gate,new_gate,1)
+              elif new_gate not in main:
+                  if success_old in main:
+                      main=main.replace(success_old,success_new,1)
+                  else:
+                      raise SystemExit("Could not locate the prior Pigeon diagnostic success gate")
+              old_error='[AA可逆テスト] OOPのAA反映・復元確認に未達です。診断JSONと画像を確認してください。'
+              new_error='[AA:0.5可逆テスト] OOPのAAセル反映・重み表示保存・復元確認に未達です。診断JSONと画像を確認してください。'
+              if old_error in main:
+                  main=main.replace(old_error,new_error,1)
+              elif new_error not in main:
+                  raise SystemExit("Could not update the weighted diagnostic failure message")
               target=root/"pigeon_gto_plus"/"live_range_builder.py"
               ui_target=root/"pigeon_gto_plus"/"auto_solve_ui.py"
               target.write_text(module,encoding="utf-8",newline="\n")
@@ -156,6 +167,7 @@ jobs:
           assert "未知HU局面の自動Solve設定を診断（OOP 50%重み可逆テスト）" in main
           assert "AA:0.5を一時確定し、AAセルと重み表示を記録" in main
           assert "oop_aa_only_matrix_reflection_verified" in main
+          assert "oop_weight_display_capture_saved" in main
           assert '"schema_version": 13' in ui_source
           assert '"test_range": "AA:0.5"' in ui_source
           assert '"test_range_weight": 0.5' in ui_source
