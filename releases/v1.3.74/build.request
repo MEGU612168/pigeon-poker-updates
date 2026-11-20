@@ -1,1 +1,1 @@
-Build v1.3.74: keep v1.3.69-identical HU/preflop range logic; open GTO+ Engine at app startup so auto-launch and auto-connect run on a mapped host.
+Retry v1.3.74: restore 1.3.69 range logic, set GTO+ Engine as constructor startup page, and launch/connect after the page is mapped.
