@@ -62,60 +62,61 @@ jobs:
                   z.extractall(root)
               main_path=root/"PigeonPoker.pyw"
               main=main_path.read_text(encoding="utf-8")
-              geometry_sync_method = """    def _layout_embedded_gto_host(self) -> bool:
-                  try:
-                      self.update_idletasks()
-                      viewport_width = int(self.gto_viewport.winfo_width())
-                      viewport_height = int(self.gto_viewport.winfo_height())
-                      if viewport_width < 2 or viewport_height < 2:
-                          return False
-                      scale = min(viewport_width / 665.0, viewport_height / 570.0, 1.35)
-                      if scale <= 0:
-                          return False
-                      target_width = max(2, int(round(665 * scale)))
-                      target_height = max(2, int(round(570 * scale)))
-                      current_size = (int(self.gto_host.winfo_width()), int(self.gto_host.winfo_height()))
-                      if current_size != (target_width, target_height):
-                          self.gto_host.place_configure(width=target_width, height=target_height)
-                      self._gto_display_scale = scale
-                      return True
-                  except (tk.TclError, ZeroDivisionError, ValueError):
-                      return False
-
-              def _sync_embedded_gto_geometry(self, reason: str = "") -> bool:
-                  if not self.gto_embedded or not getattr(self.integration, "embedder", None):
-                      return False
-                  try:
-                      self.update_idletasks()
-                      if not self._layout_embedded_gto_host():
-                          raise RuntimeError("GTO+ viewport has no usable client area")
-                      host_width = int(self.gto_host.winfo_width())
-                      host_height = int(self.gto_host.winfo_height())
-                      if host_width < 2 or host_height < 2:
-                          raise RuntimeError(f"invalid GTO+ host client geometry: {host_width}x{host_height}")
-                      self.integration.resize_docked_window(host_width, host_height)
-                      self.update_idletasks()
-                      return True
-                  except Exception as exc:
-                      try:
-                          suffix = f" ({reason})" if reason else ""
-                          self.status_var.set(f"GTO+表示位置・サイズの再同期に失敗{suffix}: {exc}")
-                      except Exception:
-                          pass
-                      return False
-
-              def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:
-                  if not self.gto_embedded:
-                      return
-                  self._layout_embedded_gto_host()
-                  self._sync_embedded_gto_geometry(reason)
-                  try:
-                      self.after_idle(lambda r=reason: self._sync_embedded_gto_geometry(r + "-idle"))
-                      self.after(250, lambda r=reason: self._sync_embedded_gto_geometry(r + "-settled"))
-                  except tk.TclError:
-                      pass
-
-              """
+              geometry_sync_method = (
+                  "    def _layout_embedded_gto_host(self) -> bool:" + chr(10)
+                  + "        try:" + chr(10)
+                  + "            self.update_idletasks()" + chr(10)
+                  + "            viewport_width = int(self.gto_viewport.winfo_width())" + chr(10)
+                  + "            viewport_height = int(self.gto_viewport.winfo_height())" + chr(10)
+                  + "            if viewport_width < 2 or viewport_height < 2:" + chr(10)
+                  + "                return False" + chr(10)
+                  + "            scale = min(viewport_width / 665.0, viewport_height / 570.0, 1.35)" + chr(10)
+                  + "            if scale <= 0:" + chr(10)
+                  + "                return False" + chr(10)
+                  + "            target_width = max(2, int(round(665 * scale)))" + chr(10)
+                  + "            target_height = max(2, int(round(570 * scale)))" + chr(10)
+                  + "            current_size = (int(self.gto_host.winfo_width()), int(self.gto_host.winfo_height()))" + chr(10)
+                  + "            if current_size != (target_width, target_height):" + chr(10)
+                  + "                self.gto_host.place_configure(width=target_width, height=target_height)" + chr(10)
+                  + "            self._gto_display_scale = scale" + chr(10)
+                  + "            return True" + chr(10)
+                  + "        except (tk.TclError, ZeroDivisionError, ValueError):" + chr(10)
+                  + "            return False" + chr(10)
+                  + chr(10)
+                  + "    def _sync_embedded_gto_geometry(self, reason: str = \\"\\") -> bool:" + chr(10)
+                  + "        if not self.gto_embedded or not getattr(self.integration, \\"embedder\\", None):" + chr(10)
+                  + "            return False" + chr(10)
+                  + "        try:" + chr(10)
+                  + "            self.update_idletasks()" + chr(10)
+                  + "            if not self._layout_embedded_gto_host():" + chr(10)
+                  + "                raise RuntimeError(\\"GTO+ viewport has no usable client area\\")" + chr(10)
+                  + "            host_width = int(self.gto_host.winfo_width())" + chr(10)
+                  + "            host_height = int(self.gto_host.winfo_height())" + chr(10)
+                  + "            if host_width < 2 or host_height < 2:" + chr(10)
+                  + "                raise RuntimeError(f\\"invalid GTO+ host client geometry: {host_width}x{host_height}\\")" + chr(10)
+                  + "            self.integration.resize_docked_window(host_width, host_height)" + chr(10)
+                  + "            self.update_idletasks()" + chr(10)
+                  + "            return True" + chr(10)
+                  + "        except Exception as exc:" + chr(10)
+                  + "            try:" + chr(10)
+                  + "                suffix = f\\" ({reason})\\" if reason else \\"\\"" + chr(10)
+                  + "                self.status_var.set(f\\"GTO+表示位置・サイズの再同期に失敗{suffix}: {exc}\\")" + chr(10)
+                  + "            except Exception:" + chr(10)
+                  + "                pass" + chr(10)
+                  + "            return False" + chr(10)
+                  + chr(10)
+                  + "    def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:" + chr(10)
+                  + "        if not self.gto_embedded:" + chr(10)
+                  + "            return" + chr(10)
+                  + "        self._layout_embedded_gto_host()" + chr(10)
+                  + "        self._sync_embedded_gto_geometry(reason)" + chr(10)
+                  + "        try:" + chr(10)
+                  + "            self.after_idle(lambda r=reason: self._sync_embedded_gto_geometry(r + \\"-idle\\"))" + chr(10)
+                  + "            self.after(250, lambda r=reason: self._sync_embedded_gto_geometry(r + \\"-settled\\"))" + chr(10)
+                  + "        except tk.TclError:" + chr(10)
+                  + "            pass" + chr(10)
+                  + chr(10)
+              )
 
               workspace_old = (
                   "        self.gto_host = tk.Frame(host_col, bg=\"#080f18\", height=570)" + chr(10)
