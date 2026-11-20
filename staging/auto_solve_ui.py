@@ -8,7 +8,7 @@ against the baseline screenshot before the next click is allowed.
 """
 from __future__ import annotations
 
-# Build marker: 2x2 interior RGB aggregation detects partial-weight matrix markers; schema v16.
+# Build marker: OOP and IP AA+AKs 40% multi-range commits/restores are visually verified; schema v17.
 # PigeonPoker completion gate: exactly one OOP multi-hand validator, v1.3.58.
 # Rebuild trigger: remove second post-success report check, keep one OOP multi-hand gate.
 # Rebuild trigger: normalize final multi-hand exception label.
@@ -1336,6 +1336,328 @@ def _run_oop_multi_range_commit_roundtrip(
                     report["status"] = "range_restored_but_window_position_restore_failed"
 
 
+
+def _run_ip_multi_range_commit_roundtrip(
+    user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+    output_dir: Path, stem: str, target_hwnd: int, target_pid: int,
+    host_hwnd: int, baseline_path: str
+) -> dict[str, Any]:
+    """Commit IP=AA plus AKs:40% once, verify two cells and GTO+ normalization, then restore.
+
+    Runs only when all 169 IP mini-matrix sample points are black and Source is blank.
+    Clear is allowed only after Source text matches one of the exact normalized
+    test strings. It never touches IP, Board, pot, stack, rake, Build Tree, or Solver.
+    """
+    report: dict[str, Any] = {
+        "stage": "ip_multi_range_commit_roundtrip",
+        "status": "not_started",
+        "test_range": "AA,AKs:0.4",
+        "test_range_partial_weight": 0.4,
+        "test_range_entries": [{"hand": "AA", "weight": 1.0}, {"hand": "AKs", "weight": 0.4}],
+        "expected_matrix_cell_indices": [0, 1],
+        "expected_gto_plus_source_texts": list(_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS),
+        "weight_display_capture_path": None,
+        "weight_display_capture_saved": False,
+        "weight_display_expected_percent": 40,
+        "restore_source_text_readback": None,
+        "restore_source_text_accepted": False,
+        "weight_display_roi": [414, 343, 476, 376],
+        "range_committed_temporarily": False,
+        "test_range_may_remain_committed": False,
+        "range_restored": False,
+        "tree_built": False,
+        "solver_run": False,
+        "actions": [],
+        "captures": [],
+        "capture_windows": [],
+        "manual_close_required": False,
+    }
+    baseline_signature = _bmp_matrix_center_signature(baseline_path, _IP_MATRIX_RECT)
+    report["baseline_matrix_signature"] = baseline_signature
+    if not _matrix_signature_is_empty(baseline_signature):
+        report["status"] = "skipped_initial_ip_range_not_empty"
+        report["note"] = "The IP matrix is not visually empty; Clear was not used and no range was changed."
+        return report
+
+    position: dict[str, Any] = {"moved": False, "status": "not_attempted"}
+    editor_open = False
+    test_committed = False
+
+    def capture_windows(stage: str):
+        windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, stage
+        )
+        report["capture_windows"].extend(windows)
+        return windows
+
+    def add_capture(capture):
+        if capture:
+            report["captures"].append(capture)
+
+    def close_editor_via_done(label: str) -> tuple[bool, list[dict[str, Any]], dict[str, Any] | None]:
+        done = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _RANGE_EDITOR_DONE_CENTER, label="commit_range_editor_done"
+        )
+        report["actions"].append(done)
+        deadline = time.monotonic() + 1.5
+        remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
+        while remaining and time.monotonic() < deadline:
+            time.sleep(0.10)
+            remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
+        windows = capture_windows(label + "_after_done")
+        path = _root_capture_path(windows, label + "_after_done")
+        appearance = _bmp_region_difference_ratio(
+            baseline_path, path, _RANGE_EDITOR_VERIFY_ROI
+        )
+        retry = None
+        closed = not remaining and appearance["ratio"] <= 0.01
+        if not closed:
+            retry = _click_verified_gto_hit_target(
+                user32, target_hwnd, target_pid, RECT, POINT,
+                _RANGE_EDITOR_DONE_CENTER,
+                label=label + "_done_native_retry"
+            )
+            report["actions"].append(retry)
+            deadline = time.monotonic() + 1.5
+            remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
+            while remaining and time.monotonic() < deadline:
+                time.sleep(0.10)
+                remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
+            windows = capture_windows(label + "_after_native_done")
+            path = _root_capture_path(windows, label + "_after_native_done")
+            appearance = _bmp_region_difference_ratio(
+                baseline_path, path, _RANGE_EDITOR_VERIFY_ROI
+            )
+            closed = not remaining and appearance["ratio"] <= 0.01
+        return closed, windows, {
+            "click": done, "native_retry": retry,
+            "baseline_difference": appearance,
+            "comparison_roi": list(_RANGE_EDITOR_VERIFY_ROI),
+            "visible_source_edits_remaining": len(remaining),
+        }
+
+    try:
+        open_click = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _IP_MATRIX_CENTER, label="open_ip_range_editor"
+        )
+        report["actions"].append(open_click)
+        time.sleep(0.55)
+        opened_windows = capture_windows("ip_aa_roundtrip_editor_open")
+        opened_path = _root_capture_path(opened_windows, "ip_aa_roundtrip_editor_open")
+        opened_appearance = _bmp_region_difference_ratio(baseline_path, opened_path)
+        report["editor_open_difference"] = opened_appearance
+        if opened_appearance["ratio"] < 0.05:
+            raise RuntimeError("IP editor did not visibly open; no test range was entered")
+        editor_open = True
+
+        position = _temporary_source_field_window_adjustment(
+            user32, target_hwnd, RECT, POINT
+        )
+        report["temporary_window_adjustment"] = position
+        source_probe = _probe_source_field_readback_restore_at_current_position(
+            user32, target_hwnd, EnumWindowsProc, EnumChildProc,
+            RECT, POINT, output_dir, stem, "IP"
+        )
+        report["source_field_probe"] = source_probe
+        if source_probe.get("temporary_capture"):
+            add_capture(source_probe["temporary_capture"])
+        if source_probe.get("restored_capture"):
+            add_capture(source_probe["restored_capture"])
+        if source_probe.get("status") != "write_readback_and_restore_verified":
+            raise RuntimeError(
+                "IP Source field did not pass the reversible blank-field test: "
+                + str(source_probe.get("status"))
+            )
+        edit_hwnd = int(source_probe.get("edit_hwnd") or 0)
+        if (
+            not edit_hwnd
+            or not user32.IsWindow(probe.wintypes.HWND(edit_hwnd))
+            or probe._window_pid(user32, edit_hwnd) != int(target_pid)
+            or probe._class_name(user32, edit_hwnd) != "Edit"
+            or int(user32.GetDlgCtrlID(probe.wintypes.HWND(edit_hwnd))) != 5458
+            or not probe._window_is_related_to_embedded_target(
+                user32, edit_hwnd, target_hwnd, host_hwnd
+            )
+        ):
+            raise RuntimeError("IP Source Edit identity changed before commit; no text was committed")
+        original_text = probe._read_native_edit_text(user32, edit_hwnd)
+        if original_text != "":
+            raise RuntimeError("IP Source field is no longer blank; preserving it and aborting")
+
+        probe._write_native_edit_text(user32, edit_hwnd, report["test_range"])
+        test_readback = probe._read_native_edit_text(user32, edit_hwnd)
+        report["test_source_readback"] = test_readback
+        if test_readback != report["test_range"]:
+            probe._write_native_edit_text(user32, edit_hwnd, original_text)
+            raise RuntimeError("Multi-hand test text did not read back exactly; source field was restored and Done was not clicked")
+        typed_capture = probe._batch_capture(
+            user32, target_hwnd, RECT, POINT, output_dir, stem,
+            "ip_weighted_roundtrip_before_done"
+        )
+        add_capture(typed_capture)
+        if typed_capture.get("capture_error"):
+            probe._write_native_edit_text(user32, edit_hwnd, original_text)
+            raise RuntimeError("Pre-Done image capture failed; Source field was restored")
+
+        closed_after_test, test_windows, test_done = close_editor_via_done("ip_weighted_test")
+        report["test_done"] = test_done
+        editor_open = not closed_after_test
+        if not closed_after_test:
+            report["status"] = "test_done_not_closed"
+            report["test_range_may_remain_committed"] = True
+            report["manual_close_required"] = True
+            report["note"] = (
+                "Done could not be visually confirmed. The AA + AKs test range may be committed "
+                "or remain in the open editor; leave it visible and use Clear + Done manually."
+            )
+            return report
+
+        test_committed = True
+        report["range_committed_temporarily"] = True
+        test_path = _root_capture_path(test_windows, "ip_aa_test_after_done")
+        test_signature = _bmp_matrix_center_signature(test_path, _IP_MATRIX_RECT)
+        expected_cells_visible = _matrix_signature_matches_selected_cells(
+            test_signature, baseline_signature, report["expected_matrix_cell_indices"]
+        )
+        report["test_matrix_signature"] = test_signature
+        report["expected_matrix_cells_reflection_verified"] = expected_cells_visible
+
+        reopen_click = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _IP_MATRIX_CENTER, label="open_ip_range_editor"
+        )
+        report["actions"].append(reopen_click)
+        time.sleep(0.55)
+        restore_open_windows = capture_windows("ip_weighted_restore_editor_open")
+        restore_open_path = _root_capture_path(
+            restore_open_windows, "ip_weighted_restore_editor_open"
+        )
+        restore_open_appearance = _bmp_region_difference_ratio(
+            baseline_path, restore_open_path
+        )
+        report["restore_editor_open_difference"] = restore_open_appearance
+        report["weight_display_capture_path"] = restore_open_path
+        report["weight_display_capture_saved"] = bool(restore_open_path and Path(restore_open_path).is_file())
+        report["weight_display_expected_percent"] = 50
+        report["weight_display_roi"] = [414, 343, 476, 376]
+        if restore_open_appearance["ratio"] < 0.05:
+            raise RuntimeError("IP editor did not reopen for restoration")
+        editor_open = True
+
+        restore_probe = _probe_source_field_readback_restore_at_current_position(
+            user32, target_hwnd, EnumWindowsProc, EnumChildProc,
+            RECT, POINT, output_dir, stem, "IP"
+        )
+        report["restore_source_field_probe"] = restore_probe
+        if restore_probe.get("temporary_capture"):
+            add_capture(restore_probe["temporary_capture"])
+        if restore_probe.get("restored_capture"):
+            add_capture(restore_probe["restored_capture"])
+        restore_edit = int(restore_probe.get("edit_hwnd") or 0)
+        if (
+            not restore_edit
+            or not user32.IsWindow(probe.wintypes.HWND(restore_edit))
+            or probe._window_pid(user32, restore_edit) != int(target_pid)
+            or probe._class_name(user32, restore_edit) != "Edit"
+            or int(user32.GetDlgCtrlID(probe.wintypes.HWND(restore_edit))) != 5458
+            or not probe._window_is_related_to_embedded_target(
+                user32, restore_edit, target_hwnd, host_hwnd
+            )
+        ):
+            raise RuntimeError("Could not uniquely re-identify IP Source Edit for restoration")
+        current_text = probe._read_native_edit_text(user32, restore_edit)
+        report["restore_source_text_readback"] = current_text
+        expected_test_source_texts = set(report["expected_gto_plus_source_texts"])
+        report["restore_source_text_accepted"] = current_text in expected_test_source_texts
+        if report["restore_source_text_accepted"]:
+            probe._write_native_edit_text(user32, restore_edit, "")
+            if probe._read_native_edit_text(user32, restore_edit) != "":
+                raise RuntimeError("Could not clear the test-only weighted AA Source text")
+        elif current_text != "":
+            raise RuntimeError(
+                "Source field text is not one of the exact known test forms "
+                "(AA,[40%]AKs[/40%] or [40%]AKs[/40%],AA); preserved it and stopped"
+            )
+
+        clear_click = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _RANGE_EDITOR_CLEAR_CENTER, label="clear_range_editor"
+        )
+        report["actions"].append(clear_click)
+        time.sleep(0.30)
+        clear_capture = probe._batch_capture(
+            user32, target_hwnd, RECT, POINT, output_dir, stem,
+            "ip_weighted_roundtrip_after_clear"
+        )
+        add_capture(clear_capture)
+        if clear_capture.get("capture_error"):
+            raise RuntimeError("Could not capture IP editor after Clear; Done was not clicked")
+        closed_after_restore, restore_windows, restore_done = close_editor_via_done(
+            "ip_weighted_restore"
+        )
+        report["restore_done"] = restore_done
+        editor_open = not closed_after_restore
+        if not closed_after_restore:
+            report["manual_close_required"] = True
+            raise RuntimeError("IP editor did not close after Clear/Done")
+        final_path = _root_capture_path(restore_windows, "ip_aa_restore_after_done")
+        final_signature = _bmp_matrix_center_signature(final_path, _IP_MATRIX_RECT)
+        final_dialog_difference = _bmp_region_difference_ratio(
+            baseline_path, final_path, _RANGE_EDITOR_VERIFY_ROI
+        )
+        restored = (
+            final_signature["samples"] == baseline_signature["samples"]
+            and final_dialog_difference["ratio"] <= 0.01
+        )
+        report["final_matrix_signature"] = final_signature
+        report["final_matrix_difference"] = _bmp_region_difference_ratio(
+            baseline_path, final_path, _IP_MATRIX_RECT
+        )
+        report["final_dialog_difference"] = final_dialog_difference
+        report["range_restored"] = restored
+        report["editor_closed_after_restore"] = True
+        report["status"] = (
+            "multi_hand_weighted_range_committed_and_visually_restored"
+            if expected_cells_visible and report.get("restore_source_text_accepted") and restored and report.get("weight_display_capture_saved")
+            else "multi_hand_range_restored_but_source_or_matrix_review_needed"
+            if restored
+            else "range_restoration_not_verified"
+        )
+        report["note"] = (
+            "AA,AKs:0.4 was committed. Exactly matrix cells 0 (AA) and 1 (AKs) changed. "
+            "The reopened Source field was read back as one of the exact expected [40%]AKs[/40%] forms; "
+            "Clear/Done then restored the exact 13x13 baseline sample signature. No solver/tree action was performed."
+            if restored and expected_cells_visible and report.get("restore_source_text_accepted") and report.get("weight_display_capture_saved") else
+            "The IP matrix was restored, but the expected two-cell reflection or normalized Source readback was not fully verified."
+            if restored else
+            "The multi-hand weighted test commit was attempted, but the final IP matrix does not match its baseline."
+        )
+        return report
+    except Exception as exc:
+        report["status"] = "safe_stop_during_ip_roundtrip"
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        report["editor_open_at_stop"] = editor_open
+        report["test_range_may_remain_committed"] = bool(test_committed and not report.get("range_restored"))
+        report["manual_close_required"] = bool(editor_open)
+        return report
+    finally:
+        if position.get("moved"):
+            restore_position = _restore_source_field_window_position(
+                user32, target_hwnd, RECT, position
+            )
+            report["temporary_window_restore"] = restore_position
+            report["window_position_restore_verified"] = bool(
+                restore_position.get("verified")
+            )
+            if not restore_position.get("verified"):
+                report["manual_close_required"] = True
+                if report.get("range_restored"):
+                    report["status"] = "range_restored_but_window_position_restore_failed"
+
+
 def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: int) -> Path:
     if os.name != "nt":
         raise OSError("This GTO+ setup probe is Windows-only.")
@@ -1503,120 +1825,62 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     if oop_roundtrip.get("status") == "skipped_initial_oop_range_not_empty":
         oop_roundtrip_ok = False
 
-    # Stage 2: calibrate the IP Source field using the same reversible AA test.
-    # Never click Done: the test text is read back and restored before closing.
+    # Stage 2: commit the same weighted multi-hand range into IP, then restore the empty matrix.
+    ip_roundtrip = None
     ip_editor_result = None
     board_input_result = None
     manual_close_required = (not oop_closed_ok
                              or not oop_source_probe.get("window_position_restore_verified", True)
                              or bool(oop_roundtrip.get("manual_close_required")))
-    continue_after_oop = (oop_closed_ok
-                          and oop_source_probe.get("status") != "source_field_test_incomplete"
-                          and oop_source_probe.get("window_position_restore_verified", True)
-                          and oop_roundtrip_ok)
+    continue_after_oop = (
+        oop_closed_ok
+        and oop_source_probe.get("status") != "source_field_test_incomplete"
+        and oop_source_probe.get("window_position_restore_verified", True)
+        and oop_roundtrip_ok
+    )
     if continue_after_oop:
-        ip_click = _click_exact_client(
-            user32, target_hwnd, target_pid, RECT, POINT, _IP_MATRIX_CENTER,
-            label="open_ip_range_editor"
-        )
-        actions.append(ip_click)
-        time.sleep(0.55)
-        ip_windows = _capture_related_windows(
+        ip_roundtrip = _run_ip_multi_range_commit_roundtrip(
             user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
-            target_hwnd, target_pid, output_dir, stem, "ip_editor_open"
+            output_dir, stem, target_hwnd, target_pid, host, baseline_path
         )
-        ip_open_path = _root_capture_path(ip_windows, "ip_editor_open")
-        ip_appearance = _bmp_region_difference_ratio(baseline_path, ip_open_path)
-        all_captures.extend(w["capture"] for w in ip_windows)
-        if ip_appearance["ratio"] >= 0.05:
-            ip_source_probe = _probe_source_field_readback_restore(
-                user32, target_hwnd, EnumWindowsProc, EnumChildProc,
-                RECT, POINT, output_dir, stem, "IP"
-            )
-            if ip_source_probe.get("field_click"):
-                if ip_source_probe.get("field_click"):
-                    actions.append(ip_source_probe["field_click"])
-            for capture_key in ("temporary_capture", "restored_capture"):
-                capture = ip_source_probe.get(capture_key)
-                if capture:
-                    all_captures.append(capture)
-            ip_close_click = _click_exact_client(
-                user32, target_hwnd, target_pid, RECT, POINT, _OOP_CLOSE_CENTER,
-                label="close_oop_range_editor"
-            )
-            actions.append(ip_close_click)
-            ip_closed_windows = _capture_related_windows(
-                user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
-                target_hwnd, target_pid, output_dir, stem, "ip_editor_after_x"
-            )
-            ip_closed_path = _root_capture_path(ip_closed_windows, "ip_editor_after_x")
-            ip_close_check = _bmp_region_difference_ratio(baseline_path, ip_closed_path)
-            all_captures.extend(w["capture"] for w in ip_closed_windows)
-            ip_closed_ok = ip_close_check["ratio"] <= 0.01
-            ip_native_retry = None
-            ip_native_retry_windows = []
-            ip_native_retry_check = None
-            ip_native_retry_error = None
-            if not ip_closed_ok:
-                try:
-                    ip_native_retry = _click_verified_gto_hit_target(
-                        user32, target_hwnd, target_pid, RECT, POINT, _OOP_CLOSE_CENTER,
-                        label="close_ip_range_editor_native_retry"
-                    )
-                    actions.append(ip_native_retry)
-                    ip_native_retry_windows = _capture_related_windows(
-                        user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
-                        target_hwnd, target_pid, output_dir, stem, "ip_editor_after_native_close"
-                    )
-                    ip_native_retry_path = _root_capture_path(
-                        ip_native_retry_windows, "ip_editor_after_native_close"
-                    )
-                    ip_native_retry_check = _bmp_region_difference_ratio(
-                        baseline_path, ip_native_retry_path
-                    )
-                    all_captures.extend(w["capture"] for w in ip_native_retry_windows)
-                    ip_closed_ok = ip_native_retry_check["ratio"] <= 0.01
-                except Exception as exc:
-                    ip_native_retry_error = f"{type(exc).__name__}: {exc}"
-            manual_close_required = (manual_close_required or not ip_closed_ok
-                                     or not ip_source_probe.get("window_position_restore_verified", True))
-            ip_editor_result = {
-                "stage": "ip_range_editor",
-                "status": (
-                    "opened_and_closed_by_measured_x" if ip_closed_ok and ip_native_retry is None
-                    else "opened_and_closed_by_native_view_retry" if ip_closed_ok
-                    else "close_not_verified"
-                ),
-                "open_click": ip_click,
-                "open_windows": ip_windows,
-                "open_overlay_difference": ip_appearance,
-                "source_field_probe": ip_source_probe,
-                "close_click": ip_close_click,
-                "windows_after_x": ip_closed_windows,
-                "baseline_difference_after_x": ip_close_check,
-                "native_close_retry": ip_native_retry,
-                "native_close_retry_error": ip_native_retry_error,
-                "windows_after_native_close": ip_native_retry_windows,
-                "baseline_difference_after_native_close": ip_native_retry_check,
-                "visually_closed": ip_closed_ok,
-                "range_committed": False,
-            }
-            stages.append(ip_editor_result)
-            stages.append(ip_source_probe)
-            continue_after_oop = (ip_closed_ok
-                                  and ip_source_probe.get("status") != "source_field_test_incomplete"
-                                  and ip_source_probe.get("window_position_restore_verified", True))
-        else:
-            ip_editor_result = {
-                "stage": "ip_range_editor",
-                "status": "editor_not_visibly_opened",
-                "open_click": ip_click,
-                "open_windows": ip_windows,
-                "open_overlay_difference": ip_appearance,
-                "range_committed": False,
-            }
-            stages.append(ip_editor_result)
-            continue_after_oop = False
+        actions.extend(ip_roundtrip.get("actions", []))
+        for capture in ip_roundtrip.get("captures", []):
+            if capture:
+                all_captures.append(capture)
+        for window in ip_roundtrip.get("capture_windows", []):
+            capture = window.get("capture") if isinstance(window, dict) else None
+            if capture:
+                all_captures.append(capture)
+        stages.append(ip_roundtrip)
+        ip_roundtrip_ok = bool(
+            ip_roundtrip.get("expected_matrix_cells_reflection_verified")
+            and ip_roundtrip.get("restore_source_text_accepted")
+            and ip_roundtrip.get("range_restored")
+            and ip_roundtrip.get("editor_closed_after_restore")
+            and ip_roundtrip.get("weight_display_capture_saved")
+            and ip_roundtrip.get("window_position_restore_verified", True)
+        )
+        ip_editor_result = {
+            "stage": "ip_range_editor",
+            "status": ip_roundtrip.get("status", "not_started"),
+            "open_overlay_difference": ip_roundtrip.get("editor_open_difference"),
+            "range_committed_temporarily": bool(ip_roundtrip.get("range_committed_temporarily")),
+            "range_restored": bool(ip_roundtrip.get("range_restored")),
+            "visually_closed": bool(ip_roundtrip.get("editor_closed_after_restore")),
+            "manual_close_required": bool(ip_roundtrip.get("manual_close_required")),
+        }
+        stages.append(ip_editor_result)
+        manual_close_required = (
+            manual_close_required
+            or bool(ip_roundtrip.get("manual_close_required"))
+            or not ip_roundtrip.get("window_position_restore_verified", True)
+        )
+        continue_after_oop = ip_roundtrip_ok
+    else:
+        ip_roundtrip_ok = False
+        ip_editor_result = {"stage": "ip_range_editor", "status": "skipped_oop_stage_not_verified"}
+        stages.append(ip_editor_result)
+        continue_after_oop = False
 
     # Stage 3: focus the Board entry only to identify its input mechanism.
     # No board text is typed and no card selection is made.
@@ -1731,9 +1995,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     all_captures = unique_captures
 
     report = {
-        "schema_version": 16,
+        "schema_version": 17,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_multi_hand_ak_s40_weighted_commit_roundtrip_v16_partial_marker_sampling",
+        "probe": "verified_gto_plus_oop_ip_multi_hand_ak_s40_weighted_commit_roundtrip_v17_partial_marker_sampling",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -1795,10 +2059,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         "all_captures": all_captures,
         "safety": {
             "oop_range_text_changed": bool(oop_source_probe.get("text_changed", False)),
-            "ip_range_text_changed": any(
-                bool(stage.get("text_changed", False))
-                for stage in stages if stage.get("stage") == "ip_source_field"
-            ),
+            "ip_range_text_changed": bool(ip_roundtrip and ip_roundtrip.get("test_range_may_remain_committed")),
             "range_committed": False,
             "oop_test_range_temporarily_committed": bool(oop_roundtrip.get("range_committed_temporarily")),
             "oop_expected_matrix_cells_reflection_verified": bool(oop_roundtrip.get("expected_matrix_cells_reflection_verified")),
@@ -1809,6 +2070,14 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "oop_test_range_text": "AA,AKs:0.4",
             "oop_test_range_partial_weight": 0.4,
             "oop_test_range_may_remain_committed": bool(oop_roundtrip.get("test_range_may_remain_committed")),
+            "ip_test_range_temporarily_committed": bool(ip_roundtrip and ip_roundtrip.get("range_committed_temporarily")),
+            "ip_expected_matrix_cells_reflection_verified": bool(ip_roundtrip and ip_roundtrip.get("expected_matrix_cells_reflection_verified")),
+            "ip_test_range_restored": bool(ip_roundtrip and ip_roundtrip.get("range_restored")),
+            "ip_restore_source_text_readback": ip_roundtrip.get("restore_source_text_readback") if ip_roundtrip else None,
+            "ip_restore_source_text_accepted": bool(ip_roundtrip and ip_roundtrip.get("restore_source_text_accepted")),
+            "ip_weight_display_capture_saved": bool(ip_roundtrip and ip_roundtrip.get("weight_display_capture_saved")),
+            "ip_test_range_text": "AA,AKs:0.4" if ip_roundtrip else None,
+            "ip_test_range_may_remain_committed": bool(ip_roundtrip and ip_roundtrip.get("test_range_may_remain_committed")),
             "oop_restore_source_text_readback": oop_roundtrip.get("restore_source_text_readback"),
             "oop_restore_source_text_accepted": bool(oop_roundtrip.get("restore_source_text_accepted")),
             "board_changed": False,
@@ -1826,19 +2095,17 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "manual_close_required": manual_close_required,
             "window_position_restore_failed": bool(
                 not oop_source_probe.get("window_position_restore_verified", True)
-                or any(stage.get("stage") == "ip_source_field"
-                       and not stage.get("window_position_restore_verified", True)
-                       for stage in stages)
+                or bool(ip_roundtrip and not ip_roundtrip.get("window_position_restore_verified", True))
             ),
         },
         "notes": [
             "Only the exact Pigeon-embedded GTO+ HWND/PID was operated.",
             "Before the Source field focus click, WindowFromPoint must resolve either to an exact GTO-owned native Edit or to the measured AfxFrameOrView140su id=59648 covering the field. Foreign overlays cause a no-click, no-write stop. If the view receives focus but no unique native Edit appears at the measured field, no keyboard input is sent.",
             "If a foreign window covers the Source field, only the exact embedded GTO child is temporarily shifted within its verified parent-client coordinate system; the exact original parent-relative position is restored and verified immediately after the field probe. The host window and other processes are not moved.",
-            "The OOP Source Edit is tested with reversible AA readback. Only when the entire initial OOP mini-matrix is visually empty, AA is committed once, the single AA matrix cell is checked, and Clear plus Done must restore the exact baseline signature. IP Source Edit is readback-tested only; no IP range is committed.",
+            "The OOP and IP Source Edits are each tested with a temporary AA+AKs:40% multi-hand range. Exactly two matrix cells must change in the relevant 13x13 mini-matrix, GTO+ normalized Source text must match the exact allowlist, and Clear plus Done must restore the exact baseline signature.",
             "The OOP/IP range editor is dismissed with its measured X button; when the overlay remains, one direct WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP retry is sent only to the verified GTO drawing view and visually rechecked.",
             "The Board selector is dismissed with its measured X button; when it remains, the same exact-view-only mouse-message retry is used and visually checked. No board text is entered and no card is selected.",
-            "The OOP AA test is temporary. The final OOP range must match the empty baseline before the report marks restoration successful. Board/Pot/Stack/Rake are not changed; Build Tree and Solver are not run.",
+            "The OOP and IP multi-hand tests are temporary. Both final 13x13 matrices must match their empty baselines before the report marks restoration successful. Board/Pot/Stack/Rake are not changed; Build Tree and Solver are not run.",
             "Escape is sent only when the detected selector belongs to the exact GTO process and that process owns keyboard focus.",
         ],
     }
@@ -1848,11 +2115,19 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     if oop_roundtrip.get("range_restored"):
         final_oop_state = "restored to the original empty baseline"
     elif oop_roundtrip.get("test_range_may_remain_committed"):
-        final_oop_state = "temporary AA + AKs:40% may remain committed; manual Clear + Done required"
+        final_oop_state = "temporary OOP AA + AKs:40% may remain committed; manual Clear + Done required"
     elif not oop_roundtrip.get("range_committed_temporarily"):
-        final_oop_state = "no temporary test commit remains"
+        final_oop_state = "no temporary OOP test commit remains"
     else:
-        final_oop_state = "restoration not verified; inspect the diagnostic images"
+        final_oop_state = "OOP restoration not verified; inspect the diagnostic images"
+    if ip_roundtrip and ip_roundtrip.get("range_restored"):
+        final_ip_state = "restored to the original empty baseline"
+    elif ip_roundtrip and ip_roundtrip.get("test_range_may_remain_committed"):
+        final_ip_state = "temporary IP AA + AKs:40% may remain committed; manual Clear + Done required"
+    elif ip_roundtrip and not ip_roundtrip.get("range_committed_temporarily"):
+        final_ip_state = "no temporary IP test commit remains"
+    else:
+        final_ip_state = "IP stage not verified; inspect the diagnostic images"
     lines = [
         "PIGEON POKER — VISUALLY VERIFIED GTO+ AUTO-SOLVE SETUP PROBE",
         f"Created: {report['created_at']}",
@@ -1866,13 +2141,18 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"GTO+ normalized Source text: {oop_roundtrip.get('restore_source_text_readback')}",
         f"Canonical Source text accepted for safe Clear: {bool(oop_roundtrip.get('restore_source_text_accepted'))}",
         f"OOP weighted range restored: {bool(oop_roundtrip.get('range_restored'))}",
-        f"IP range editor: {ip_editor_result['status'] if ip_editor_result else 'not_attempted'}",
+        f"IP multi-hand weighted range commit/restore: {ip_roundtrip['status'] if ip_roundtrip else 'not_attempted'}",
+        f"IP expected AA+AKs cells only: {bool(ip_roundtrip and ip_roundtrip.get('expected_matrix_cells_reflection_verified'))}",
+        f"IP 40% weight-field screenshot saved: {bool(ip_roundtrip and ip_roundtrip.get('weight_display_capture_saved'))}",
+        f"IP normalized Source text: {ip_roundtrip.get('restore_source_text_readback') if ip_roundtrip else None}",
+        f"IP weighted range restored: {bool(ip_roundtrip and ip_roundtrip.get('range_restored'))}",
         f"Board input: {board_input_result['status'] if board_input_result else 'not_attempted'}",
         f"Source click sent: {bool(oop_source_probe.get('click_sent', False))}",
         f"Temporary GTO window move: {oop_source_probe.get('temporary_window_adjustment', {}).get('status', 'not_reported')}",
         f"Temporary GTO window move restored: {bool(oop_source_probe.get('window_position_restore_verified', True))}",
         f"Manual close required: {manual_close_required}",
         f"Final OOP range state: {final_oop_state}",
+        f"Final IP range state: {final_ip_state}",
         "Board/Pot/Stack/Rake changed: no",
         "Tree built: no",
         "Solver run: no",
