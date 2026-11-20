@@ -9,6 +9,7 @@ against the baseline screenshot before the next click is allowed.
 from __future__ import annotations
 
 # Build marker: OOP and IP AA+AKs 40% multi-range commits/restores are visually verified; schema v17.
+# Rebuild trigger: normalize last legacy AA JSON error label for dual OOP/IP check.
 # PigeonPoker completion gate: exactly one OOP multi-hand validator, v1.3.58.
 # Rebuild trigger: remove second post-success report check, keep one OOP multi-hand gate.
 # Rebuild trigger: normalize final multi-hand exception label.
