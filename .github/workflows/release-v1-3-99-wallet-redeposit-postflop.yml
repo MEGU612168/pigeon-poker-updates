@@ -85,15 +85,15 @@ jobs:
           refresh_start = main.index("    def _refresh_table_windows(")
           hero_condition = 'if hand.next_to_act == "hero":'
           hero_condition_pos = main.index(hero_condition, refresh_start)
-          hero_start = main.rfind("\\n", refresh_start, hero_condition_pos) + 1
+          hero_start = main.rfind("\n", refresh_start, hero_condition_pos) + 1
           base_indent = main[hero_start:hero_condition_pos]
           actor_marker = 'actor = hand.player(hand.next_to_act).name if hand.next_to_act else "CPU"'
           actor_pos = main.index(actor_marker, hero_condition_pos)
-          actor_line_start = main.rfind("\\n", hero_condition_pos, actor_pos) + 1
+          actor_line_start = main.rfind("\n", hero_condition_pos, actor_pos) + 1
           outer_else_pos = main.rfind("else:", hero_condition_pos, actor_line_start)
           if outer_else_pos < 0:
               raise SystemExit("Could not locate the original CPU-turn else branch.")
-          hero_end = main.rfind("\\n", hero_condition_pos, outer_else_pos) + 1
+          hero_end = main.rfind("\n", hero_condition_pos, outer_else_pos) + 1
           hero_block = '''            if hand.next_to_act == "hero":
                   record["status"].set("YOUR TURN")
                   try:
