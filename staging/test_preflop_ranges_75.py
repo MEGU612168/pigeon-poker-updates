@@ -22,6 +22,9 @@ class FakePlayer:
         self.name = player_id
         self.hole_cards = hole_cards
         self.street_contribution = 0
+        self.total_contribution = 0
+        self.stack = 10000
+        self.eligible = True
 
 class FakeHand:
     def __init__(self, node, combo='AKo'):
@@ -32,14 +35,21 @@ class FakeHand:
         self.seat_by_id={f'p{i}':i for i in range(6)}
         self.events=[]
         pos_to_id={position:f'p{offset}' for offset,position in module.POSITIONS_BY_CLOCKWISE_DISTANCE.items()}
+        history_positions={item['pos'] for item in node['history']}
         for item in node['history']:
+            player_id=pos_to_id[item['pos']]
+            target=int(round(item['amount_bb']*self.big_blind))
+            player=self.player(player_id)
+            player.stack=max(0,10000-target)
+            player.total_contribution=target
             self.events.append({
-                'type':'action','street':'preflop','player_id':pos_to_id[item['pos']],
+                'type':'action','street':'preflop','player_id':player_id,
                 'action':'allin' if item['action']=='allin' else 'raise',
-                'target':int(round(item['amount_bb']*self.big_blind)),
+                'target':target,
             })
-        # Add realistic folds around the voluntary sequence. They must not alter node matching.
-        if node['history']:
+        # A folded player is no longer part of the hand's effective stack.
+        if node['history'] and 'BTN' not in history_positions and node['actor_position'] != 'BTN':
+            self.players[0].eligible=False
             self.events.insert(0, {'type':'action','street':'preflop','player_id':'p0','action':'fold'})
         self.actor_id=pos_to_id[node['actor_position']]
         self.players[int(self.actor_id[1:])].hole_cards=self._cards(combo)
@@ -200,6 +210,22 @@ def test_all_12675_rows_and_every_positive_action_choice():
                 tested_choices += 1
     assert row_count==12675, row_count
     assert active_rows>0 and tested_choices>active_rows
+
+
+def test_100bb_stack_gate_and_folded_short_stack():
+    node=module._data()['nodes'][0]
+    hand=FakeHand(node,'AA')
+    assert module._supports_100bb_effective_stack(hand)
+    # A participating 60 BB stack invalidates the 100 BB chart and uses legacy CPU.
+    hand.players[4].stack=6000
+    assert not module._supports_100bb_effective_stack(hand)
+    assert module._node_for_actor(FakeTable(),hand,hand.actor_id) is None
+    # A folded short stack is irrelevant to the current pot's effective depth.
+    hand=FakeHand(node,'AA')
+    hand.players[1].eligible=False
+    hand.players[1].stack=0
+    hand.players[1].total_contribution=2000
+    assert module._supports_100bb_effective_stack(hand)
 
 def test_hand_class_parsing():
     assert module.hand_class_from_cards(('A♠','A♥'))=='AA'
