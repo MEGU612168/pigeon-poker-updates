@@ -39,7 +39,10 @@ jobs:
           if stable.get("version") != source_version:
               raise SystemExit("Stable channel must be v1.3.71 before rebuilding this update.")
 
-          with urllib.request.urlopen(stable["payload_url"], timeout=90) as response:
+          source_url = str(stable["payload_url"])
+          separator = "&" if "?" in source_url else "?"
+          source_url = source_url + separator + "v=" + str(stable["payload_sha256"])
+          with urllib.request.urlopen(source_url, timeout=90) as response:
               encoded_source = response.read().decode("ascii").strip()
           source_payload = base64.b64decode(encoded_source, validate=True)
           if len(source_payload) != int(stable["payload_size"]):
@@ -331,7 +334,7 @@ jobs:
               "release_notes": release_notes,
               "package_mode": "full",
               "payload_encoding": "base64",
-              "payload_url": f"https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v{target_version}/payload-updater.zip.b64",
+              "payload_url": f"https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v{target_version}/payload-updater.zip.b64?v={digest}",
               "payload_sha256": digest,
               "payload_size": len(payload)
           }
