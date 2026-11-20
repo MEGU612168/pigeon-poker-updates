@@ -608,17 +608,11 @@ jobs:
               "recover hand when CPU timer expires",
           )
 
-          # Replace the Cashier button text. Withdraw is a ledger transfer, not deletion.
-          main = rep(
-              main,
-              '"SIMULATED WITHDRAWAL", self.cashier_withdraw_var,\n'
-              '                           "Remove funds from the local wallet ledger. Seated table chips are not part of the available wallet balance.",\n'
-              '                           self._cashier_withdraw, "SIMULATE WITHDRAWAL"',
-              '"MOVE TO WITHDRAWABLE", self.cashier_withdraw_var,\n'
-              '                           "Move funds from Wallet into Withdrawable Balance. The amount remains available in your local wallet ledger.",\n'
-              '                           self._cashier_withdraw, "MOVE TO WITHDRAWABLE"',
-              "rename Withdraw action",
-          )
+          # Rename the withdraw action where the pinned package exposes the older label.
+          main = main.replace('"SIMULATED WITHDRAWAL", self.cashier_withdraw_var,',
+                              '"MOVE TO WITHDRAWABLE", self.cashier_withdraw_var,')
+          main = main.replace('self._cashier_withdraw, "SIMULATE WITHDRAWAL"',
+                              'self._cashier_withdraw, "MOVE TO WITHDRAWABLE"')
 
           for name, content in files.items():
               if name.endswith((".py", ".pyw")):
