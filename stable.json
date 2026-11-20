@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.89",
-  "published_at": "2026-11-20T16:02:18Z",
-  "release_notes": "ユーザー提供のGTOWizardスクリーンショットから構成した6-maxプリフロップ75局面をCPU判断へ統合。各局面169ハンドクラス、合計12,675行。全履歴を照合し、50局面のレイズ先額と20局面のオールイン分岐を実装。画像の色面積と画面表示アクション比率から推定した重みであり、ソルバーの生コンボ頻度そのものではない。100BB以外またはスタック情報不明の場合は既存CPUへフォールバックするガードを追加。既存のCPUレベル別フォールバックとアプリ内Stable更新を維持。",
+  "version": "1.3.90",
+  "published_at": "2026-11-20T16:12:25Z",
+  "release_notes": "ユーザー提供のGTOWizardスクリーンショットから構成した6-maxプリフロップ75局面をCPU判断へ統合。各局面169ハンドクラス、合計12,675行。全履歴を照合し、50局面のレイズ先額と20局面のオールイン分岐を実装。画像の色面積と画面表示アクション比率から推定した重みであり、ソルバーの生コンボ頻度そのものではない。6席すべて（フォールド済み席も含む）が100BB開始スタックと確認できない場合は既存CPUへフォールバック。対応履歴では相手の観測済みプリフロップアクションから169クラスの推定レンジを算出し、未対応履歴は未推定として返すAPIを追加。これはスクリーンショット由来の近似レンジで、ソルバーの生コンボ頻度ではない。既存CPUレベル別フォールバックとアプリ内Stable更新を維持。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.89/payload-updater.zip.b64?v=26a76bd47e5ce8b557154543a0bc279b6ab0a50703cea8064f85c4e55bb8556c",
-  "payload_sha256": "26a76bd47e5ce8b557154543a0bc279b6ab0a50703cea8064f85c4e55bb8556c",
-  "payload_size": 261377
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.90/payload-updater.zip.b64?v=092c809552f76684ff8935a6fb5b66896c3c38c003d11605a416a8c2df22cd70",
+  "payload_sha256": "092c809552f76684ff8935a6fb5b66896c3c38c003d11605a416a8c2df22cd70",
+  "payload_size": 264686
 }
