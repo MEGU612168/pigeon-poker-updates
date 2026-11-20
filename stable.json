@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.102",
-  "published_at": "2026-11-20T18:56:22Z",
-  "release_notes": "ポストフロップの操作UIを修復。HEROの手番ではCHECKまたはCALL、FOLD、BETまたはRAISEボタンを再表示し、金額入力、サイズスライダー、ポット割合プリセット、実行ボタンも通常どおり使用可能。固定チャートによる制約はプリフロップだけに限定し、ポストフロップのアクションはその時点の合法アクションから生成。プリフロップ75局面・12,675行・頻度・固定BBサイズ、レンジ推定エンジン、更新機能、ウォレットと履歴データには変更なし。",
+  "version": "1.3.103",
+  "published_at": "2026-11-20T18:58:28Z",
+  "release_notes": "Settingsに効果音音量スライダーを追加し、0〜100%の数値表示と試聴ボタンを実装。スライダー操作後は自動保存し、全体音量とカード・チップ・アラート・祝賀音の個別音量も保存。既存のMaster sound、個別効果音ON/OFFと手動保存も維持。ポストフロップのCHECK/CALL/FOLD、BET/RAISE、サイズ入力・スライダー・ポット割合プリセットはv1.3.102の修正を維持。プリフロップ75局面・12,675行・頻度・固定BBサイズは変更なし。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.102/payload-updater.zip.b64?v=70cbbce5176922791c5aa37e1acd080846a6befa92a966a2699194ed3e1e0497",
-  "payload_sha256": "70cbbce5176922791c5aa37e1acd080846a6befa92a966a2699194ed3e1e0497",
-  "payload_size": 138433
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.103/payload-updater.zip.b64?v=acd123577b3fdfd969fcf129f65bfed47fe632f845670ace99a319a08b0f3a39",
+  "payload_sha256": "acd123577b3fdfd969fcf129f65bfed47fe632f845670ace99a319a08b0f3a39",
+  "payload_size": 139042
 }
