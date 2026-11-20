@@ -1,1 +1,1 @@
-Extract stable v1.3.83 and verify SHA-256, size, ZIP CRC, GTO+ workspace geometry, page scrolling/container layout and overlay drawer parenting before the v1.3.84 fixed-viewport revision.
+Extract stable v1.3.84 and verify SHA-256, size, ZIP CRC, update-check callbacks, startup scheduling, periodic scheduler and all source files for the v1.3.85 continuous update polling revision.
