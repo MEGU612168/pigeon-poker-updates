@@ -63,20 +63,27 @@ jobs:
               main_path=root/"PigeonPoker.pyw"
               main=main_path.read_text(encoding="utf-8")
               geometry_sync_method = "    def _sync_embedded_gto_geometry(self, reason: str = \"\") -> bool:\n        \"\"\"Align the docked GTO+ child to the live Tk host client area.\"\"\"\n        if not self.gto_embedded or not getattr(self.integration, \"embedder\", None):\n            return False\n        try:\n            self.update_idletasks()\n            host_width = int(self.gto_host.winfo_width())\n            host_height = int(self.gto_host.winfo_height())\n            if host_width < 2 or host_height < 2:\n                raise RuntimeError(\n                    f\"invalid GTO+ host client geometry: {host_width}x{host_height}\"\n                )\n            self.integration.resize_docked_window(host_width, host_height)\n            self.update_idletasks()\n            return True\n        except Exception as exc:\n            try:\n                suffix = f\" ({reason})\" if reason else \"\"\n                self.status_var.set(\n                    f\"GTO+表示位置・サイズの再同期に失敗{suffix}: {exc}\"\n                )\n            except Exception:\n                pass\n            return False\n\n    def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:\n        \"\"\"Sync now and again after Tk completes pending layout work.\"\"\"\n        if not self.gto_embedded:\n            return\n        self._sync_embedded_gto_geometry(reason)\n        try:\n            self.after_idle(\n                lambda r=reason: self._sync_embedded_gto_geometry(r + \"-idle\")\n            )\n            self.after(\n                250,\n                lambda r=reason: self._sync_embedded_gto_geometry(r + \"-settled\")\n            )\n        except tk.TclError:\n            pass\n\n"
-              launch_anchor = "    def _launch_gto(self):\\n"
+              launch_anchor = "    def _launch_gto(self):" + chr(10)
               if main.count(launch_anchor) != 1:
                   raise SystemExit("Could not uniquely locate _launch_gto for geometry-sync patch")
               if "def _sync_embedded_gto_geometry" not in main:
                   main = main.replace(launch_anchor, geometry_sync_method + launch_anchor, 1)
-              success_anchor = '            self.gto_embedded = True\\n            self.status_var.set(f"GTO+をPigeon内に表示中 (HWND {hwnd})")'
+              success_anchor = '            self.gto_embedded = True' + chr(10) + '            self.status_var.set(f"GTO+をPigeon内に表示中 (HWND {hwnd})")'
               if main.count(success_anchor) != 2:
                   raise SystemExit("Expected exactly two GTO+ dock success blocks (launch and attach)")
-              launch_success = success_anchor + '\\n            self._schedule_embedded_gto_geometry_sync("launch")'
-              attach_success = success_anchor + '\\n            self._schedule_embedded_gto_geometry_sync("attach")'
+              launch_success = success_anchor + chr(10) + '            self._schedule_embedded_gto_geometry_sync("launch")'
+              attach_success = success_anchor + chr(10) + '            self._schedule_embedded_gto_geometry_sync("attach")'
               main = main.replace(success_anchor, launch_success, 1)
               main = main.replace(success_anchor, attach_success, 1)
-              resize_old = "    def _resize_embedded(self, _event=None):\\n        if self.gto_embedded and self.integration.embedder:\\n            try:\\n                self.integration.resize_docked_window(self.gto_host.winfo_width(), self.gto_host.winfo_height())\\n            except Exception:\\n                pass\\n"
-              resize_new = "    def _resize_embedded(self, _event=None):\\n        self._sync_embedded_gto_geometry(\\"host-configure\\")\\n"
+              resize_old = (
+                  "    def _resize_embedded(self, _event=None):" + chr(10)
+                  + "        if self.gto_embedded and self.integration.embedder:" + chr(10)
+                  + "            try:" + chr(10)
+                  + "                self.integration.resize_docked_window(self.gto_host.winfo_width(), self.gto_host.winfo_height())" + chr(10)
+                  + "            except Exception:" + chr(10)
+                  + "                pass" + chr(10)
+              )
+              resize_new = "    def _resize_embedded(self, _event=None):" + chr(10) + '        self._sync_embedded_gto_geometry("host-configure")' + chr(10)
               if main.count(resize_old) != 1:
                   raise SystemExit("Could not uniquely locate the old embedded GTO+ resize callback")
               main = main.replace(resize_old, resize_new, 1)
