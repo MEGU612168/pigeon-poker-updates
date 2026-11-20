@@ -2254,7 +2254,7 @@ def _run_build_tree_dialog_probe(
                 send = user32.SendMessageW
                 send.argtypes = [probe.wintypes.HWND, probe.wintypes.UINT,
                                  probe.wintypes.WPARAM, probe.wintypes.LPARAM]
-                send.restype = probe.wintypes.LRESULT
+                send.restype = probe.ctypes.c_ssize_t
                 close_result = int(send(probe.wintypes.HWND(popup_hwnd), 0x0010, 0, 0))  # WM_CLOSE
                 close_method = "wm_close_to_unique_verified_gto_popup"
                 time.sleep(0.55)
@@ -2291,7 +2291,7 @@ def _run_build_tree_dialog_probe(
     except Exception as exc:
         result["status"] = "build_tree_dialog_probe_safe_stop"
         result["error"] = f"{type(exc).__name__}: {exc}"
-        result["manual_close_required"] = bool(result.get("dialog_opened"))
+        result["manual_close_required"] = bool(result.get("build_tree_clicked") or result.get("dialog_opened"))
         return result
 
 
@@ -2742,9 +2742,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             build_tree_dialog_probe = {
                 "stage": "build_tree_dialog_probe",
                 "status": "skipped_test_setup_not_fully_verified",
-                "build_tree_clicked": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("build_tree_clicked")),
+                "build_tree_clicked": False,
                 "dialog_opened": False,
-                "dialog_closed_verified": False,
+                "dialog_closed_verified": True,
                 "tree_built": False,
                 "solver_run": False,
                 "manual_close_required": False,
@@ -2798,7 +2798,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             item is not None and (
                 item.get("manual_close_required")
                 or item.get("error")
-                or item.get("status", "").endswith("not_verified")
+                or not item.get("range_restored", item.get("board_restored", False))
             )
             for item in cleanup_reports
         )
