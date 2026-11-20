@@ -1,1 +1,1 @@
-Verify final stable v1.3.71 source using the digest-keyed payload URL; confirm auto GTO+ startup, connection, and shutdown code is present.
+Extract verified stable v1.3.72 source for the GTO+ docking timing fix; retain the exact published stable payload digest.
