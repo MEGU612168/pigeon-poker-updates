@@ -110,63 +110,7 @@ jobs:
           geometry_end = main.find("    def _launch_gto(", geometry_start)
           if geometry_start < 0 or geometry_end < 0 or main.count("    def _sync_embedded_gto_geometry(") != 1:
               raise SystemExit("Could not uniquely locate the GTO+ geometry methods.")
-          geometry_methods = '''    def _layout_embedded_gto_host(self) -> bool:
-          """Fit the 665x570 GTO+ workspace uniformly inside the available viewport."""
-          try:
-              self.update_idletasks()
-              viewport_width = int(self.gto_viewport.winfo_width())
-              viewport_height = int(self.gto_viewport.winfo_height())
-              if viewport_width < 2 or viewport_height < 2:
-                  return False
-              scale = min(viewport_width / 665.0, viewport_height / 570.0, 1.35)
-              if scale <= 0:
-                  return False
-              target_width = max(2, int(round(665 * scale)))
-              target_height = max(2, int(round(570 * scale)))
-              current_size = (int(self.gto_host.winfo_width()), int(self.gto_host.winfo_height()))
-              if current_size != (target_width, target_height):
-                  self.gto_host.place_configure(width=target_width, height=target_height)
-              self._gto_display_scale = scale
-              return True
-          except (tk.TclError, ZeroDivisionError, ValueError):
-              return False
-
-      def _sync_embedded_gto_geometry(self, reason: str = "") -> bool:
-          """Resize the native GTO+ child to the aspect-preserving centered host."""
-          if not self.gto_embedded or not getattr(self.integration, "embedder", None):
-              return False
-          try:
-              self.update_idletasks()
-              if not self._layout_embedded_gto_host():
-                  raise RuntimeError("GTO+ viewport has no usable client area")
-              host_width = int(self.gto_host.winfo_width())
-              host_height = int(self.gto_host.winfo_height())
-              if host_width < 2 or host_height < 2:
-                  raise RuntimeError(f"invalid GTO+ host client geometry: {host_width}x{host_height}")
-              self.integration.resize_docked_window(host_width, host_height)
-              self.update_idletasks()
-              return True
-          except Exception as exc:
-              try:
-                  suffix = f" ({reason})" if reason else ""
-                  self.status_var.set(f"GTO+表示位置・サイズの再同期に失敗{suffix}: {exc}")
-              except Exception:
-                  pass
-              return False
-
-      def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:
-          """Fit immediately and after Tk completes its layout."""
-          if not self.gto_embedded:
-              return
-          self._layout_embedded_gto_host()
-          self._sync_embedded_gto_geometry(reason)
-          try:
-              self.after_idle(lambda r=reason: self._sync_embedded_gto_geometry(r + "-idle"))
-              self.after(250, lambda r=reason: self._sync_embedded_gto_geometry(r + "-settled"))
-          except tk.TclError:
-              pass
-
-      '''
+          geometry_methods = "    def _layout_embedded_gto_host(self) -> bool:\n        \"\"\"Fit the 665x570 GTO+ workspace uniformly inside the available viewport.\"\"\"\n        try:\n            self.update_idletasks()\n            viewport_width = int(self.gto_viewport.winfo_width())\n            viewport_height = int(self.gto_viewport.winfo_height())\n            if viewport_width < 2 or viewport_height < 2:\n                return False\n            scale = min(viewport_width / 665.0, viewport_height / 570.0, 1.35)\n            if scale <= 0:\n                return False\n            target_width = max(2, int(round(665 * scale)))\n            target_height = max(2, int(round(570 * scale)))\n            current_size = (int(self.gto_host.winfo_width()), int(self.gto_host.winfo_height()))\n            if current_size != (target_width, target_height):\n                self.gto_host.place_configure(width=target_width, height=target_height)\n            self._gto_display_scale = scale\n            return True\n        except (tk.TclError, ZeroDivisionError, ValueError):\n            return False\n\n    def _sync_embedded_gto_geometry(self, reason: str = \"\") -> bool:\n        \"\"\"Resize the native GTO+ child to the aspect-preserving centered host.\"\"\"\n        if not self.gto_embedded or not getattr(self.integration, \"embedder\", None):\n            return False\n        try:\n            self.update_idletasks()\n            if not self._layout_embedded_gto_host():\n                raise RuntimeError(\"GTO+ viewport has no usable client area\")\n            host_width = int(self.gto_host.winfo_width())\n            host_height = int(self.gto_host.winfo_height())\n            if host_width < 2 or host_height < 2:\n                raise RuntimeError(f\"invalid GTO+ host client geometry: {host_width}x{host_height}\")\n            self.integration.resize_docked_window(host_width, host_height)\n            self.update_idletasks()\n            return True\n        except Exception as exc:\n            try:\n                suffix = f\" ({reason})\" if reason else \"\"\n                self.status_var.set(f\"GTO+表示位置・サイズの再同期に失敗{suffix}: {exc}\")\n            except Exception:\n                pass\n            return False\n\n    def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:\n        \"\"\"Fit immediately and after Tk completes its layout.\"\"\"\n        if not self.gto_embedded:\n            return\n        self._layout_embedded_gto_host()\n        self._sync_embedded_gto_geometry(reason)\n        try:\n            self.after_idle(lambda r=reason: self._sync_embedded_gto_geometry(r + \"-idle\"))\n            self.after(250, lambda r=reason: self._sync_embedded_gto_geometry(r + \"-settled\"))\n        except tk.TclError:\n            pass\n\n"
           main = main[:geometry_start] + geometry_methods + main[geometry_end:]
 
           old_resize = (
