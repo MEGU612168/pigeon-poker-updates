@@ -9,6 +9,7 @@ against the baseline screenshot before the next click is allowed.
 from __future__ import annotations
 
 # Build marker: OOP/IP matrix ROIs calibrated; None-safe stage summaries; schema v18.
+# Rebuild trigger: remove redundant escaped closed-key assertion from CI.
 # Rebuild trigger: restore Board selector helpers and assert all cleanup definitions.
 # Rebuild trigger: add Player 2 recovery status into top-level safety report.
 # Rebuild trigger: update Build Tree close assertion to require no popup and no Source Edit.
