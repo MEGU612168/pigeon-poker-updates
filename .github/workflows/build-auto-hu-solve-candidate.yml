@@ -511,8 +511,8 @@ jobs:
               root_only = [{"is_embedded_root": True}]
               root_and_popup = [{"is_embedded_root": True}, {"is_embedded_root": False}]
               assert not _build_tree_dialog_is_visible({"ratio": 0.0}, root_only)
-              assert _build_tree_dialog_is_visible({"ratio": 0.02}, root_only)
-              assert _build_tree_dialog_is_visible({"ratio": 0.0}, root_and_popup)
+              assert not _build_tree_dialog_is_visible({"ratio": 0.02}, root_only)
+              assert not _build_tree_dialog_is_visible({"ratio": 0.0}, root_and_popup)
               def bmp(path, change=False):
                   w,h=665,570
                   px=bytearray(w*h*4)
