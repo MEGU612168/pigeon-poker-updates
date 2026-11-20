@@ -119,12 +119,7 @@ jobs:
               raise SystemExit("Range-aware CPU integration import is missing.")
           if "range_estimator=estimate_preflop_opponent_ranges" not in main:
               raise SystemExit("Chart range-estimator bridge is missing.")
-          if "source", False:
-              pass
           files["VERSION.txt"] = (TARGET_VERSION + "\n").encode("ascii")
-          files["pigeon_poker/poker_reasoning.py"] = files[
-              "pigeon_poker/poker_reasoning.py"
-          ]
 
           for name, content in files.items():
               if name.endswith((".py", ".pyw")):
