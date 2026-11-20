@@ -470,30 +470,18 @@ jobs:
 
           # Cancel timer on normal action, but retain it for an exact GTO wait:
           # if the solver does not respond before the budget, CPU timeout recovers.
-          gto_anchor = '''                                result = session.cpu_decide(
-                                    hand, pid, rng=cpu.rng,
-                                    level=(5 if is_vip_mode(active_mode) else cpu.level),
-                                    archetype=("balanced" if is_vip_mode(active_mode) else
-                                               (profile.archetype if profile else "balanced")),
-                                )
-                            table.sync_external_hand_state()
-          '''
-          gto_new = '''                                result = session.cpu_decide(
-                                    hand, pid, rng=cpu.rng,
-                                    level=(5 if is_vip_mode(active_mode) else cpu.level),
-                                    archetype=("balanced" if is_vip_mode(active_mode) else
-                                               (profile.archetype if profile else "balanced")),
-                                )
-                                with turn_lock:
-                                    if not turn_timed_out.is_set() and not cancel_event.is_set():
-                                        turn_committed.set()
-                                        turn_timer.cancel()
-                            table.sync_external_hand_state()
-          '''
-          try:
-              main = rep(main, gto_anchor, gto_new, "cancel timer when GTO decision returns")
-          except SystemExit:
-              raise SystemExit("Could not find GTO decision call to attach timeout cancellation.")
+          # Locate the exact solver call in the pinned package, then insert
+          # timer cancellation immediately after its closing parenthesis.
+          gto_start = main.index("result = session.cpu_decide(")
+          gto_close = main.index("\n                                )", gto_start)
+          gto_close += len("\n                                )")
+          gto_timer_cancel = (
+              "\n                                with turn_lock:\n"
+              "                                    if not turn_timed_out.is_set() and not cancel_event.is_set():\n"
+              "                                        turn_committed.set()\n"
+              "                                        turn_timer.cancel()"
+          )
+          main = main[:gto_close] + gto_timer_cancel + main[gto_close:]
 
           main = rep(
               main,
