@@ -186,6 +186,9 @@ class PigeonPokerApp(tk.Tk):
             preferred_tree if preferred_tree.is_file() else (self.tree_files[-1] if self.tree_files else None)
         )
         self.gto_embedded = False
+        self.gto_owned_process_pid: int | None = None
+        self._gto_attach_requested = False
+        self._gto_auto_connect_requested = False
         self.cpu_last_action = tk.StringVar(value="CPUはまだGTO+の戦略を使っていません")
         self.status_var = tk.StringVar(value="GTO+ 未接続")
         self.hand_var = tk.StringVar(value="AUTO")
@@ -334,6 +337,7 @@ class PigeonPokerApp(tk.Tk):
         self.bind_all("<KeyPress>", self._on_global_hotkey, add="+")
         self._job_drain_after_id = self.after(120, self._drain_jobs)
         self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)
+        self.after(1200, self._auto_start_gto_plus)
 
     # ---------- Theme helpers ----------
     def _style(self):
@@ -9140,6 +9144,28 @@ class PigeonPokerApp(tk.Tk):
                 pass
             self.integration = PigeonGTOPlusIntegration(exe, self.store, port=port, bridge_root=ROOT)
 
+    def _auto_start_gto_plus(self):
+        """Start the embedded GTO+ process and connect automatically on Pigeon startup."""
+        if self._gto_attach_requested:
+            return
+        if self.gto_embedded:
+            self.after(1000, self._auto_connect_gto_plus)
+            return
+        self.status_var.set("GTO+ 自動起動中…")
+        self._launch_gto()
+        if self.gto_embedded:
+            self.after(1500, self._auto_connect_gto_plus)
+
+    def _auto_connect_gto_plus(self):
+        """Connect once after the embedded GTO+ window is ready."""
+        if not self.gto_embedded or self._gto_auto_connect_requested:
+            return
+        client = getattr(self.integration, "_client", None)
+        if client is not None and bool(getattr(client, "connected", False)):
+            return
+        self._gto_auto_connect_requested = True
+        self._connect_gto()
+
     def _enable_socket(self):
         try:
             self._save_connection_config()
@@ -9205,6 +9231,12 @@ class PigeonPokerApp(tk.Tk):
             self.update_idletasks()
             host_hwnd = int(self.gto_host.winfo_id())
             hwnd = self.integration.launch_and_dock(host_hwnd, startup_timeout=25)
+            process = getattr(self.integration, "process", None)
+            if process is not None:
+                try:
+                    self.gto_owned_process_pid = int(process.pid)
+                except Exception:
+                    self.gto_owned_process_pid = None
             self.gto_embedded = True
             self.status_var.set(f"GTO+をPigeon内に表示中 (HWND {hwnd})")
             self._schedule_embedded_gto_geometry_sync("launch")
@@ -9290,9 +9322,11 @@ class PigeonPokerApp(tk.Tk):
             hwnd = self.integration.attach_existing_and_dock(
                 process_id, int(self.gto_host.winfo_id()), startup_timeout=15,
             )
+            self.gto_owned_process_pid = int(process_id)
             self.gto_embedded = True
             self.status_var.set(f"GTO+をPigeon内に表示中 (HWND {hwnd})")
             self._schedule_embedded_gto_geometry_sync("attach")
+            self.after(1200, self._auto_connect_gto_plus)
         except Exception as exc:
             self.gto_embedded = False
             self.status_var.set("既存GTO+のドッキングに失敗")
@@ -10458,10 +10492,33 @@ class PigeonPokerApp(tk.Tk):
             save_config(self.config_data)
         except Exception:
             pass
+        # Detach the bridge first, then close only the exact GTO+ PID
+        # owned by this Pigeon instance. Never kill GTO+ by image name.
         try:
             self.integration.stop(detach=True, terminate=False)
         except Exception:
             pass
+        owned_pid = int(getattr(self, "gto_owned_process_pid", 0) or 0)
+        if owned_pid > 0:
+            try:
+                if os.name == "nt":
+                    subprocess.run(
+                        ["taskkill", "/PID", str(owned_pid), "/T", "/F"],
+                        check=False, stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL, timeout=5,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
+                else:
+                    process = getattr(self.integration, "process", None)
+                    if process is not None and process.poll() is None:
+                        process.terminate()
+            except Exception:
+                try:
+                    process = getattr(self.integration, "process", None)
+                    if process is not None and process.poll() is None:
+                        process.terminate()
+                except Exception:
+                    pass
         self.destroy()
 
 
@@ -10474,6 +10531,8 @@ def main():
             dock_pid = None
     app = PigeonPokerApp()
     if dock_pid is not None and dock_pid > 0:
+        app._gto_attach_requested = True
+        app.gto_owned_process_pid = dock_pid
         app.after(900, lambda pid=dock_pid: app._attach_existing_gto(pid))
     app.mainloop()
 
