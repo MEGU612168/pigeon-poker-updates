@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.67",
-  "published_at": "2026-11-20T05:45:15Z",
-  "release_notes": "OOP/IPへAA+AKs:40%、BoardへAs・Kd・7cを一時投入し、Build Tree設定ダイアログを開いて画面・子ウィンドウ・コントロールを採取。確定せずにダイアログを閉じ、既知のSource文字列・マトリクス署名・Board画像が一致する場合だけClearして全項目を空状態へ復元。Pot/Stack/Rake変更、Tree確定、Solver実行はなし。",
+  "version": "1.3.68",
+  "published_at": "2026-11-20T06:17:14Z",
+  "release_notes": "Build Tree押下後のGTO+「プレイヤー2のレンジを入力してください」Program messageをBuild Tree設定画面と誤認しないよう修正。OKボタンとPlayer2 Source EditのPID/クラス/ID/所有関係を検証し、Sourceが既知のAA+AKs:40%テスト値と完全一致する場合のみDoneで一度再試行。再度拒否された場合は同じ既知テスト値だけClearし、IP/OOP/Boardの元状態を個別照合。異なるSourceは変更せず安全停止。Tree確定・Solver実行なし。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.67/payload-updater.zip.b64",
-  "payload_sha256": "02179a26485bf650e4557431c84e64433ca836c5d29c5b7c1efcddf84e09d75e",
-  "payload_size": 216096
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.68/payload-updater.zip.b64",
+  "payload_sha256": "25d786efb4036f8a269dc2157344a8a54a697d0a4fa5f627e06ff6134d766fb2",
+  "payload_size": 220491
 }
