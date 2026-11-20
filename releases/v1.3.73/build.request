@@ -1,0 +1,1 @@
+Build v1.3.73: GTO+ docking only after GTO Engine host is mapped; reattach owned process after prior docking failure.
