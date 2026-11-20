@@ -22,6 +22,7 @@ class OpponentRange:
     confidence: float
     participation_probability: float = 1.0
     archetype: str = "balanced"
+    removed_combos: tuple[tuple[tuple[str, str], float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -357,6 +358,8 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
     hero_cards = list(getattr(hero, "hole_cards", ()) or ())
     board_now = list(getattr(hand, "board", ()) or ())
     blockers = set(str(card) for card in hero_cards + board_now)
+    hero_blockers = set(str(card) for card in hero_cards)
+    public_blockers = set(str(card) for card in board_now)
     estimate: dict[str, Any] = {}
     if range_estimator is not None:
         try:
@@ -393,20 +396,31 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
         if isinstance(row, dict) and row.get("supported") and isinstance(
             row.get("hand_class_probabilities"), dict
         ):
-            for hand_class, raw_weight in row["hand_class_probabilities"].items():
+            unblocked_probabilities = row.get("unblocked_hand_class_probabilities")
+            has_unblocked = isinstance(unblocked_probabilities, dict)
+            class_probabilities = (
+                unblocked_probabilities if has_unblocked
+                else row["hand_class_probabilities"]
+            )
+            combo_blockers = public_blockers if has_unblocked else blockers
+            for hand_class, raw_weight in class_probabilities.items():
                 try:
                     class_weight = max(0.0, float(raw_weight))
                 except (TypeError, ValueError):
                     continue
                 combos = [combo for combo in _physical_combos(str(hand_class))
-                          if not (set(combo) & blockers)]
+                          if not (set(combo) & combo_blockers)]
                 if class_weight > 0 and combos:
                     raw_options.extend((combo, class_weight / len(combos)) for combo in combos)
             if raw_options:
                 source = "fixed-chart-action-range"
                 confidence = 0.90
         if not raw_options:
-            raw_options, source, confidence = _fallback_preflop_range(hand, pid, blockers)
+            # Keep hero cards out until after the action likelihood updates so
+            # removed value/bluff combinations can be measured explicitly.
+            raw_options, source, confidence = _fallback_preflop_range(
+                hand, pid, public_blockers
+            )
 
         # Rebuild the board as it existed at each action. This prevents later
         # turn/river cards from leaking into an earlier flop decision.
@@ -452,11 +466,34 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
 
         total = sum(weight for _, weight in raw_options)
         if total <= 0:
-            raw_options = _uniform_combos(blockers)
+            raw_options = _uniform_combos(public_blockers)
             total = sum(weight for _, weight in raw_options)
             source = "recovered-uniform-prior"
             confidence = 0.08
-        normalised = tuple((combo, weight / total) for combo, weight in raw_options)
+        if total <= 0:
+            continue
+        removed_options = [
+            (combo, weight) for combo, weight in raw_options
+            if set(combo) & hero_blockers
+        ]
+        available_options = [
+            (combo, weight) for combo, weight in raw_options
+            if not (set(combo) & hero_blockers)
+        ]
+        available_total = sum(weight for _, weight in available_options)
+        if available_total <= 0:
+            available_options = _uniform_combos(blockers)
+            available_total = sum(weight for _, weight in available_options)
+            removed_options = []
+            total = available_total
+            source = "recovered-uniform-prior"
+            confidence = 0.08
+        normalised = tuple(
+            (combo, weight / total) for combo, weight in available_options
+        )
+        removed_normalised = tuple(
+            (combo, weight / total) for combo, weight in removed_options
+        )
         participation = 1.0
         if source == "unacted-conditional-response" and current_street == "preflop":
             participation = {0: 0.42, 1: 0.29, 2: 0.17, 3: 0.10}.get(
@@ -478,7 +515,8 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
                 size_factor = max(0.55, min(1.0, anchor / max(1.0, target_bb)))
                 participation *= size_factor
         ranges[pid] = OpponentRange(
-            pid, normalised, source, confidence, participation, archetype
+            pid, normalised, source, confidence, participation,
+            archetype, removed_normalised
         )
     return ranges
 
