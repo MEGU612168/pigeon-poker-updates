@@ -31,6 +31,7 @@ jobs:
           import pathlib
           import subprocess
           import time
+          import textwrap
           import urllib.request
           import zipfile
 
@@ -82,12 +83,17 @@ jobs:
           # Preflop uses fixed chart BB buttons only. Postflop explicitly
           # retains the legacy slider / amount box / presets / BET or RAISE.
           refresh_start = main.index("    def _refresh_table_windows(")
-          hero_start = main.index('            if hand.next_to_act == "hero":', refresh_start)
-          hero_end_marker = (
-              '            else:\n'
-              '                actor = hand.player(hand.next_to_act).name if hand.next_to_act else "CPU"'
-          )
-          hero_end = main.index(hero_end_marker, hero_start)
+          hero_condition = 'if hand.next_to_act == "hero":'
+          hero_condition_pos = main.index(hero_condition, refresh_start)
+          hero_start = main.rfind("\\n", refresh_start, hero_condition_pos) + 1
+          base_indent = main[hero_start:hero_condition_pos]
+          actor_marker = 'actor = hand.player(hand.next_to_act).name if hand.next_to_act else "CPU"'
+          actor_pos = main.index(actor_marker, hero_condition_pos)
+          actor_line_start = main.rfind("\\n", hero_condition_pos, actor_pos) + 1
+          outer_else_pos = main.rfind("else:", hero_condition_pos, actor_line_start)
+          if outer_else_pos < 0:
+              raise SystemExit("Could not locate the original CPU-turn else branch.")
+          hero_end = main.rfind("\\n", hero_condition_pos, outer_else_pos) + 1
           hero_block = '''            if hand.next_to_act == "hero":
                   record["status"].set("YOUR TURN")
                   try:
@@ -255,6 +261,7 @@ jobs:
                       pass
 
           '''
+          hero_block = textwrap.indent(textwrap.dedent(hero_block), base_indent)
           main = main[:hero_start] + hero_block + main[hero_end:]
           if "tk.Scale(" not in hero_block or "self.bet_pot_percentages" not in hero_block:
               raise SystemExit("Legacy postflop sizing controls not restored.")
