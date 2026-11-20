@@ -158,7 +158,7 @@ jobs:
               shutil.copy2(ui_target,out/"auto_solve_ui.py")
               shutil.copy2(probe_target,out/"ui_probe.py")
               shutil.copy2(preflop_target,out/"preflop_screenshot_ranges.py")
-              (out/"VERSION.txt").write_text("1.3.56\n",encoding="ascii")
+              (out/"VERSION.txt").write_text("1.3.57\n",encoding="ascii")
               print("Patched app queue: range reconstruction result will be attached to every unknown HU request.")
           PY
       - name: Test source and actual embedded chart compatibility
@@ -183,7 +183,9 @@ jobs:
           assert '_GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS = (' in ui_source
           assert 'expected_test_source_texts = set(report["expected_gto_plus_source_texts"])' in ui_source
           assert '"restore_source_text_readback"' in ui_source
-          assert '"schema_version": 15' in ui_source
+          assert '"schema_version": 16' in ui_source
+          assert '"pixels_per_cell": 4' in ui_source
+          assert '"sampling": "2x2_inner_patch_channel_max"' in ui_source
           assert '"weight_display_capture_saved"' in ui_source
           assert '"original_text_restore_readback_required": True' in ui_source
           assert '"range_committed": False' in ui_source
@@ -213,7 +215,7 @@ jobs:
           assert "or not ip_closed_ok" in ui_source
           assert "_temporary_source_field_window_adjustment" in ui_source
           assert "_source_field_occlusion_shift" in ui_source
-          assert '"probe": "verified_gto_plus_oop_multi_hand_ak_s40_weighted_commit_roundtrip_v15_canonical_restore_tooltip_safe_close"' in ui_source
+          assert '"probe": "verified_gto_plus_oop_multi_hand_ak_s40_weighted_commit_roundtrip_v16_partial_marker_sampling"' in ui_source
           assert "unique_captures" in ui_source
           assert "_source_field_underlay_is_verified_gto_view" in ui_source
           assert "_click_verified_gto_hit_target" in ui_source
@@ -307,16 +309,17 @@ jobs:
               def matrix_bmp(path, active_cells=()):
                   w,h=665,570
                   px=bytearray(w*h*4)
-                  # Cell-center sample points: AA=(29,91), AKs=(33,91).
-                  for x,y in active_cells:
+                  # AA is a filled green cell; AKs=40% is a narrow blue marker
+                  # at the inner-left pixel (32,90), not at the old center (33,91).
+                  for x,y,color in active_cells:
                       i=(y*w+x)*4
-                      px[i:i+4]=bytes((0x20,0x80,0xE0,0))
+                      px[i:i+4]=bytes((*color,0))
                   header=b"BM"+struct.pack("<IHHI",54+len(px),0,0,54)
                   dib=struct.pack("<IiiHHIIiiII",40,w,-h,1,32,0,len(px),0,0,0,0)
                   pathlib.Path(path).write_bytes(header+dib+px)
               matrix_bmp(pathlib.Path(td)/"matrix_empty.bmp",())
-              matrix_bmp(pathlib.Path(td)/"matrix_aa.bmp",((29,91),))
-              matrix_bmp(pathlib.Path(td)/"matrix_aa_aks.bmp",((29,91),(33,91)))
+              matrix_bmp(pathlib.Path(td)/"matrix_aa.bmp",((29,91,(0x20,0xC0,0x40)),))
+              matrix_bmp(pathlib.Path(td)/"matrix_aa_aks.bmp",((29,91,(0x20,0xC0,0x40)),(32,90,(0x20,0x80,0xE0))))
               empty_sig=_bmp_matrix_center_signature(pathlib.Path(td)/"matrix_empty.bmp")
               aa_sig=_bmp_matrix_center_signature(pathlib.Path(td)/"matrix_aa.bmp")
               aa_aks_sig=_bmp_matrix_center_signature(pathlib.Path(td)/"matrix_aa_aks.bmp")
@@ -326,6 +329,9 @@ jobs:
               assert _matrix_signature_is_aa_only(aa_sig,empty_sig)
               assert _matrix_signature_matches_selected_cells(aa_aks_sig,empty_sig,[0,1])
               assert not _matrix_signature_matches_selected_cells(aa_sig,empty_sig,[0,1])
+              # A 40% AKs marker at x=32 is detected even though old center x=33 is black.
+              assert aa_aks_sig["samples"][1] != empty_sig["samples"][1]
+              assert aa_aks_sig["sampling"] == "2x2_inner_patch_channel_max"
           assert "def _run_auto_solve_ui_probe" in main
           updater=pathlib.Path("staging/auto_hu_solve_candidate/pigeon_updater.py").read_text(encoding="utf-8")
           ast.parse(updater,filename="pigeon_updater.py")
@@ -345,7 +351,7 @@ jobs:
           python - <<'PY'
           import pathlib,zipfile,hashlib
           root=pathlib.Path("staging/auto_hu_solve_candidate")
-          out=pathlib.Path("staging/auto_hu_solve_v1.3.56.zip")
+          out=pathlib.Path("staging/auto_hu_solve_v1.3.57.zip")
           with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED,compresslevel=9) as z:
               z.write(root/"PigeonPoker.pyw","PigeonPoker.pyw")
               z.write(root/"pigeon_updater.py","pigeon_updater.py")
@@ -358,30 +364,30 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: auto-hu-solve-v1.3.56
-          path: staging/auto_hu_solve_v1.3.56.zip
+          name: auto-hu-solve-v1.3.57
+          path: staging/auto_hu_solve_v1.3.57.zip
 
-      - name: Queue the verified v1.3.56 stable release (main branch only)
+      - name: Queue the verified v1.3.57 stable release (main branch only)
         if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import base64, datetime, hashlib, io, json, pathlib, zipfile
-          payload_path = pathlib.Path("staging/auto_hu_solve_v1.3.56.zip")
+          payload_path = pathlib.Path("staging/auto_hu_solve_v1.3.57.zip")
           payload = payload_path.read_bytes()
           with zipfile.ZipFile(io.BytesIO(payload)) as z:
               if z.testzip() is not None:
-                  raise SystemExit("v1.3.56 update ZIP integrity failed")
+                  raise SystemExit("v1.3.57 update ZIP integrity failed")
               required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
                           "pigeon_gto_plus/live_range_builder.py",
                           "pigeon_gto_plus/auto_solve_ui.py",
                           "pigeon_gto_plus/ui_probe.py",
                           "pigeon_poker/preflop_screenshot_ranges.py"}
               if not required.issubset(set(z.namelist())):
-                  raise SystemExit("v1.3.56 update ZIP is missing required files")
-              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.56":
-                  raise SystemExit("v1.3.56 VERSION.txt mismatch")
+                  raise SystemExit("v1.3.57 update ZIP is missing required files")
+              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.57":
+                  raise SystemExit("v1.3.57 VERSION.txt mismatch")
               import ast
               ast.parse(z.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
               ast.parse(z.read("pigeon_gto_plus/live_range_builder.py").decode("utf-8"),
@@ -392,7 +398,7 @@ jobs:
                         filename="pigeon_gto_plus/ui_probe.py")
               ast.parse(z.read("pigeon_poker/preflop_screenshot_ranges.py").decode("utf-8"),
                         filename="pigeon_poker/preflop_screenshot_ranges.py")
-          release = pathlib.Path("releases/v1.3.56")
+          release = pathlib.Path("releases/v1.3.57")
           release.mkdir(parents=True, exist_ok=True)
           for old in release.glob("payload.part-*"):
               old.unlink()
@@ -407,17 +413,17 @@ jobs:
               "schema_version": 1,
               "product": "pigeon-poker",
               "channel": "stable",
-              "version": "1.3.56",
+              "version": "1.3.57",
               "published_at": datetime.datetime.now(datetime.timezone.utc).isoformat(
                   timespec="seconds").replace("+00:00", "Z"),
-              "release_notes": "GTO+ 1.9.1の複数ハンド重み付きレンジを検証。OOPへAA,AKs:0.4を一時確定し、AA/AKsの2セルだけの反映とGTO+正規化[40%]AKs[/40%]の完全一致を確認してからClear＋完了で復元。想定外テキストは変更せず停止。IP入力欄・Board選択画面も確認。Build Tree・Solver実行なし。",
+              "release_notes": "OOPの2セル判定を各セルの2x2内側画素のRGB最大値で評価。GTO+が40%のAKsに描画する細い青いマーカーを検出し、AA+AKsだけの反映確認後にClear＋完了で復元。想定外テキストは変更せず停止。Build Tree・Solver実行なし。",
               "package_mode": "full"
           }
           (release/"release.json").write_text(
               json.dumps(metadata, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
           (release/"payload.parts.json").write_text(
               json.dumps({"parts": names}, indent=2) + chr(10), encoding="utf-8")
-          (release/"payload.ready").write_text("verified v1.3.56" + chr(10), encoding="ascii")
+          (release/"payload.ready").write_text("verified v1.3.57" + chr(10), encoding="ascii")
           # Publish stable.json here; GITHUB_TOKEN pushes do not trigger a second workflow.
           with zipfile.ZipFile(io.BytesIO(payload)) as z:
               zip_names = set(z.namelist())
@@ -431,7 +437,7 @@ jobs:
                       raise SystemExit("Non-allow-listed update file: " + name)
               if not allowed_roots.issubset(zip_names):
                   raise SystemExit("Missing required root update files")
-              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.56":
+              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.57":
                   raise SystemExit("Update VERSION mismatch")
           (release/"payload-updater.zip.b64").write_text(
               base64.b64encode(payload).decode("ascii"), encoding="ascii")
@@ -439,25 +445,25 @@ jobs:
               "schema_version": 1,
               "product": "pigeon-poker",
               "channel": "stable",
-              "version": "1.3.56",
+              "version": "1.3.57",
               "published_at": metadata["published_at"],
               "release_notes": metadata["release_notes"],
               "package_mode": "full",
               "payload_encoding": "base64",
-              "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.56/payload-updater.zip.b64",
+              "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.57/payload-updater.zip.b64",
               "payload_sha256": hashlib.sha256(payload).hexdigest(),
               "payload_size": len(payload),
           }
           pathlib.Path("stable.json").write_text(
               json.dumps(manifest, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
           print(json.dumps({
-              "version": "1.3.56", "payload_size": len(payload),
+              "version": "1.3.57", "payload_size": len(payload),
               "payload_sha256": manifest["payload_sha256"],
               "part_count": len(names), "zip_files": sorted(zip_names)
           }, ensure_ascii=False))
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stable.json releases/v1.3.56/
-          git commit -m "Queue verified Pigeon Poker v1.3.56 release"
+          git add stable.json releases/v1.3.57/
+          git commit -m "Queue verified Pigeon Poker v1.3.57 release"
           git push
