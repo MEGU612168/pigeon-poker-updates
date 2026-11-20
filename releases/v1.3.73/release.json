@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.73",
+  "published_at": "2026-11-20T08:14:19Z",
+  "package_mode": "full",
+  "release_notes": "GTO+の自動起動をPigeon起動直後からGTO+ Engine画面を開いた後へ変更。画面と埋め込み先HWNDが表示済みで、サイズ確定後にのみSetParent/ドッキングを実行。前回ドッキング失敗で残った既存GTO+プロセスは二重起動せず同じPIDへ再接続。埋め込み成功後はプレースホルダーを除去。v1.3.72の665:570比率維持・座標補正を継承。",
+  "payload_sha256": "6f65e9870c6015e5b8f9a3e73891765bec7c49e86568888783499697d4f3f04a",
+  "payload_size": 224845,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/preflop_screenshot_ranges.py",
+    "pigeon_updater.py"
+  ],
+  "source_version": "1.3.72",
+  "responsive_gto_workspace": true,
+  "gto_docking_requires_mapped_host": true,
+  "existing_process_reattach": true,
+  "existing_external_process_detection": true
+}
