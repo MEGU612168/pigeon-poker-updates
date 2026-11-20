@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.58",
-  "published_at": "2026-11-20T03:11:22Z",
+  "version": "1.3.59",
+  "published_at": "2026-11-20T03:12:55Z",
   "release_notes": "複数ハンド可逆テストの実機成功判定を1回に統一。旧AA単独テストの二重判定を削除し、AA+AKs:40%の2セル反映・Source正規化・完全復元を確認。40%の細い青マーカーは2x2画素で検出。Build Tree・Solver実行なし。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.58/payload-updater.zip.b64",
-  "payload_sha256": "bc6f4dfaeed0b914369af9d8a0dfb7293ab26aa1b48463d5f33a5913c4c360f5",
-  "payload_size": 207268
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.59/payload-updater.zip.b64",
+  "payload_sha256": "4e01f3e6aa4cc1b88b7b31eddf902cf83713055232f33b5edd21cf96f6e50dc4",
+  "payload_size": 207306
 }

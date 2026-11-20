@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.59",
+  "published_at": "2026-11-20T03:12:55Z",
+  "release_notes": "複数ハンド可逆テストの実機成功判定を1回に統一。旧AA単独テストの二重判定を削除し、AA+AKs:40%の2セル反映・Source正規化・完全復元を確認。40%の細い青マーカーは2x2画素で検出。Build Tree・Solver実行なし。",
+  "package_mode": "full"
+}
