@@ -90,10 +90,14 @@ spec.loader.exec_module(module)
 
 
 class FixedRandom:
+    def __init__(self):
+        self._rng = random.Random(23)
+
     def random(self):
-        return 0.5
+        return self._rng.random()
+
     def sample(self, population, count):
-        return random.Random(23).sample(list(population), count)
+        return self._rng.sample(list(population), count)
 
 
 class FakeCPU:
