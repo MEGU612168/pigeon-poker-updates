@@ -564,6 +564,20 @@ def _commit_verified_player2_editor_after_prompt(
     return result
 
 
+def _source_field_occlusion_shift(source_rect_screen: list[int],
+                                    occluder_rect_screen: list[int],
+                                    margin: int = 5) -> int:
+    """Smallest upward shift that puts the measured source field above an intersecting overlay."""
+    if len(source_rect_screen) != 4 or len(occluder_rect_screen) != 4:
+        raise ValueError("screen rectangles must contain left, top, right, bottom")
+    sx0, sy0, sx1, sy1 = map(int, source_rect_screen)
+    ox0, oy0, ox1, oy1 = map(int, occluder_rect_screen)
+    intersects = sx0 < ox1 and sx1 > ox0 and sy0 < oy1 and sy1 > oy0
+    if not intersects:
+        return 0
+    return max(0, sy1 - (oy0 - max(0, int(margin))))
+
+
 def _temporary_source_field_window_adjustment(user32, root_hwnd: int,
                                                  RECT, POINT) -> dict[str, Any]:
     """Temporarily move the GTO child within its real parent to clear a foreign overlay.
