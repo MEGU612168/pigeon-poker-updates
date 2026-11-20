@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.104",
-  "published_at": "2026-11-20T19:13:34Z",
-  "release_notes": "更新失敗の原因だった不完全な2ファイル構成を修正。現在インストール済みのアップデーターが要求するPigeonPoker.pyw・pigeon_updater.py・VERSION.txtの3ファイルを含む完全な更新ZIPに変更。配信前に実際のpigeon_updater.pyの_validate_and_extractでサイズ・SHA-256・ZIP CRC・必須ファイル・Python構文・バージョンを検証。ポストフロップ操作ボタンと金額入力・スライダー・プリセット、Settingsの効果音音量スライダー・%表示・試聴・自動保存を維持。プリフロップ75局面・12,675行・頻度・固定BBサイズは不変。",
+  "version": "1.3.105",
+  "published_at": "2026-11-20T19:25:43Z",
+  "release_notes": "プリフロップのユーザー操作制限を撤廃。手番ではエンジン上合法なFOLD、CHECK/CALL、RAISE、ALL-INをチャート頻度に関係なく選択可能に変更。固定するのはプリフロップのRAISE金額だけで、対象チャートに金額がある場合はそのBBサイズを使い、チャート未対応時も操作を止めず合法な最小レイズ額を使用。アクションの頻度・選択自体はユーザーに強制しない。ポストフロップは従来どおり金額入力・スライダー・ポット割合プリセットを自由に使用可能。Settingsの効果音音量・%表示・試聴・自動保存も維持。プリフロップ75局面・12,675行・頻度・固定BBサイズ表は変更なし。配信前に実際の更新プログラムでZIP展開検証。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.104/payload-updater.zip.b64?v=3a5c94d0f5303f23e9f7e21b31414c0011fe759e5e2db39b2efb56b8b656461a",
-  "payload_sha256": "3a5c94d0f5303f23e9f7e21b31414c0011fe759e5e2db39b2efb56b8b656461a",
-  "payload_size": 145426
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.105/payload-updater.zip.b64?v=3d33f6983726850e2a9c31278486111d373cf91c8e69bb862ac40222db210b61",
+  "payload_sha256": "3d33f6983726850e2a9c31278486111d373cf91c8e69bb862ac40222db210b61",
+  "payload_size": 145620
 }
