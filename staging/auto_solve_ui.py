@@ -1346,7 +1346,7 @@ def _run_ip_multi_range_commit_roundtrip(
 
     Runs only when all 169 IP mini-matrix sample points are black and Source is blank.
     Clear is allowed only after Source text matches one of the exact normalized
-    test strings. It never touches IP, Board, pot, stack, rake, Build Tree, or Solver.
+    test strings. It never touches OOP, Board, pot, stack, rake, Build Tree, or Solver.
     """
     report: dict[str, Any] = {
         "stage": "ip_multi_range_commit_roundtrip",
@@ -2019,6 +2019,13 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "source_text_readback_required": True,
             "original_text_restore_readback_required": True,
             "done_button_clicked_for_oop_multi_range_test": bool(oop_roundtrip.get("range_committed_temporarily")),
+            "done_button_clicked_for_ip_multi_range_test": bool(ip_roundtrip and ip_roundtrip.get("range_committed_temporarily")),
+            "ip_multi_range_committed_temporarily": bool(ip_roundtrip and ip_roundtrip.get("range_committed_temporarily")),
+            "ip_expected_matrix_cells_reflection_verified": bool(ip_roundtrip and ip_roundtrip.get("expected_matrix_cells_reflection_verified")),
+            "ip_range_restored": bool(ip_roundtrip and ip_roundtrip.get("range_restored")),
+            "ip_restore_source_text_readback": ip_roundtrip.get("restore_source_text_readback") if ip_roundtrip else None,
+            "ip_restore_source_text_accepted": bool(ip_roundtrip and ip_roundtrip.get("restore_source_text_accepted")),
+            "ip_weight_display_capture_saved": bool(ip_roundtrip and ip_roundtrip.get("weight_display_capture_saved")),
             "oop_multi_range_committed_temporarily": bool(oop_roundtrip.get("range_committed_temporarily")),
             "oop_expected_matrix_cells_reflection_verified": bool(oop_roundtrip.get("expected_matrix_cells_reflection_verified")),
             "oop_range_restored": bool(oop_roundtrip.get("range_restored")),
