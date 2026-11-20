@@ -1,0 +1,343 @@
+name: Release Pigeon Poker v1.3.86 GTO+ blue-line alignment
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.86/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build from verified v1.3.85 stable package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import time
+          import urllib.request
+          import zipfile
+
+          REPO = "MEGU612168/pigeon-poker-updates"
+          SOURCE_VERSION = "1.3.85"
+          TARGET_VERSION = "1.3.86"
+          SOURCE_SHA256 = "b0903a61ca30b8cfde8839b7dd4093dd609de9a2b47938060df019707a68c51d"
+          SOURCE_SIZE = 224292
+          SOURCE_URL = (
+              f"https://raw.githubusercontent.com/{REPO}/main/releases/v{SOURCE_VERSION}/"
+              f"payload-updater.zip.b64?v={SOURCE_SHA256}"
+          )
+
+          request = urllib.request.Request(
+              SOURCE_URL,
+              headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+          )
+          with urllib.request.urlopen(request, timeout=90) as response:
+              source_transport = response.read().decode("ascii").strip()
+          source_payload = base64.b64decode(source_transport, validate=True)
+          if len(source_payload) != SOURCE_SIZE:
+              raise SystemExit("Pinned v1.3.85 package size mismatch.")
+          if hashlib.sha256(source_payload).hexdigest() != SOURCE_SHA256:
+              raise SystemExit("Pinned v1.3.85 package SHA-256 mismatch.")
+
+          EXPECTED_FILES = {
+              "PigeonPoker.pyw",
+              "pigeon_updater.py",
+              "VERSION.txt",
+              "pigeon_gto_plus/auto_solve_ui.py",
+              "pigeon_gto_plus/live_range_builder.py",
+              "pigeon_gto_plus/ui_probe.py",
+              "pigeon_poker/preflop_screenshot_ranges.py",
+          }
+          with zipfile.ZipFile(io.BytesIO(source_payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("Pinned v1.3.85 ZIP CRC failure: " + bad)
+              files = {name: archive.read(name) for name in archive.namelist()}
+          if set(files) != EXPECTED_FILES:
+              raise SystemExit("Unexpected v1.3.85 package file set.")
+          if files["VERSION.txt"].decode("ascii").strip() != SOURCE_VERSION:
+              raise SystemExit("Pinned v1.3.85 version marker mismatch.")
+
+          # Preserve the verified range/preflop baseline byte-for-byte.
+          range_blobs = {
+              "pigeon_gto_plus/live_range_builder.py": "4b8d0c287acce64cce98562313ea63f73cfb3b60",
+              "pigeon_gto_plus/ui_probe.py": "6984be9b528ce4f463d8f0bf7ce72d95038ed1fd",
+              "pigeon_poker/preflop_screenshot_ranges.py": "5a816dc1a2a07d686c6fe83b7e04155549ac4818",
+          }
+          for name, expected_blob in range_blobs.items():
+              data = files[name]
+              actual_blob = hashlib.sha1(
+                  b"blob " + str(len(data)).encode("ascii") + bytes([0]) + data
+              ).hexdigest()
+              if actual_blob != expected_blob:
+                  raise SystemExit("Range baseline changed: " + name)
+
+          main = files["PigeonPoker.pyw"].decode("utf-8")
+          updater = files["pigeon_updater.py"].decode("utf-8")
+
+          def replace_method(source: str, signature: str, replacement: str, label: str) -> str:
+              if source.count(signature) != 1:
+                  raise SystemExit(label + ": method signature is not unique.")
+              start = source.find(signature)
+              end = source.find("\n    def ", start + len(signature))
+              if start < 0 or end < 0:
+                  raise SystemExit(label + ": could not locate method boundary.")
+              if replacement.count(signature) != 1:
+                  raise SystemExit(label + ": replacement signature mismatch.")
+              return source[:start] + replacement.rstrip() + "\n" + source[end + 1:]
+
+          layout_signature = "    def _layout_embedded_gto_host(self) -> bool:\n"
+          layout_replacement = """    def _layout_embedded_gto_host(self) -> bool:
+                  \"\"\"Align the visible GTO+ content with the marked top-left guide.
+
+                  The screenshot guide is measured relative to the GTO viewport:
+                  14 px from its left edge and 38 px below its top edge. Preserve
+                  GTO+'s aspect ratio and fit the remaining area so the bottom
+                  stays visible instead of being clipped.
+                  \"\"\"
+                  try:
+                      self.update_idletasks()
+                      viewport_width = int(self.gto_viewport.winfo_width())
+                      viewport_height = int(self.gto_viewport.winfo_height())
+                      if viewport_width < 2 or viewport_height < 2:
+                          return False
+
+                      content_width = 1320.0
+                      content_height = 676.0
+                      native_top_inset = 42.0
+                      target_left_offset = 14.0
+                      target_top_offset = 38.0
+
+                      usable_width = max(2, viewport_width - int(round(target_left_offset)))
+                      usable_height = max(2, viewport_height - int(round(target_top_offset)))
+                      scale = min(
+                          usable_width / content_width,
+                          usable_height / content_height,
+                      )
+                      if scale <= 0:
+                          return False
+
+                      target_width = max(2, min(usable_width, int(content_width * scale)))
+                      target_client_height = max(
+                          2, min(usable_height, int(content_height * scale))
+                      )
+                      top_inset = max(0, int(round(native_top_inset * scale)))
+                      target_window_height = target_client_height + top_inset
+
+                      self.gto_host.place_configure(
+                          relx=0.0,
+                          rely=0.0,
+                          anchor="nw",
+                          x=int(round(target_left_offset)),
+                          y=int(round(target_top_offset)) - top_inset,
+                          width=target_width,
+                          height=target_window_height,
+                      )
+                      self._gto_display_scale = scale
+                      self._gto_content_scale_percent = int(round(scale * 100))
+                      self._gto_native_top_inset = top_inset
+                      self._gto_blue_guide_left_px = int(round(target_left_offset))
+                      self._gto_blue_guide_top_px = int(round(target_top_offset))
+                      return True
+                  except (tk.TclError, ZeroDivisionError, ValueError):
+                      return False
+          """
+          main = replace_method(
+              main, layout_signature, layout_replacement, "GTO blue-line position"
+          )
+
+          # Geometry regression checks for the measured guide offsets.
+          def fit(width: int, height: int):
+              left = 14
+              top = 38
+              usable_w = width - left
+              usable_h = height - top
+              scale = min(usable_w / 1320.0, usable_h / 676.0)
+              fitted_w = int(1320.0 * scale)
+              fitted_h = int(676.0 * scale)
+              inset = int(round(42.0 * scale))
+              host_x = left
+              host_y = top - inset
+              visible_x = host_x
+              visible_y = host_y + inset
+              return scale, fitted_w, fitted_h, inset, host_x, host_y, visible_x, visible_y
+
+          for vw, vh in ((1320, 676), (1370, 684), (1450, 720), (1640, 788), (1680, 800), (1920, 900), (1024, 600)):
+              scale, fw, fh, inset, hx, hy, vx, vy = fit(vw, vh)
+              if fw > vw - 14 or fh > vh - 38:
+                  raise SystemExit(f"GTO fit exceeds viewport for {vw}x{vh}: {fit(vw, vh)}")
+              if vx != 14 or vy != 38:
+                  raise SystemExit(f"GTO visible origin misses blue guide for {vw}x{vh}: {fit(vw, vh)}")
+              if hy + fh + inset > vh:
+                  raise SystemExit(f"GTO bottom would be clipped for {vw}x{vh}: {fit(vw, vh)}")
+
+          # Keep v1.3.85's automatic stable.json polling and update button policy.
+          for marker in (
+              "UPDATE_CHECK_INTERVAL_MS",
+              "self.after(UPDATE_CHECK_INTERVAL_MS, self._periodic_update_check)",
+              'text="UPDATE NOW"',
+              'text="UP TO DATE"',
+              "self.gto_controls_panel.place_forget()",
+              "def _toggle_gto_controls_drawer(self):",
+          ):
+              if marker not in main:
+                  raise SystemExit("Missing preserved app behavior: " + marker)
+          for marker in (
+              "UPDATE_CHECK_INTERVAL_MS = 60 * 1000",
+              '"Cache-Control": "no-cache, no-store, max-age=0"',
+              '"Pragma": "no-cache"',
+              "cache_buster = str(time.time_ns())",
+          ):
+              if marker not in updater:
+                  raise SystemExit("Missing preserved live updater behavior: " + marker)
+          if "CHECK AGAIN" in main or "RETRY CHECK" in main:
+              raise SystemExit("Manual update-check buttons were reintroduced.")
+
+          files["PigeonPoker.pyw"] = main.encode("utf-8")
+          files["VERSION.txt"] = (TARGET_VERSION + chr(10)).encode("ascii")
+          for name, data in files.items():
+              if name.endswith(".py") or name.endswith(".pyw"):
+                  ast.parse(data.decode("utf-8"), filename=name)
+
+          output = io.BytesIO()
+          with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+              for name in sorted(files):
+                  archive.writestr(name, files[name])
+          final_payload = output.getvalue()
+          with zipfile.ZipFile(io.BytesIO(final_payload), "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Final v1.3.86 ZIP CRC failure.")
+              if set(archive.namelist()) != EXPECTED_FILES:
+                  raise SystemExit("Final v1.3.86 package file list changed.")
+              if archive.read("VERSION.txt").decode("ascii").strip() != TARGET_VERSION:
+                  raise SystemExit("Final v1.3.86 version marker mismatch.")
+
+          digest = hashlib.sha256(final_payload).hexdigest()
+          encoded = base64.b64encode(final_payload).decode("ascii")
+          release_dir = pathlib.Path("releases") / ("v" + TARGET_VERSION)
+          release_dir.mkdir(parents=True, exist_ok=True)
+          (release_dir / "payload-updater.zip.b64").write_text(encoded, encoding="ascii")
+
+          chunk_size = 48000
+          chunks = []
+          for index, offset in enumerate(range(0, len(encoded), chunk_size)):
+              name = f"payload.part-{index:03d}"
+              (release_dir / name).write_text(encoded[offset:offset + chunk_size], encoding="ascii")
+              chunks.append(name)
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": chunks}, indent=2) + chr(10), encoding="utf-8"
+          )
+
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          notes = (
+              "GTO+ WORKSPACE内のGTO+表示原点を、指定スクリーンショットの青線に合わせて左14px・上38pxへ配置。"
+              "GTO+の縦横比を維持し、移動後の有効表示領域に合わせて縮尺を算出。下端の見切れを防止。"
+              "画面外スクロールなし、右側ドロワーは格納を標準とし、展開時はGTO+の上に重ねて表示。"
+              "GTO+開閉でWORKSPACE寸法は変更しない。v1.3.85のStable manifest直結・起動時確認・60秒ごとの自動確認を維持。"
+              "GTO+自動起動・接続・権限復旧、v1.3.69のレンジ本体を維持。"
+          )
+          release = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "package_mode": "full",
+              "release_notes": notes,
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+              "source_version": SOURCE_VERSION,
+              "gto_blue_guide_left_px": 14,
+              "gto_blue_guide_top_px": 38,
+              "gto_aspect_ratio_preserved": True,
+              "gto_bottom_clipping_prevented": True,
+              "gto_page_outer_scroll": False,
+              "drawer_default_collapsed": True,
+              "drawer_overlay_does_not_resize_workspace": True,
+              "automatic_update_check_on_startup": True,
+              "automatic_update_check_interval_seconds": 60,
+              "manifest_cache_bypass": True,
+              "manual_check_buttons_removed": True,
+              "range_baseline": "1.3.69",
+              "files": sorted(files),
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(release, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8"
+          )
+          (release_dir / "payload.ready").write_text("verified " + TARGET_VERSION + chr(10), encoding="ascii")
+
+          stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "release_notes": notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": (
+                  f"https://raw.githubusercontent.com/{REPO}/main/releases/v{TARGET_VERSION}/"
+                  f"payload-updater.zip.b64?v={digest}"
+              ),
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+          }
+          pathlib.Path("stable.json").write_text(
+              json.dumps(stable, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8"
+          )
+          dist = pathlib.Path("dist")
+          dist.mkdir(exist_ok=True)
+          artifact = dist / f"PigeonPoker_{TARGET_VERSION}_Improved.zip"
+          artifact.write_bytes(final_payload)
+          with zipfile.ZipFile(artifact, "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Download ZIP CRC validation failed.")
+
+          (release_dir / "build.request").unlink(missing_ok=True)
+          print(json.dumps({
+              "published_version": TARGET_VERSION,
+              "source_version": SOURCE_VERSION,
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+              "gto_blue_guide_left_px": 14,
+              "gto_blue_guide_top_px": 38,
+              "gto_aspect_ratio_preserved": True,
+              "gto_bottom_clipping_prevented": True,
+              "poll_interval_seconds": 60,
+              "startup_update_check": True,
+              "range_baseline_preserved": True,
+          }, ensure_ascii=False))
+          PY
+
+      - name: Upload installable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: PigeonPoker_1.3.86_Improved
+          path: dist/PigeonPoker_1.3.86_Improved.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish stable v1.3.86 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+users.noreply.github.com"
+          git add stable.json releases/v1.3.86/
+          git commit -m "Release Pigeon Poker v1.3.86 GTO blue-line alignment"
+          git push
