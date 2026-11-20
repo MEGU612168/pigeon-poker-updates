@@ -328,15 +328,19 @@ def test_unsupported_preflop_history_never_returns_a_legacy_limp():
         'type': 'action', 'street': 'preflop', 'player_id': 'p4', 'action': 'call'
     })
     legacy_limp = SimpleNamespace(action='limp', amount=None, source='legacy')
-    assert module.choose_preflop_action(
+    decision = module.choose_preflop_action(
         FakeTable(), hand, hand.actor_id, FakeCPU(), legacy_limp
-    ) is None
+    )
+    assert decision is not None
+    assert decision.source == "preflop-guardrail"
+    assert decision.action in {"check", "fold", "call"}
+    assert decision.action != "limp"
 
 def test_100bb_stack_gate_and_folded_short_stack():
     node=module._data()['nodes'][0]
     hand=FakeHand(node,'AA')
     assert module._supports_100bb_effective_stack(hand)
-    # A participating 60 BB stack invalidates the 100 BB chart and uses legacy CPU.
+    # A participating 60 BB stack remains outside the fixed 100 BB chart.
     hand.players[4].stack=6000
     assert not module._supports_100bb_effective_stack(hand)
     assert module._node_for_actor(FakeTable(),hand,hand.actor_id) is None
