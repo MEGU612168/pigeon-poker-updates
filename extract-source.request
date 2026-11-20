@@ -1,1 +1,1 @@
-Extract stable v1.3.80 and verify original v1.3.69 embedded GTO host, 320px connection column, auto GTO launch/connect and owned PID shutdown, plus updater restart behavior.
+Extract stable v1.3.81 and verify payload SHA-256, size, ZIP CRC, source file set, GTO permission recovery, automatic GTO launch/connect lifecycle, workspace layout and updater behavior for the next fit-to-content revision.
