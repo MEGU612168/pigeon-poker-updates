@@ -249,6 +249,12 @@ jobs:
           ui_source=pathlib.Path("staging/auto_hu_solve_candidate/auto_solve_ui.py").read_text(encoding="utf-8")
           ast.parse(ui_source,filename="auto_solve_ui.py")
           assert "_run_board_selection_roundtrip" in ui_source
+          assert "def _run_board_selection_roundtrip(" in ui_source
+          assert "def _bmp_region_dark_pixel_ratio(" in ui_source
+          assert "def _board_card_center(" in ui_source
+          assert "def _click_board_selector_target(" in ui_source
+          assert "def _clear_committed_test_range(" in ui_source
+          assert "def _clear_committed_test_board(" in ui_source
           assert "_run_build_tree_dialog_probe" in ui_source
           assert "_is_player2_range_validation_popup" in ui_source
           assert "_dismiss_exact_gto_message_with_ok" in ui_source
