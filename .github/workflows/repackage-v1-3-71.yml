@@ -97,7 +97,7 @@ jobs:
               raise SystemExit("Could not locate GTO ownership initialization.")
           main_text = main_text.replace(old, new, 1)
 
-          startup_anchor = "        self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)\n"
+          startup_anchor = (\n              "        self._job_drain_after_id = self.after(120, self._drain_jobs)\\n"\n              "        self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)\\n"\n          )
           if main_text.count(startup_anchor) != 1:
               raise SystemExit("Could not locate Pigeon startup scheduling point.")
           main_text = main_text.replace(
@@ -295,9 +295,9 @@ jobs:
           )
           published_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
           release_notes = (
-              "v1.3.69の機能内容を維持した再パッケージ版。機能ファイルはv1.3.69の検証済みパッケージから"
-              "バイト単位で引き継ぎ、VERSION.txtのみ1.3.71へ更新。v1.3.70からの更新判定を通すための版数更新。"
-              "GTO+ Player2レンジSourceフォーカス対応を含む。v1.3.70のレスポンシブWORKSPACE変更は含まない。"
+              "Pigeon起動時にGTO+をPigeon内へ自動起動し、起動後にソケット接続と登録済みツリーの再ロードを自動実行。"
+              "①ソケット設定は初回のみ。Pigeon終了時はPigeonが起動または管理対象として再接続したGTO+のPIDだけを終了。"
+              "GTO+ Player2レンジSourceフォーカス対応を維持。v1.3.70のレスポンシブWORKSPACE変更は含まない。"
           )
           release_meta = {
               "schema_version": 1,
@@ -340,7 +340,7 @@ jobs:
               "payload_size": len(payload),
               "payload_sha256": digest,
               "files": sorted(files),
-              "functional_files_unchanged": True
+              "pigeon_main_lifecycle_patched": True
           }, ensure_ascii=False))
           PY
 
