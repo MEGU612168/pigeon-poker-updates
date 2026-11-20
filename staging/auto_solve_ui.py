@@ -9,6 +9,7 @@ against the baseline screenshot before the next click is allowed.
 from __future__ import annotations
 
 # Build marker: OOP/IP matrix ROIs calibrated; None-safe stage summaries; schema v18.
+# Rebuild trigger: align dialog detection tests to require a Build Tree signature.
 # Rebuild trigger: restore and assert exact GTO Source-field underlay helpers.
 # Rebuild trigger: restore the measured Source-field overlay shift helper and assert it.
 # Rebuild trigger: update IP source constant occurrence test for validation recovery reuse.
