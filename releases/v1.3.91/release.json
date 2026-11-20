@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.91",
+  "published_at": "2026-11-20T16:19:14Z",
+  "package_mode": "full",
+  "release_notes": "ユーザー提供のGTOWizardスクリーンショットから構成した6-maxプリフロップ75局面をCPU判断へ統合。各局面169ハンドクラス、合計12,675行。全履歴を照合し、50局面のレイズ先額と20局面のオールイン分岐を実装。画像の色面積と画面表示アクション比率から推定した重みであり、ソルバーの生コンボ頻度そのものではない。6席すべて（フォールド済み席も含む）に実際に2枚配られ、100BB開始スタックと確認できない場合は既存CPUへフォールバック。対応履歴では相手の観測済みプリフロップアクションから169クラスの推定レンジを算出し、未対応履歴は未推定として返すAPIを追加。これはスクリーンショット由来の近似レンジで、ソルバーの生コンボ頻度ではない。既存CPUレベル別フォールバックとアプリ内Stable更新を維持。",
+  "payload_sha256": "0c6d37fbcd18de78e88ded83e35a4a32651828f5c0bf07939dcde2e07eab0090",
+  "payload_size": 264851,
+  "source_version": "1.3.90",
+  "preflop_node_count": 75,
+  "hand_classes_per_node": 169,
+  "preflop_hand_rows": 12675,
+  "nodes_with_raise_actions": 50,
+  "nodes_with_allin_actions": 20,
+  "source_file": "Pigeon_Preflop_GTOplus_Pio_Import_FULL.zip",
+  "frequency_method": "screenshot-colour-area estimated hand-class frequencies calibrated to displayed action totals; not solver-exact combo frequencies",
+  "source_image_notes": {
+    "uploaded_screenshot_count": 76,
+    "distinct_decision_nodes": 75,
+    "duplicate_screenshot": "Screenshot (53) duplicates Screenshot (51)",
+    "missing_screenshot": "Screenshot (52) was not supplied"
+  },
+  "runtime_tests": "14 tests passed, including all 12,675 rows, screenshot-total calibration, 100BB gating, six dealt-in seats, and opponent range inference in GitHub Actions",
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/preflop_screenshot_ranges.py",
+    "pigeon_updater.py"
+  ]
+}
