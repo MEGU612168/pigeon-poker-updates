@@ -8,7 +8,7 @@ against the baseline screenshot before the next click is allowed.
 """
 from __future__ import annotations
 
-# Build marker: OOP multi-hand AA + AKs:40% commit/restore is visually verified; schema v15.
+# Build marker: 2x2 interior RGB aggregation detects partial-weight matrix markers; schema v16.
 
 import argparse
 import json
@@ -920,7 +920,12 @@ def _probe_source_field_readback_restore_at_current_position(user32, root_hwnd: 
 
 def _bmp_matrix_center_signature(path: str | Path,
                                  roi: tuple[int, int, int, int] = _OOP_MATRIX_RECT) -> dict[str, Any]:
-    """Read one interior pixel per cell from the 13x13 miniature range matrix."""
+    """Summarize a 2x2 interior patch in each 13x13 matrix cell.
+
+    GTO+ draws partial-weight hands as a narrow colored marker inside a cell.
+    A single center pixel can miss that marker (observed for AKs at 40%).
+    Use per-channel maxima over the inner 2x2 pixels, excluding grid borders.
+    """
     data = Path(path).read_bytes()
     if len(data) < 54 or data[:2] != b"BM":
         raise ValueError("matrix capture is not a Windows BMP")
@@ -937,14 +942,30 @@ def _bmp_matrix_center_signature(path: str | Path,
         raise ValueError(f"matrix ROI outside capture dimensions: {roi}")
     samples: list[list[int]] = []
     for row in range(13):
-        y = int(y0 + (row + 0.5) * (y1-y0) / 13)
-        source_y = y if signed_height < 0 else height-1-y
+        cell_y0 = y0 + int(round(row * (y1-y0) / 13))
         for col in range(13):
-            x = int(x0 + (col + 0.5) * (x1-x0) / 13)
-            index = offset + source_y*stride + x*4
-            blue, green, red = data[index], data[index+1], data[index+2]
-            samples.append([red, green, blue])
-    return {"roi": list(roi), "samples": samples}
+            cell_x0 = x0 + int(round(col * (x1-x0) / 13))
+            rgb_pixels: list[tuple[int, int, int]] = []
+            for dy in (1, 2):
+                y = cell_y0 + dy
+                source_y = y if signed_height < 0 else height-1-y
+                for dx in (1, 2):
+                    x = cell_x0 + dx
+                    index = offset + source_y*stride + x*4
+                    blue, green, red = data[index], data[index+1], data[index+2]
+                    rgb_pixels.append((red, green, blue))
+            # Max per channel detects thin partial-weight bars while ignoring
+            # the grey/white gridlines at the cell edges.
+            samples.append([
+                max(pixel[channel] for pixel in rgb_pixels)
+                for channel in range(3)
+            ])
+    return {
+        "roi": list(roi),
+        "samples": samples,
+        "sampling": "2x2_inner_patch_channel_max",
+        "pixels_per_cell": 4,
+    }
 
 
 def _matrix_signature_is_empty(signature: dict[str, Any], threshold: int = 16) -> bool:
@@ -1704,9 +1725,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     all_captures = unique_captures
 
     report = {
-        "schema_version": 15,
+        "schema_version": 16,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_multi_hand_ak_s40_weighted_commit_roundtrip_v15_canonical_restore_tooltip_safe_close",
+        "probe": "verified_gto_plus_oop_multi_hand_ak_s40_weighted_commit_roundtrip_v16_partial_marker_sampling",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
