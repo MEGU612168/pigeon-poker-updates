@@ -1,1 +1,1 @@
-Retry v1.3.78 using the app-level GTO launch handler assertion; the reference-ratio, viewport, syntax, fit, and range checks are unchanged.
+Retry v1.3.78; verify auto-start hook/socket setup and process cleanup without coupling to private launch method names.
