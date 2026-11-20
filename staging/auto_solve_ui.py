@@ -2661,92 +2661,107 @@ def _run_build_tree_dialog_probe(
                     time.sleep(0.35)
                     retry_after_ok_windows, retry_after_ok_path = capture("player2_validation_retry_after_ok")
                     result["player2_validation_retry_after_ok_screenshot"] = retry_after_ok_path
-                    retry_edits = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
-                    result["player2_validation_retry_source_edit_count"] = len(retry_edits)
-                    # If GTO+ still asks for Player 2, clear only the exact known test value
-                    # from the newly opened Player 2 editor, then verify the IP mini-matrix.
+                    source = _focus_and_read_player2_source_field(
+                        user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                        target_hwnd, target_pid, output_dir, stem, actions, all_captures,
+                        "player2_validation_retry_cleanup",
+                    )
                     player2_cleanup = {
                         "stage": "ip_build_tree_player2_prompt_cleanup",
                         "status": "not_started",
                         "range_clear_sent": False,
                         "range_restored": False,
                         "manual_close_required": False,
+                        "source_field_focus_and_read": source,
+                        "source_text_readback": source.get("source_text_readback"),
+                        "source_text_accepted": bool(source.get("source_text_accepted")),
+                        "source_edit_identity_verified": bool(source.get("source_edit_identity_verified")),
                     }
-                    if len(retry_edits) == 1:
-                        edit_hwnd, edit_rect = retry_edits[0]
-                        edit_hwnd = int(edit_hwnd)
-                        host_hwnd = probe._top_level_ancestor(user32, target_hwnd)
-                        identity_ok = (
-                            user32.IsWindow(probe.wintypes.HWND(edit_hwnd))
-                            and probe._window_pid(user32, edit_hwnd) == int(target_pid)
-                            and probe._class_name(user32, edit_hwnd) == "Edit"
-                            and int(user32.GetDlgCtrlID(probe.wintypes.HWND(edit_hwnd))) == 5458
-                            and probe._window_is_related_to_embedded_target(
-                                user32, edit_hwnd, target_hwnd, host_hwnd
-                            )
+                    edit_hwnd = int(source.get("edit_hwnd") or 0)
+                    host_hwnd = probe._top_level_ancestor(user32, target_hwnd)
+                    identity_ok = bool(
+                        edit_hwnd
+                        and source.get("source_edit_identity_verified")
+                        and source.get("window_position_restore_verified", True)
+                        and user32.IsWindow(probe.wintypes.HWND(edit_hwnd))
+                        and probe._window_pid(user32, edit_hwnd) == int(target_pid)
+                        and probe._class_name(user32, edit_hwnd) == "Edit"
+                        and int(user32.GetDlgCtrlID(probe.wintypes.HWND(edit_hwnd))) == 5458
+                        and probe._window_is_related_to_embedded_target(
+                            user32, edit_hwnd, target_hwnd, host_hwnd
                         )
-                        player2_cleanup["source_edit_identity_verified"] = bool(identity_ok)
-                        if identity_ok:
-                            current_text = probe._read_native_edit_text(user32, edit_hwnd)
-                            player2_cleanup["source_text_readback"] = current_text
-                            text_ok = current_text in set(_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS)
-                            player2_cleanup["source_text_accepted"] = bool(text_ok)
-                            if text_ok:
-                                probe._write_native_edit_text(user32, edit_hwnd, "")
-                                player2_cleanup["source_text_cleared_readback"] = (
-                                    probe._read_native_edit_text(user32, edit_hwnd) == ""
+                    )
+                    player2_cleanup["source_edit_identity_verified"] = identity_ok
+                    if identity_ok:
+                        current_text = probe._read_native_edit_text(user32, edit_hwnd)
+                        player2_cleanup["source_text_readback_before_clear"] = current_text
+                        text_ok = current_text in set(_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS)
+                        player2_cleanup["source_text_accepted"] = bool(text_ok)
+                        if text_ok:
+                            probe._write_native_edit_text(user32, edit_hwnd, "")
+                            player2_cleanup["source_text_cleared_readback"] = (
+                                probe._read_native_edit_text(user32, edit_hwnd) == ""
+                            )
+                            if player2_cleanup["source_text_cleared_readback"]:
+                                clear_click = _click_exact_client(
+                                    user32, target_hwnd, target_pid, RECT, POINT,
+                                    _RANGE_EDITOR_CLEAR_CENTER, label="clear_player2_prompt_test_range"
                                 )
-                                if player2_cleanup["source_text_cleared_readback"]:
-                                    clear_click = _click_exact_client(
-                                        user32, target_hwnd, target_pid, RECT, POINT,
-                                        _RANGE_EDITOR_CLEAR_CENTER, label="clear_player2_prompt_test_range"
-                                    )
-                                    actions.append(clear_click)
-                                    player2_cleanup["clear_click"] = clear_click
-                                    player2_cleanup["range_clear_sent"] = True
-                                    time.sleep(0.20)
-                                    done_click = _click_exact_client(
-                                        user32, target_hwnd, target_pid, RECT, POINT,
-                                        _RANGE_EDITOR_DONE_CENTER, label="done_player2_prompt_test_range_clear"
-                                    )
-                                    actions.append(done_click)
-                                    player2_cleanup["done_click"] = done_click
-                                    time.sleep(0.55)
-                                    remaining_after_clear = probe._batch_visible_source_edits(
-                                        user32, RECT, target_hwnd
-                                    )
-                                    final_windows, final_path = capture("player2_prompt_ip_range_restored")
-                                    final_sig = _bmp_matrix_center_signature(final_path, _IP_MATRIX_RECT)
-                                    baseline_sig = _bmp_matrix_center_signature(baseline_path, _IP_MATRIX_RECT)
-                                    final_roi_diff = _bmp_region_difference_ratio(
-                                        baseline_path, final_path, _IP_MATRIX_RECT
-                                    )
-                                    player2_cleanup["remaining_source_edit_count"] = len(remaining_after_clear)
-                                    player2_cleanup["final_matrix_signature"] = final_sig
-                                    player2_cleanup["baseline_matrix_difference"] = final_roi_diff
-                                    player2_cleanup["range_restored"] = (
-                                        not remaining_after_clear
-                                        and final_sig["samples"] == baseline_sig["samples"]
-                                        and final_roi_diff["ratio"] <= 0.002
-                                    )
-                                    player2_cleanup["status"] = (
-                                        "player2_test_range_cleared_and_ip_baseline_verified"
-                                        if player2_cleanup["range_restored"]
-                                        else "player2_prompt_range_cleanup_not_verified"
-                                    )
-                                    player2_cleanup["manual_close_required"] = not player2_cleanup["range_restored"]
-                                else:
-                                    player2_cleanup["status"] = "source_clear_readback_failed"
-                                    player2_cleanup["manual_close_required"] = True
+                                actions.append(clear_click)
+                                player2_cleanup["clear_click"] = clear_click
+                                player2_cleanup["range_clear_sent"] = True
+                                time.sleep(0.20)
+                                clear_capture = probe._batch_capture(
+                                    user32, target_hwnd, RECT, POINT, output_dir, stem,
+                                    "player2_prompt_ip_range_after_clear"
+                                )
+                                all_captures.append(clear_capture)
+                                done_click = _click_exact_client(
+                                    user32, target_hwnd, target_pid, RECT, POINT,
+                                    _RANGE_EDITOR_DONE_CENTER, label="done_player2_prompt_test_range_clear"
+                                )
+                                actions.append(done_click)
+                                player2_cleanup["done_click"] = done_click
+                                time.sleep(0.55)
+                                remaining_after_clear = probe._batch_visible_source_edits(
+                                    user32, RECT, target_hwnd
+                                )
+                                final_windows, final_path = capture("player2_prompt_ip_range_restored")
+                                final_sig = _bmp_matrix_center_signature(final_path, _IP_MATRIX_RECT)
+                                baseline_sig = _bmp_matrix_center_signature(baseline_path, _IP_MATRIX_RECT)
+                                final_roi_diff = _bmp_region_difference_ratio(
+                                    baseline_path, final_path, _IP_MATRIX_RECT
+                                )
+                                final_popups = [
+                                    w for w in final_windows
+                                    if not w.get("is_embedded_root", False)
+                                ]
+                                player2_cleanup["remaining_source_edit_count"] = len(remaining_after_clear)
+                                player2_cleanup["remaining_popup_count"] = len(final_popups)
+                                player2_cleanup["final_matrix_signature"] = final_sig
+                                player2_cleanup["baseline_matrix_difference"] = final_roi_diff
+                                player2_cleanup["restored_screenshot"] = final_path
+                                player2_cleanup["range_restored"] = (
+                                    not remaining_after_clear
+                                    and not final_popups
+                                    and final_sig["samples"] == baseline_sig["samples"]
+                                    and final_roi_diff["ratio"] <= 0.002
+                                )
+                                player2_cleanup["status"] = (
+                                    "player2_test_range_cleared_and_ip_baseline_verified"
+                                    if player2_cleanup["range_restored"]
+                                    else "player2_prompt_range_cleanup_not_verified"
+                                )
+                                player2_cleanup["manual_close_required"] = not player2_cleanup["range_restored"]
                             else:
-                                player2_cleanup["status"] = "unrecognized_source_preserved"
+                                player2_cleanup["status"] = "source_clear_readback_failed"
                                 player2_cleanup["manual_close_required"] = True
                         else:
-                            player2_cleanup["status"] = "source_edit_identity_unverified"
+                            player2_cleanup["status"] = "unrecognized_source_preserved"
                             player2_cleanup["manual_close_required"] = True
                     else:
-                        player2_cleanup["status"] = "no_unique_player2_editor_for_cleanup"
-                        player2_cleanup["manual_close_required"] = bool(retry_edits)
+                        player2_cleanup["status"] = "source_edit_identity_unverified"
+                        player2_cleanup["manual_close_required"] = True
                     result["player2_validation_cleanup"] = player2_cleanup
                     result["player2_validation_cleanup_restored_ip"] = bool(player2_cleanup.get("range_restored"))
                     result["dialog_opened"] = False
