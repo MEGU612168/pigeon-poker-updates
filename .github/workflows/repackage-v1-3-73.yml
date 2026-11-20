@@ -172,7 +172,7 @@ jobs:
               "            self.after(1500, self._auto_connect_gto_plus)",
               ""
           ]) + "\n"
-          main = main[:start] + auto_start + main[end:]          main = main[:start] + auto_start + main[end:]
+          main = main[:start] + auto_start + main[end:]
 
           # Guard both launch and attach paths against a hidden/unmapped HWND.
           launch_anchor = (
