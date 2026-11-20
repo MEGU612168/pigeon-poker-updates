@@ -1,0 +1,354 @@
+name: Build Pigeon Poker v1.3.72 responsive GTO+ workspace
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.72/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  repackage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify v1.3.71 base and merge the v1.3.70 workspace fit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import shutil
+          import time
+          import urllib.request
+          import zipfile
+
+          root = pathlib.Path(".")
+          source_version = "1.3.71"
+          target_version = "1.3.72"
+          source_sha256 = "fe5ae67736a918667afa78e86c008608bac6a5967ce3b214214c42afd7bc233d"
+          source_size = 222246
+          source_url = (
+              "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/"
+              "releases/v1.3.71/payload-updater.zip.b64"
+              "?v=" + source_sha256
+          )
+
+          with urllib.request.urlopen(source_url, timeout=90) as response:
+              encoded = response.read().decode("ascii").strip()
+          source_payload = base64.b64decode(encoded, validate=True)
+          if len(source_payload) != source_size:
+              raise SystemExit("Pinned v1.3.71 payload size mismatch.")
+          if hashlib.sha256(source_payload).hexdigest() != source_sha256:
+              raise SystemExit("Pinned v1.3.71 payload SHA-256 mismatch.")
+
+          with zipfile.ZipFile(io.BytesIO(source_payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("Pinned source ZIP integrity failure: " + bad)
+              files = {}
+              for info in archive.infolist():
+                  if info.is_dir():
+                      raise SystemExit("Unexpected directory entry: " + info.filename)
+                  name = info.filename
+                  path = pathlib.PurePosixPath(name)
+                  if path.is_absolute() or ".." in path.parts or "." in path.parts or path.as_posix() != name or "\\" in name:
+                      raise SystemExit("Unsafe source package path: " + name)
+                  allowed_root = name in {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
+                  allowed_module = (
+                      len(path.parts) >= 2
+                      and path.parts[0] in {"pigeon_poker", "pigeon_gto_plus"}
+                      and path.suffix.lower() == ".py"
+                      and not any(part.startswith(".") or part == "__pycache__" for part in path.parts)
+                  )
+                  if not (allowed_root or allowed_module):
+                      raise SystemExit("Non-allow-listed source package path: " + name)
+                  key = name.casefold()
+                  if key in {item.casefold() for item in files}:
+                      raise SystemExit("Duplicate source path: " + name)
+                  files[name] = archive.read(name)
+
+          required = {
+              "PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
+              "pigeon_gto_plus/auto_solve_ui.py",
+              "pigeon_gto_plus/live_range_builder.py",
+              "pigeon_gto_plus/ui_probe.py",
+              "pigeon_poker/preflop_screenshot_ranges.py",
+          }
+          if not required.issubset(files):
+              raise SystemExit("Pinned v1.3.71 source is missing required application files.")
+          if files["VERSION.txt"].decode("utf-8").strip() != source_version:
+              raise SystemExit("Pinned source VERSION.txt mismatch.")
+
+          main = files["PigeonPoker.pyw"].decode("utf-8")
+          old_workspace = (
+              '        self.gto_host = tk.Frame(host_col, bg="#080f18", height=570)\n'
+              '        self.gto_host.pack(fill="both", expand=True, padx=8, pady=8)\n'
+              '        self.gto_host.bind("<Configure>", self._resize_embedded)\n'
+          )
+          new_workspace = (
+              '        self.gto_viewport = tk.Frame(host_col, bg="#080f18")\n'
+              '        self.gto_viewport.pack(fill="both", expand=True, padx=8, pady=8)\n'
+              '        self.gto_host = tk.Frame(self.gto_viewport, bg="#080f18", width=665, height=570)\n'
+              '        self.gto_host.place(relx=.5, rely=.5, anchor="center", width=665, height=570)\n'
+              '        self.gto_viewport.bind("<Configure>", self._resize_embedded)\n'
+          )
+          if main.count(old_workspace) != 1:
+              raise SystemExit("Could not uniquely locate the v1.3.71 GTO+ workspace host.")
+          main = main.replace(old_workspace, new_workspace, 1)
+
+          geometry_start = main.find("    def _sync_embedded_gto_geometry(")
+          geometry_end = main.find("    def _launch_gto(", geometry_start)
+          if geometry_start < 0 or geometry_end < 0 or main.count("    def _sync_embedded_gto_geometry(") != 1:
+              raise SystemExit("Could not uniquely locate the GTO+ geometry methods.")
+          geometry_methods = '''    def _layout_embedded_gto_host(self) -> bool:
+          """Fit the 665x570 GTO+ workspace uniformly inside the available viewport."""
+          try:
+              self.update_idletasks()
+              viewport_width = int(self.gto_viewport.winfo_width())
+              viewport_height = int(self.gto_viewport.winfo_height())
+              if viewport_width < 2 or viewport_height < 2:
+                  return False
+              scale = min(viewport_width / 665.0, viewport_height / 570.0, 1.35)
+              if scale <= 0:
+                  return False
+              target_width = max(2, int(round(665 * scale)))
+              target_height = max(2, int(round(570 * scale)))
+              current_size = (int(self.gto_host.winfo_width()), int(self.gto_host.winfo_height()))
+              if current_size != (target_width, target_height):
+                  self.gto_host.place_configure(width=target_width, height=target_height)
+              self._gto_display_scale = scale
+              return True
+          except (tk.TclError, ZeroDivisionError, ValueError):
+              return False
+
+      def _sync_embedded_gto_geometry(self, reason: str = "") -> bool:
+          """Resize the native GTO+ child to the aspect-preserving centered host."""
+          if not self.gto_embedded or not getattr(self.integration, "embedder", None):
+              return False
+          try:
+              self.update_idletasks()
+              if not self._layout_embedded_gto_host():
+                  raise RuntimeError("GTO+ viewport has no usable client area")
+              host_width = int(self.gto_host.winfo_width())
+              host_height = int(self.gto_host.winfo_height())
+              if host_width < 2 or host_height < 2:
+                  raise RuntimeError(f"invalid GTO+ host client geometry: {host_width}x{host_height}")
+              self.integration.resize_docked_window(host_width, host_height)
+              self.update_idletasks()
+              return True
+          except Exception as exc:
+              try:
+                  suffix = f" ({reason})" if reason else ""
+                  self.status_var.set(f"GTO+表示位置・サイズの再同期に失敗{suffix}: {exc}")
+              except Exception:
+                  pass
+              return False
+
+      def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:
+          """Fit immediately and after Tk completes its layout."""
+          if not self.gto_embedded:
+              return
+          self._layout_embedded_gto_host()
+          self._sync_embedded_gto_geometry(reason)
+          try:
+              self.after_idle(lambda r=reason: self._sync_embedded_gto_geometry(r + "-idle"))
+              self.after(250, lambda r=reason: self._sync_embedded_gto_geometry(r + "-settled"))
+          except tk.TclError:
+              pass
+
+      '''
+          main = main[:geometry_start] + geometry_methods + main[geometry_end:]
+
+          old_resize = (
+              '    def _resize_embedded(self, _event=None):\n'
+              '        self._sync_embedded_gto_geometry("host-configure")\n'
+          )
+          new_resize = (
+              '    def _resize_embedded(self, _event=None):\n'
+              '        self._layout_embedded_gto_host()\n'
+              '        self._sync_embedded_gto_geometry("viewport-configure")\n'
+          )
+          if main.count(old_resize) != 1:
+              raise SystemExit("Could not uniquely locate the v1.3.71 resize callback.")
+          main = main.replace(old_resize, new_resize, 1)
+
+          for required_text in (
+              'self.gto_viewport.bind("<Configure>", self._resize_embedded)',
+              "def _layout_embedded_gto_host(self) -> bool:",
+              "viewport_width / 665.0, viewport_height / 570.0, 1.35",
+              "place_configure(width=target_width, height=target_height)",
+              'self._schedule_embedded_gto_geometry_sync("launch")',
+              'self._schedule_embedded_gto_geometry_sync("attach")',
+              "def _auto_start_gto_plus(self):",
+              "def _auto_connect_gto_plus(self):",
+              '["taskkill", "/PID", str(owned_pid), "/T", "/F"]',
+          ):
+              if required_text not in main:
+                  raise SystemExit("Merged workspace/lifecycle requirement missing: " + required_text)
+          ast.parse(main, filename="PigeonPoker.pyw")
+
+          # v1.3.70's coordinate-aware diagnostic module was staged separately.
+          ui_path = root / "staging" / "auto_solve_ui.py"
+          if not ui_path.is_file():
+              raise SystemExit("The verified aspect-scaled auto_solve_ui.py source is missing.")
+          ui_source = ui_path.read_text(encoding="utf-8")
+          ast.parse(ui_source, filename="pigeon_gto_plus/auto_solve_ui.py")
+          for required_text in (
+              "def _reference_scale_for_size(",
+              "def _scale_reference_point(",
+              "def _scale_reference_rect(",
+              "def _scale_reference_roi(",
+              "_client_scale(user32, root_hwnd, RECT)",
+              "_scale_reference_point(point_client, scale_x, scale_y)",
+              "allowed_scaled = _scale_reference_rect(allowed[label], scale_x, scale_y)",
+              '"actual_client_size": [width, height]',
+              '"client_scale": [scale_x, scale_y]',
+          ):
+              if required_text not in ui_source:
+                  raise SystemExit("Aspect-scaled GTO+ diagnostic source is incomplete: " + required_text)
+          files["PigeonPoker.pyw"] = main.encode("utf-8")
+          files["pigeon_gto_plus/auto_solve_ui.py"] = ui_source.encode("utf-8")
+          files["VERSION.txt"] = (target_version + "\n").encode("ascii")
+
+          for name, content in files.items():
+              if name.endswith(".py"):
+                  ast.parse(content.decode("utf-8"), filename=name)
+
+          # Run focused coordinate-scale tests against the module being packaged.
+          import tempfile
+          import sys
+          with tempfile.TemporaryDirectory() as td:
+              package_dir = pathlib.Path(td) / "pigeon_gto_plus"
+              package_dir.mkdir()
+              (package_dir / "__init__.py").write_text("", encoding="utf-8")
+              (package_dir / "ui_probe.py").write_bytes(files["pigeon_gto_plus/ui_probe.py"])
+              (package_dir / "auto_solve_ui.py").write_bytes(files["pigeon_gto_plus/auto_solve_ui.py"])
+              sys.path.insert(0, td)
+              try:
+                  from pigeon_gto_plus.auto_solve_ui import (
+                      _reference_scale_for_size, _scale_reference_point,
+                      _scale_reference_rect, _scale_reference_roi,
+                  )
+                  assert _reference_scale_for_size(665, 570) == (1.0, 1.0)
+                  assert _reference_scale_for_size(798, 684) == (1.2, 1.2)
+                  assert _scale_reference_point((54, 116), 1.2, 1.2) == (65, 139)
+                  assert _scale_reference_rect((10, 20, 100, 200), 1.2, 1.2) == (12, 24, 120, 240)
+                  assert _scale_reference_roi((10, 20, 100, 200), 798, 684) == (12, 24, 120, 240)
+                  try:
+                      _reference_scale_for_size(665, 520)
+                  except ValueError:
+                      pass
+                  else:
+                      raise AssertionError("Non-uniform GTO+ aspect ratio was accepted.")
+              finally:
+                  sys.path.remove(td)
+                  for key in list(sys.modules):
+                      if key == "pigeon_gto_plus" or key.startswith("pigeon_gto_plus."):
+                          sys.modules.pop(key, None)
+
+          output = io.BytesIO()
+          with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+              for name in sorted(files):
+                  archive.writestr(name, files[name])
+          payload = output.getvalue()
+          with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Final v1.3.72 ZIP integrity check failed.")
+              if archive.read("VERSION.txt").decode("ascii").strip() != target_version:
+                  raise SystemExit("Final package version mismatch.")
+              if set(archive.namelist()) != set(files):
+                  raise SystemExit("Final package file set unexpectedly changed.")
+              ast.parse(archive.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
+              ast.parse(archive.read("pigeon_gto_plus/auto_solve_ui.py").decode("utf-8"),
+                        filename="pigeon_gto_plus/auto_solve_ui.py")
+
+          digest = hashlib.sha256(payload).hexdigest()
+          encoded_payload = base64.b64encode(payload).decode("ascii")
+          release_dir = root / "releases" / ("v" + target_version)
+          release_dir.mkdir(parents=True, exist_ok=True)
+          (release_dir / "payload-updater.zip.b64").write_text(encoded_payload, encoding="ascii")
+          chunk_size = 48000
+          part_names = []
+          for index, start in enumerate(range(0, len(encoded_payload), chunk_size)):
+              part_name = f"payload.part-{index:03d}"
+              (release_dir / part_name).write_text(encoded_payload[start:start + chunk_size], encoding="ascii")
+              part_names.append(part_name)
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": part_names}, indent=2) + "\n", encoding="utf-8"
+          )
+          published_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          release_notes = (
+              "GTO+ WORKSPACEを665:570の縦横比のまま表示枠内へ均等にフィットし、中央配置。"
+              "右端を含む画面全体を切り取らず表示し、幅・高さの広い側へ引き伸ばさない。"
+              "自動診断のクリック座標・許可矩形・Source欄・Board・画像ROI・13x13判定も実クライアント倍率へ補正。"
+              "v1.3.71のGTO+自動起動・自動接続・Pigeon終了時の所有PID限定終了を維持。"
+          )
+          meta = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": target_version,
+              "published_at": published_at,
+              "package_mode": "full",
+              "release_notes": release_notes,
+              "payload_sha256": digest,
+              "payload_size": len(payload),
+              "files": sorted(files),
+              "source_version": source_version,
+              "responsive_gto_workspace": True,
+              "automatic_gto_lifecycle": True,
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+          )
+          (release_dir / "payload.ready").write_text("verified " + target_version + "\n", encoding="ascii")
+          stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": target_version,
+              "published_at": published_at,
+              "release_notes": release_notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": (
+                  "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/"
+                  + "releases/v" + target_version + "/payload-updater.zip.b64?v=" + digest
+              ),
+              "payload_sha256": digest,
+              "payload_size": len(payload),
+          }
+          (root / "stable.json").write_text(
+              json.dumps(stable, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+          )
+          (release_dir / "build.request").unlink(missing_ok=True)
+          print(json.dumps({
+              "source_version": source_version,
+              "published_version": target_version,
+              "payload_size": len(payload),
+              "payload_sha256": digest,
+              "files": sorted(files),
+              "workspace_aspect_fit": True,
+              "diagnostic_coordinate_scaling": True,
+              "automatic_gto_lifecycle": True,
+          }, ensure_ascii=False))
+          PY
+      - name: Publish v1.3.72 stable package
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+users.noreply.github.com"
+          git add stable.json releases/v1.3.72/
+          git commit -m "Release Pigeon Poker v1.3.72 responsive GTO+ workspace"
+          git push
