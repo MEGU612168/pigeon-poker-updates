@@ -199,8 +199,8 @@ jobs:
           main = main[:connect_start] + connect_method + main[load_tree_start:]
 
           # Remove the former app-generated elevation approval pathway entirely.
-          if "messagebox.askyesno(" in main and "Windows permissions required" in main:
-              raise SystemExit("Old GTO+ elevation approval prompt remains in the patched source.")
+          if "Windows permissions required" in main or "_restart_pigeon_elevated_for_gto" in main:
+              raise SystemExit("Old GTO+ elevation approval pathway remains in the patched source.")
           if "ShellExecuteW(" in main and '"runas"' in main:
               raise SystemExit("Old GTO+ runas elevation pathway remains in the patched source.")
 
@@ -272,8 +272,10 @@ jobs:
                   raise SystemExit("Missing required v1.3.76 behavior: " + item)
           if 'controls_outer.pack(side="right"' in main:
               raise SystemExit("GTO+ still loses workspace width to a right sidebar.")
-          if "messagebox.askyesno(" in main or ('ShellExecuteW(' in main and '"runas"' in main):
+          if "Windows permissions required" in main or "_restart_pigeon_elevated_for_gto" in main:
               raise SystemExit("An app-generated GTO+ permission/elevation prompt remains.")
+          if "ShellExecuteW(" in main and '"runas"' in main:
+              raise SystemExit("An app-generated GTO+ runas pathway remains.")
           for name, expected_blob in range_blobs.items():
               data = files[name]
               actual_blob = hashlib.sha1(
