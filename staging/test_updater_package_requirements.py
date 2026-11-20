@@ -79,10 +79,32 @@ def test_published_104_package_is_valid_for_existing_updater() -> None:
     assert set(extracted) >= {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
 
 
+
+def test_full_update_accepts_additional_python_modules_in_allowed_app_packages() -> None:
+    payload, manifest = make_payload({
+        "PigeonPoker.pyw": b"print('app')\n",
+        "pigeon_updater.py": b"print('updater')\n",
+        "VERSION.txt": b"1.3.106\n",
+        "pigeon_poker/poker_reasoning.py": b"VALUE = 1\n",
+        "pigeon_poker/preflop_screenshot_ranges.py": b"VALUE = 2\n",
+    })
+    manifest["version"] = "1.3.106"
+    with tempfile.TemporaryDirectory() as tmp:
+        extracted = updater._validate_and_extract(payload, manifest, Path(tmp) / "stage")
+    assert set(extracted) == {
+        "PigeonPoker.pyw",
+        "pigeon_updater.py",
+        "VERSION.txt",
+        "pigeon_poker/poker_reasoning.py",
+        "pigeon_poker/preflop_screenshot_ranges.py",
+    }
+
+
 if __name__ == "__main__":
     tests = [
         test_full_update_requires_all_three_root_files,
         test_old_two_file_package_is_rejected_by_current_updater,
+        test_full_update_accepts_additional_python_modules_in_allowed_app_packages,
         test_published_104_package_is_valid_for_existing_updater,
     ]
     for case in tests:
