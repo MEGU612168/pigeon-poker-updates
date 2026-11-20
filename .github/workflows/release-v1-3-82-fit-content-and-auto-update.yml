@@ -99,8 +99,8 @@ jobs:
               end = source.find("\n    def ", start + len(signature))
               if start < 0 or end < 0:
                   raise SystemExit(label + ": could not find next method boundary.")
-              if not replacement.startswith(signature):
-                  raise SystemExit(label + ": replacement signature mismatch.")
+              if replacement.count(signature) != 1:
+                  raise SystemExit(label + ": replacement must contain the target signature exactly once.")
               return source[:start] + replacement.rstrip() + "\n" + source[end + 1:]
 
           # Confirm v1.3.81 permission-recovery and process-handoff code exists.
