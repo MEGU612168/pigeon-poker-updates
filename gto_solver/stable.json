@@ -1,0 +1,11 @@
+{
+  "product": "pigeon-gto-solver",
+  "channel": "stable",
+  "version": "0.2.3",
+  "published_at": "2026-11-20T14:30:00Z",
+  "release_notes": "SRPを新規解析対象から除外。3ベット以上はshort stacksプロファイルへ振り分け、OOP/IPのPio Raise行を選択可能に。アプリ内更新配信を有効化。",
+  "payload_encoding": "base64",
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/gto-solver-service-prototype/gto_solver/releases/v0.2.3/payload.zip.b64",
+  "payload_sha256": "2298808087162ca783657d1b20cbccbb1f7f6bfe8122f594db0b13363221f88f",
+  "payload_size": 26076
+}
