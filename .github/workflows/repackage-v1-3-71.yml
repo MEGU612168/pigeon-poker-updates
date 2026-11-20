@@ -58,7 +58,7 @@ jobs:
                       raise SystemExit("Unexpected directory entry: " + info.filename)
                   name = info.filename
                   path = pathlib.PurePosixPath(name)
-                  if path.is_absolute() or ".." in path.parts or "." in path.parts or path.as_posix() != name or "\\\\" in name:
+                  if path.is_absolute() or ".." in path.parts or "." in path.parts or path.as_posix() != name or "\\" in name:
                       raise SystemExit("Unsafe source package path: " + name)
                   allowed_root = name in {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
                   allowed_module = (
@@ -94,7 +94,7 @@ jobs:
 
           # Only the version marker is changed. All functional application files
           # are carried over byte-for-byte from the verified v1.3.69 package.
-          files["VERSION.txt"] = (target_version + "\\n").encode("utf-8")
+          files["VERSION.txt"] = (target_version + "\n").encode("utf-8")
 
           output_buffer = BytesIO()
           with zipfile.ZipFile(output_buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as output_zip:
@@ -126,7 +126,7 @@ jobs:
               (release_dir / name).write_text(encoded_payload[start:start + chunk_size], encoding="ascii")
               parts.append(name)
           (release_dir / "payload.parts.json").write_text(
-              json.dumps({"parts": parts}, indent=2) + "\\n", encoding="utf-8"
+              json.dumps({"parts": parts}, indent=2) + "\n", encoding="utf-8"
           )
           published_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
           release_notes = (
@@ -149,7 +149,7 @@ jobs:
               "version_only_repackage": True
           }
           (release_dir / "release.json").write_text(
-              json.dumps(release_meta, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8"
+              json.dumps(release_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
           )
           (release_dir / "payload.ready").write_text("verified v1.3.71\\n", encoding="ascii")
 
@@ -166,7 +166,7 @@ jobs:
               "payload_sha256": digest,
               "payload_size": len(payload)
           }
-          stable_path.write_text(json.dumps(new_stable, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+          stable_path.write_text(json.dumps(new_stable, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
           (release_dir / "build.request").unlink(missing_ok=True)
 
           print(json.dumps({
