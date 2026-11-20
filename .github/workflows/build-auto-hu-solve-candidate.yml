@@ -277,6 +277,8 @@ jobs:
           assert 'label="clear_player2_prompt_test_range"' in ui_source
           assert "_clear_committed_test_range" in ui_source
           assert "_clear_committed_test_board" in ui_source
+          assert "def _clear_committed_test_range(" in ui_source
+          assert "def _clear_committed_test_board(" in ui_source
           assert "restore_after_commit=False" in ui_source
           assert '"stage": "build_tree_dialog_probe"' in ui_source
           assert '"build_tree_dialog_opened": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_opened"))' in ui_source
@@ -443,6 +445,7 @@ jobs:
               sys.path.insert(0,td)
               from probe_pkg.auto_solve_ui import (_bmp_region_difference_ratio,
                   _bmp_region_dark_pixel_ratio, _board_card_center,
+                  _is_player2_range_validation_popup, _build_tree_dialog_is_visible,
                   _OOP_MATRIX_RECT, _IP_MATRIX_RECT, _RANGE_EDITOR_VERIFY_ROI,
                   _bmp_matrix_center_signature, _matrix_signature_is_empty,
                   _matrix_signature_is_aa_only, _matrix_signature_matches_selected_cells,
@@ -456,6 +459,17 @@ jobs:
               assert _board_card_center("As") == (193,108)
               assert _board_card_center("Kd") == (170,130)
               assert _board_card_center("7c") == (147,268)
+              p2_message = {
+                  "title": "Program message",
+                  "is_embedded_root": False,
+                  "controls": [{"name": "プレイヤー 2 のレンジを入力してください。"}],
+              }
+              assert _is_player2_range_validation_popup(p2_message)
+              assert not _build_tree_dialog_is_visible({"ratio": 0.95}, [p2_message])
+              assert _build_tree_dialog_is_visible(
+                  {"ratio": 0.95},
+                  [{"title": "Build Tree", "is_embedded_root": False, "controls": []}],
+              )
               try:
                   _board_card_center("1x")
               except ValueError:
