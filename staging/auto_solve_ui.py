@@ -2768,7 +2768,6 @@ def _run_build_tree_dialog_probe(
                     result["dialog_closed_verified"] = False
                     result["safe_to_cleanup"] = bool(
                         player2_cleanup.get("range_restored")
-                        or (not retry_edits and not player2_cleanup.get("manual_close_required"))
                     )
                     result["status"] = (
                         "player2_range_rejected_but_test_ip_range_restored"
@@ -3386,8 +3385,13 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         )
         dialog_not_closed = bool(
             build_tree_dialog_probe
-            and build_tree_dialog_probe.get("dialog_opened")
-            and not build_tree_dialog_probe.get("dialog_closed_verified")
+            and (
+                build_tree_dialog_probe.get("manual_close_required")
+                or (
+                    build_tree_dialog_probe.get("dialog_opened")
+                    and not build_tree_dialog_probe.get("dialog_closed_verified")
+                )
+            )
         )
         build_tree_sequence["manual_close_required"] = bool(cleanup_failed or dialog_not_closed)
         build_tree_sequence["status"] = (
@@ -3436,9 +3440,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     all_captures = unique_captures
 
     report = {
-        "schema_version": 21,
+        "schema_version": 22,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_ip_board_build_tree_player2_recovery_roundtrip_v21",
+        "probe": "verified_gto_plus_oop_ip_board_build_tree_player2_source_focus_recovery_roundtrip_v22",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
