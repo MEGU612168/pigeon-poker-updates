@@ -127,6 +127,7 @@ jobs:
                       raise SystemExit("Could not locate the previous Pigeon diagnostic success gate")
               old_errors = [
                   "[AA可逆テスト] OOPのAA反映・復元確認に未達です。診断JSONと画像を確認してください。",
+                  "[AA可逆テスト] 診断JSONの確認に失敗: ",
                   "[AA:0.5可逆テスト] OOPのAAセル反映・重み表示保存・復元確認に未達です。診断JSONと画像を確認してください。",
                   "[OOP複数ハンド可逆テスト] AA+AKsの2セル反映・40%正規化・Source読戻し・完全復元に未達です。",
                   "[OOP複数ハンド可逆テスト] 診断JSONの確認に失敗: "
