@@ -1,0 +1,190 @@
+name: Repackage verified Pigeon Poker v1.3.69 as v1.3.71
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.71/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  repackage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify v1.3.69 and rebuild as v1.3.71
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import json
+          import pathlib
+          import time
+          import urllib.request
+          import zipfile
+          from io import BytesIO
+
+          root = pathlib.Path(".")
+          source_version = "1.3.69"
+          target_version = "1.3.71"
+          release_dir = root / "releases" / ("v" + target_version)
+
+          stable_path = root / "stable.json"
+          stable = json.loads(stable_path.read_text(encoding="utf-8"))
+          if stable.get("version") != source_version:
+              raise SystemExit("Stable channel must be v1.3.69 before creating this repackage.")
+
+          with urllib.request.urlopen(stable["payload_url"], timeout=90) as response:
+              encoded_source = response.read().decode("ascii").strip()
+          source_payload = base64.b64decode(encoded_source, validate=True)
+          if len(source_payload) != int(stable["payload_size"]):
+              raise SystemExit("Source v1.3.69 package size mismatch.")
+          if hashlib.sha256(source_payload).hexdigest() != stable["payload_sha256"]:
+              raise SystemExit("Source v1.3.69 package SHA-256 mismatch.")
+
+          with zipfile.ZipFile(BytesIO(source_payload), "r") as source_zip:
+              bad = source_zip.testzip()
+              if bad:
+                  raise SystemExit("Source v1.3.69 ZIP integrity failure: " + bad)
+              files = {}
+              seen = set()
+              for info in source_zip.infolist():
+                  if info.is_dir():
+                      raise SystemExit("Unexpected directory entry: " + info.filename)
+                  name = info.filename
+                  path = pathlib.PurePosixPath(name)
+                  if path.is_absolute() or ".." in path.parts or "." in path.parts or path.as_posix() != name or "\\\\" in name:
+                      raise SystemExit("Unsafe source package path: " + name)
+                  allowed_root = name in {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
+                  allowed_module = (
+                      len(path.parts) >= 2 and
+                      path.parts[0] in {"pigeon_poker", "pigeon_gto_plus"} and
+                      path.suffix.lower() == ".py" and
+                      not any(part.startswith(".") or part == "__pycache__" for part in path.parts)
+                  )
+                  if not (allowed_root or allowed_module):
+                      raise SystemExit("Source package contains a non-allow-listed file: " + name)
+                  folded = name.casefold()
+                  if folded in seen:
+                      raise SystemExit("Duplicate package path: " + name)
+                  seen.add(folded)
+                  files[name] = source_zip.read(name)
+
+          required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
+          if not required.issubset(files):
+              raise SystemExit("Source package is missing required full-app files.")
+          if files["VERSION.txt"].decode("utf-8").strip() != source_version:
+              raise SystemExit("Source package VERSION.txt is not v1.3.69.")
+
+          main_text = files["PigeonPoker.pyw"].decode("utf-8")
+          ast.parse(main_text, filename="PigeonPoker.pyw")
+          if 'version_label = "VERSION " + (ROOT / "VERSION.txt").read_text' not in main_text:
+              raise SystemExit("App header no longer derives its displayed version from VERSION.txt.")
+          if "from pigeon_updater import start_update_check" not in main_text:
+              raise SystemExit("The source app does not contain the expected update integration.")
+          ast.parse(files["pigeon_updater.py"].decode("utf-8"), filename="pigeon_updater.py")
+          for name, content in files.items():
+              if name.endswith(".py") and name != "PigeonPoker.pyw":
+                  ast.parse(content.decode("utf-8"), filename=name)
+
+          # Only the version marker is changed. All functional application files
+          # are carried over byte-for-byte from the verified v1.3.69 package.
+          files["VERSION.txt"] = (target_version + "\\n").encode("utf-8")
+
+          output_buffer = BytesIO()
+          with zipfile.ZipFile(output_buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as output_zip:
+              for name in sorted(files):
+                  output_zip.writestr(name, files[name])
+          payload = output_buffer.getvalue()
+
+          with zipfile.ZipFile(BytesIO(payload), "r") as output_zip:
+              if output_zip.testzip() is not None:
+                  raise SystemExit("Rebuilt v1.3.71 package ZIP integrity check failed.")
+              if output_zip.read("VERSION.txt").decode("utf-8").strip() != target_version:
+                  raise SystemExit("Rebuilt package version marker is not v1.3.71.")
+              if set(output_zip.namelist()) != set(files):
+                  raise SystemExit("Rebuilt package file list changed unexpectedly.")
+              if output_zip.read("PigeonPoker.pyw") != files["PigeonPoker.pyw"]:
+                  raise SystemExit("PigeonPoker.pyw changed unexpectedly.")
+          if not payload or len(payload) > 18 * 1024 * 1024:
+              raise SystemExit("Rebuilt payload size is outside the supported range.")
+
+          digest = hashlib.sha256(payload).hexdigest()
+          encoded_payload = base64.b64encode(payload).decode("ascii")
+          release_dir.mkdir(parents=True, exist_ok=True)
+          (release_dir / "payload-updater.zip.b64").write_text(encoded_payload, encoding="ascii")
+
+          chunk_size = 48000
+          parts = []
+          for index, start in enumerate(range(0, len(encoded_payload), chunk_size)):
+              name = f"payload.part-{index:03d}"
+              (release_dir / name).write_text(encoded_payload[start:start + chunk_size], encoding="ascii")
+              parts.append(name)
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": parts}, indent=2) + "\\n", encoding="utf-8"
+          )
+          published_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          release_notes = (
+              "v1.3.69の機能内容を維持した再パッケージ版。機能ファイルはv1.3.69の検証済みパッケージから"
+              "バイト単位で引き継ぎ、VERSION.txtのみ1.3.71へ更新。v1.3.70からの更新判定を通すための版数更新。"
+              "GTO+ Player2レンジSourceフォーカス対応を含む。v1.3.70のレスポンシブWORKSPACE変更は含まない。"
+          )
+          release_meta = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": target_version,
+              "published_at": published_at,
+              "package_mode": "full",
+              "release_notes": release_notes,
+              "payload_sha256": digest,
+              "payload_size": len(payload),
+              "files": sorted(files),
+              "source_version": source_version,
+              "version_only_repackage": True
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(release_meta, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8"
+          )
+          (release_dir / "payload.ready").write_text("verified v1.3.71\\n", encoding="ascii")
+
+          new_stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": target_version,
+              "published_at": published_at,
+              "release_notes": release_notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": f"https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v{target_version}/payload-updater.zip.b64",
+              "payload_sha256": digest,
+              "payload_size": len(payload)
+          }
+          stable_path.write_text(json.dumps(new_stable, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+          (release_dir / "build.request").unlink(missing_ok=True)
+
+          print(json.dumps({
+              "source_version": source_version,
+              "published_version": target_version,
+              "payload_size": len(payload),
+              "payload_sha256": digest,
+              "files": sorted(files),
+              "functional_files_unchanged": True
+          }, ensure_ascii=False))
+          PY
+
+      - name: Publish v1.3.71 stable package
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+users.noreply.github.com"
+          git add stable.json releases/v1.3.71/
+          git commit -m "Release Pigeon Poker v1.3.71 based on verified v1.3.69"
+          git push
