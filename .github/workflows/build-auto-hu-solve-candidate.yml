@@ -257,6 +257,12 @@ jobs:
           assert '"build_tree_dialog_opened": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_opened"))' in ui_source
           assert '"build_tree_probe_inputs_restored": bool(build_tree_sequence.get("all_test_inputs_restored"))' in ui_source
           assert '"build_tree_probe_may_remain_configured": bool(' in ui_source
+          assert 'build_tree_sequence["test_setup_committed"] = bool(' in ui_source
+          assert 'not oop_committed or (oop_build_tree_cleanup and oop_build_tree_cleanup.get("range_restored"))' in ui_source
+          assert 'not ip_committed or (ip_build_tree_cleanup and ip_build_tree_cleanup.get("range_restored"))' in ui_source
+          assert 'not board_committed or (board_build_tree_cleanup and board_build_tree_cleanup.get("board_restored"))' in ui_source
+          assert 'build_tree_dialog_probe.get("build_tree_clicked")' in ui_source
+          assert '"cleanup_blocked_missing_commit_screenshot"' in ui_source
           assert '"build_tree_clicked": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("build_tree_clicked"))' in ui_source
           assert '"tree_built": False' in ui_source
           assert '"solver_run": False' in ui_source
