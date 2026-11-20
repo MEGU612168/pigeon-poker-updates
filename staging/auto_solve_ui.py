@@ -9,6 +9,7 @@ against the baseline screenshot before the next click is allowed.
 from __future__ import annotations
 
 # Build marker: 2x2 interior RGB aggregation detects partial-weight matrix markers; schema v16.
+# PigeonPoker completion gate: exactly one OOP multi-hand validator, v1.3.58.
 
 import argparse
 import json
