@@ -135,7 +135,7 @@ jobs:
               if not error_replaced and new_error not in main:
                   raise SystemExit("Could not update the weighted multi-hand diagnostic failure message")
               q = chr(34)
-              legacy_aa_validation = "\\n".join([
+              legacy_aa_validation = "\n".join([
                   "                if success:",
                   "                    try:",
                   "                        with zipfile.ZipFile(report, " + q + "r" + q + ") as report_zip:",
