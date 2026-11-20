@@ -260,9 +260,17 @@ jobs:
           main = replace_once(main, old_button, new_button, "initial update button state")
 
           # Auto-check stable manifest after the main widgets exist.
-          startup_anchor = '        self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)\n'
-          startup_insert = startup_anchor + '        self.after(1200, self._refresh_update_button_state)\n'
-          main = replace_once(main, startup_anchor, startup_insert, "startup update availability check")
+          startup_anchor = (
+              '        self._job_drain_after_id = self.after(120, self._drain_jobs)\n'
+              '        self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)'
+          )
+          startup_insert = startup_anchor.replace(
+              '        self._study_cashier_refresh_id',
+              '        self.after(1200, self._refresh_update_button_state)\n        self._study_cashier_refresh_id',
+          )
+          if main.count(startup_anchor) != 1:
+              raise SystemExit("Could not uniquely locate constructor startup scheduling block.")
+          main = main.replace(startup_anchor, startup_insert, 1)
 
           update_method_anchor = "    def _begin_app_update(self):\n"
           update_method = "\n".join([
