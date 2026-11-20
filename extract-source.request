@@ -1,1 +1,1 @@
-Extract stable v1.3.74 and verify constructor opens GTO Engine, mapped-host auto-start and auto-connect hooks run, and three v1.3.69 range baseline files match byte-for-byte.
+Extract stable v1.3.75 source including the root pigeon_updater.py module so the update failure can be diagnosed.
