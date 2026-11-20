@@ -9,6 +9,7 @@ import base64
 import gzip
 import json
 import math
+import itertools
 import random
 from dataclasses import dataclass
 from functools import lru_cache
@@ -100,6 +101,40 @@ def hand_class_from_cards(cards: Any) -> str | None:
         return rank1 + rank2
     high, low = (rank1, rank2) if RANKS.index(rank1) > RANKS.index(rank2) else (rank2, rank1)
     return high + low + ("s" if suit1 == suit2 else "o")
+
+
+def _parse_card_value(card: Any) -> tuple[str, str] | None:
+    """Parse one physical card into (rank, suit), without exposing hidden cards."""
+    if hasattr(card, "rank") and hasattr(card, "suit"):
+        rank, suit_raw = str(card.rank).upper(), str(card.suit)
+    else:
+        value = str(card).strip().replace("10", "T")
+        if len(value) < 2:
+            return None
+        rank, suit_raw = value[0].upper(), value[-1]
+    suit = SUITS.get(suit_raw)
+    if rank not in RANKS or suit is None:
+        return None
+    return rank, suit
+
+
+def _available_combos_for_class(combo: str, blockers: set[tuple[str, str]]) -> int:
+    """Count physical combinations in one 169-class bucket after known blockers."""
+    suits = ("s", "h", "d", "c")
+    if len(combo) == 2 and combo[0] == combo[1] and combo[0] in RANKS:
+        physical = list(itertools.combinations([(combo[0], suit) for suit in suits], 2))
+    elif (len(combo) == 3 and combo[0] in RANKS and combo[1] in RANKS
+          and combo[0] != combo[1] and combo[2] in {"s", "o"}
+          and RANKS.index(combo[0]) > RANKS.index(combo[1])):
+        high, low, kind = combo
+        if kind == "s":
+            physical = [((high, suit), (low, suit)) for suit in suits]
+        else:
+            physical = [((high, first), (low, second))
+                        for first in suits for second in suits if first != second]
+    else:
+        return 0
+    return sum(1 for cards in physical if not any(card in blockers for card in cards))
 
 
 def _player_id(player: Any) -> str:
@@ -329,11 +364,13 @@ def _node_for_historical_action(table: Any, hand: Any, positions: dict[str, str]
 
 def _action_mass_for_observation(node: dict[str, Any], action: str,
                                  event: dict[str, Any], hand: Any,
-                                 actor_id: str) -> tuple[dict[str, float], float]:
-    """Return per-class action weights and their estimated physical-combo mass."""
+                                 actor_id: str,
+                                 blockers: set[tuple[str, str]] | None = None) -> tuple[dict[str, float], float]:
+    """Return class action weights multiplied by remaining physical combo counts."""
     observed_target = _event_target_bb(event, hand, actor_id) if action in {"raise", "allin"} else None
     if action in {"raise", "allin"} and observed_target is None:
         return {}, 0.0
+    blockers = blockers or set()
     per_class: dict[str, float] = {}
     total_mass = 0.0
     for combo, raw_actions in node["hands"].items():
@@ -350,28 +387,65 @@ def _action_mass_for_observation(node: dict[str, Any], action: str,
                     continue
             weight += max(0.0, float(item.get("frequency", 0.0)))
         if weight > 0.0:
-            multiplicity = 6 if len(combo) == 2 else (4 if combo.endswith("s") else 12)
+            multiplicity = _available_combos_for_class(combo, blockers)
+            if multiplicity <= 0:
+                continue
             mass = weight * multiplicity
             per_class[combo] = mass
             total_mass += mass
     return per_class, total_mass
 
 
+def _known_public_blockers(hand: Any, exclude_player_id: str | None) -> tuple[set[tuple[str, str]], list[str]] | None:
+    """Use only the acting hero's cards and public board cards; never other players' hidden cards."""
+    blockers: set[tuple[str, str]] = set()
+    labels: list[str] = []
+    if exclude_player_id is not None:
+        target = str(exclude_player_id)
+        player = next((p for p in list(getattr(hand, "players", ()) or ())
+                       if _player_id(p) == target), None)
+        if player is None:
+            return None
+        cards = list(getattr(player, "hole_cards", ()) or ())
+        if len(cards) != 2:
+            return None
+        for card in cards:
+            parsed = _parse_card_value(card)
+            if parsed is None or parsed in blockers:
+                return None
+            blockers.add(parsed)
+            labels.append(parsed[0] + parsed[1])
+    for card in list(getattr(hand, "board", ()) or ()):
+        parsed = _parse_card_value(card)
+        if parsed is None or parsed in blockers:
+            return None
+        blockers.add(parsed)
+        labels.append(parsed[0] + parsed[1])
+    return blockers, sorted(labels)
+
+
 def estimate_preflop_opponent_ranges(table: Any, hand: Any,
                                      exclude_player_id: str | None = None) -> dict[str, Any]:
-    """Estimate each player's latest supported preflop range from the 75 chart nodes.
+    """Estimate latest supported opponent ranges, adjusted for known hero/board blockers.
 
-    A node's per-combo weights are already conditioned on its complete action
-    history. They are multiplied by class combo counts, then normalized across
-    all 1,326 possible starting combinations. Suited/offsuit suit-specific
-    differences cannot be recovered from the screenshots, so combos within a
-    class are treated uniformly.
+    Screenshot-derived per-class weights are multiplied by the number of physical
+    combinations still available in each class. Only the supplied acting player's
+    cards and the public board are used as blockers; the other seats' hidden cards
+    are deliberately ignored. Suit-specific strategy differences remain unknown.
     """
     if not _supports_100bb_effective_stack(hand):
         return {"supported": False, "reason": "requires_six_player_100bb_table", "players": {}}
     positions = _seat_position_map(table, hand)
     if positions is None:
         return {"supported": False, "reason": "seat_positions_unavailable", "players": {}}
+    blocker_result = _known_public_blockers(hand, exclude_player_id)
+    if blocker_result is None:
+        return {"supported": False, "reason": "known_blocker_cards_unavailable_or_invalid", "players": {}}
+    blockers, blocker_labels = blocker_result
+    remaining_cards = 52 - len(blockers)
+    available_combos = remaining_cards * (remaining_cards - 1) // 2
+    if available_combos <= 0:
+        return {"supported": False, "reason": "no_available_combinations_after_blockers", "players": {}}
 
     latest: dict[str, dict[str, Any]] = {}
     prior_events: list[dict[str, Any]] = []
@@ -404,14 +478,15 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
                 "reason": "unsupported_preflop_history",
             }
         else:
-            masses, total_mass = _action_mass_for_observation(node, action, event, hand, actor_id)
+            masses, total_mass = _action_mass_for_observation(
+                node, action, event, hand, actor_id, blockers=blockers)
             if total_mass <= 0.0:
                 latest[actor_id] = {
                     "supported": False,
                     "position": positions[actor_id],
                     "action": action,
                     "node_id": node["id"],
-                    "reason": "action_has_no_positive_range_mass",
+                    "reason": "action_has_no_positive_range_mass_after_blockers",
                 }
             else:
                 probabilities = {combo: mass / total_mass for combo, mass in masses.items()}
@@ -422,9 +497,10 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
                     "node_id": node["id"],
                     "source_image": node.get("source_image", ""),
                     "combo_mass": total_mass,
-                    "range_percent_of_1326": total_mass / 1326.0 * 100.0,
+                    "available_combos": available_combos,
+                    "range_percent_of_available_combos": total_mass / available_combos * 100.0,
                     "hand_class_probabilities": probabilities,
-                    "method": "screenshot-derived per-combo weights; uniform within each 169-class bucket",
+                    "method": "screenshot-derived per-combo weights adjusted for known hero/public-card blockers; uniform within each 169-class bucket",
                 }
         prior_events.append(event)
 
@@ -434,6 +510,8 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
         "supported": True,
         "reason": "",
         "table_depth_bb": 100,
+        "blocker_cards": blocker_labels,
+        "available_combos": available_combos,
         "players": latest,
     }
 
