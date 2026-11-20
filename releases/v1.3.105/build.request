@@ -1,0 +1,1 @@
+Build Stable v1.3.105 after passing regression tests: unrestricted user FOLD/CHECK/CALL/RAISE/ALL-IN wherever legal; only preflop raise-to amount fixed by chart or legal minimum fallback for uncovered lines. Preserve postflop controls, volume settings, updater contract, and immutable 75-node chart.
