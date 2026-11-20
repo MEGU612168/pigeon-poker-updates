@@ -160,15 +160,15 @@ jobs:
           main = replace_once(main, old_gto_state, new_gto_state, "GTO+ ownership state")
 
           startup_old = (
-              '        self._build_pokercraft_page()\\n'
-              '        self.show_page("lobby")\\n'
-              '        self.protocol("WM_DELETE_WINDOW", self._on_close)\\n'
+              '        self._build_pokercraft_page()\n'
+              '        self.show_page("lobby")\n'
+              '        self.protocol("WM_DELETE_WINDOW", self._on_close)\n'
           )
           startup_new = (
-              '        self._build_pokercraft_page()\\n'
-              '        self.show_page("gto")\\n'
-              '        self.after(350, self._auto_start_gto_plus)\\n'
-              '        self.protocol("WM_DELETE_WINDOW", self._on_close)\\n'
+              '        self._build_pokercraft_page()\n'
+              '        self.show_page("gto")\n'
+              '        self.after(350, self._auto_start_gto_plus)\n'
+              '        self.protocol("WM_DELETE_WINDOW", self._on_close)\n'
           )
           main = replace_once(main, startup_old, startup_new, "automatic GTO+ startup page")
 
