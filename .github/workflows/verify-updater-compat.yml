@@ -1,0 +1,24 @@
+name: Verify Pigeon Poker updater package contract
+
+on:
+  push:
+    paths:
+      - "staging/source_1_3_101/pigeon_updater.py"
+      - "staging/test_updater_package_requirements.py"
+      - ".github/workflows/verify-updater-compat.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile shipped updater
+        run: python -m py_compile staging/source_1_3_101/pigeon_updater.py
+      - name: Test exact full package requirements
+        run: python staging/test_updater_package_requirements.py
