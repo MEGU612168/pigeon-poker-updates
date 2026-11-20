@@ -86,25 +86,25 @@ jobs:
           # GTO+ startup is invoked by show_page("gto") after the page is
           # actually mapped, rather than by a timer while its parent is hidden.
           checks = (
-              '        if key == "gto":\\n',
-              '            self.after(300, self._auto_start_gto_plus)\\n',
-              '        if self._gto_attach_requested or self._active_page_key != "gto":\\n',
-              '                self.gto_viewport.winfo_ismapped()\\n',
-              '                and self.gto_host.winfo_ismapped()\\n',
-              '        self._launch_gto()\\n',
-              '        self._connect_gto()\\n',
-              '    def _find_existing_gto_process_id(self) -> int | None:\\n',
-              '    def _hide_gto_placeholder(self):\\n',
+              '        if key == "gto":',
+              '            self.after(300, self._auto_start_gto_plus)',
+              '        if self._gto_attach_requested or self._active_page_key != "gto":',
+              '                self.gto_viewport.winfo_ismapped()',
+              '                and self.gto_host.winfo_ismapped()',
+              '        self._launch_gto()',
+              '        self._connect_gto()',
+              '    def _find_existing_gto_process_id(self) -> int | None:',
+              '    def _hide_gto_placeholder(self):',
               '        self.gto_owned_process_pid',
           )
           for item in checks:
               if item not in main:
                   raise SystemExit("Missing startup/lifecycle source requirement: " + repr(item))
-          if '        self.show_page("gto")\\n' not in main:
+          if '        self.show_page("gto")' not in main:
               raise SystemExit("Pigeon does not open on the GTO+ Engine page.")
-          if '        self.show_page("lobby")\\n' in main:
+          if '        self.show_page("lobby")' in main:
               raise SystemExit("The old Lobby-first startup remains.")
-          if main.count('            self.after(300, self._auto_start_gto_plus)\\n') != 1:
+          if main.count('            self.after(300, self._auto_start_gto_plus)') != 1:
               raise SystemExit("GTO+ auto-start trigger must exist exactly once.")
           if 'def _reference_scale_for_size(' not in files["pigeon_gto_plus/auto_solve_ui.py"].decode("utf-8"):
               raise SystemExit("Responsive GTO+ range-editor coordinate scaling was lost.")
