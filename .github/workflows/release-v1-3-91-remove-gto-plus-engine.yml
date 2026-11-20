@@ -1,0 +1,135 @@
+name: Release Pigeon Poker v1.3.91 without GTO+ ENGINE
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.91/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify preflop policy and GTO+ removal patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python staging/test_preflop_ranges_75.py
+          python - <<'PY'
+          import ast
+          import importlib.util
+          from pathlib import Path
+          path = Path("staging/remove_gto_plus_engine_v1_3_91.py")
+          ast.parse(path.read_text(encoding="utf-8"))
+          spec = importlib.util.spec_from_file_location("remove_gto_engine", path)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          print("GTO+ removal transform syntax: PASS")
+          PY
+
+      - name: Build and publish Stable package
+        shell: bash
+        env:
+          GITHUB_TOKEN: \${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast, base64, hashlib, importlib.util, io, json, pathlib, time, urllib.request, zipfile, subprocess
+          REPO = "MEGU612168/pigeon-poker-updates"
+          SOURCE_VERSION = "1.3.90"
+          TARGET_VERSION = "1.3.91"
+          SOURCE_SHA256 = "092c809552f76684ff8935a6fb5b66896c3c38c003d11605a416a8c2df22cd70"
+          SOURCE_SIZE = 264686
+          url = f"https://raw.githubusercontent.com/{REPO}/main/releases/v{SOURCE_VERSION}/payload-updater.zip.b64?v={SOURCE_SHA256}"
+          req = urllib.request.Request(url, headers={"Cache-Control": "no-cache", "Pragma": "no-cache"})
+          with urllib.request.urlopen(req, timeout=90) as response:
+              transport = response.read().decode("ascii").strip()
+          payload = base64.b64decode(transport, validate=True)
+          if len(payload) != SOURCE_SIZE or hashlib.sha256(payload).hexdigest() != SOURCE_SHA256:
+              raise SystemExit("Pinned v1.3.90 package integrity check failed.")
+          expected = {
+              "PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
+              "pigeon_gto_plus/auto_solve_ui.py", "pigeon_gto_plus/live_range_builder.py",
+              "pigeon_gto_plus/ui_probe.py", "pigeon_poker/preflop_screenshot_ranges.py"
+          }
+          with zipfile.ZipFile(io.BytesIO(payload), "r") as z:
+              bad = z.testzip()
+              if bad: raise SystemExit("Source ZIP CRC failure: " + bad)
+              files = {name: z.read(name) for name in z.namelist()}
+          if set(files) != expected or files["VERSION.txt"].decode("ascii").strip() != SOURCE_VERSION:
+              raise SystemExit("Unexpected pinned v1.3.90 file layout.")
+          path = pathlib.Path("staging/remove_gto_plus_engine_v1_3_91.py")
+          spec = importlib.util.spec_from_file_location("remove_gto_engine", path)
+          patch = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(patch)
+          main = patch.remove_engine(files["PigeonPoker.pyw"].decode("utf-8"))
+          patch.validate_removed_engine(main)
+          ast.parse(main, filename="PigeonPoker.pyw")
+          files["PigeonPoker.pyw"] = main.encode("utf-8")
+          files["VERSION.txt"] = (TARGET_VERSION + "\n").encode("ascii")
+          out = io.BytesIO()
+          with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+              for name in sorted(files): z.writestr(name, files[name])
+          final = out.getvalue()
+          with zipfile.ZipFile(io.BytesIO(final), "r") as z:
+              if z.testzip() is not None or set(z.namelist()) != expected:
+                  raise SystemExit("Final package validation failed.")
+              final_main = z.read("PigeonPoker.pyw").decode("utf-8")
+              patch.validate_removed_engine(final_main)
+              ast.parse(final_main, filename="PigeonPoker.pyw")
+              ast.parse(z.read("pigeon_poker/preflop_screenshot_ranges.py").decode("utf-8"))
+          digest = hashlib.sha256(final).hexdigest()
+          encoded = base64.b64encode(final).decode("ascii")
+          outdir = pathlib.Path("releases") / ("v" + TARGET_VERSION)
+          outdir.mkdir(parents=True, exist_ok=True)
+          (outdir / "payload-updater.zip.b64").write_text(encoded, encoding="ascii")
+          chunks = []
+          for i, start in enumerate(range(0, len(encoded), 48000)):
+              name = f"payload.part-{i:03d}"
+              (outdir / name).write_text(encoded[start:start+48000], encoding="ascii")
+              chunks.append(name)
+          (outdir / "payload.parts.json").write_text(json.dumps({"parts": chunks}, indent=2)+"\n", encoding="utf-8")
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          notes = (
+              "独立機能のGTO+ ENGINEを通常利用経路から削除。サイドバーのENGINE画面、起動時のGTO+自動起動、"
+              "通常キャッシュゲームのGTO+ HUノード必須判定を無効化し、ポストフロップはローカルCPUポリシーで継続。"
+              "旧セッションに保存されたGTO+ Spot状態も破棄。プリフロップ75局面・12,675ハンドクラス、"
+              "50局面のレイズ分岐、20局面のオールイン分岐、相手レンジ推定APIとCPUプリフロップ接続は維持。"
+              "プリフロップ戦略モジュール自体は変更なし。"
+          )
+          release = {
+              "schema_version": 1, "product": "pigeon-poker", "channel": "stable",
+              "version": TARGET_VERSION, "published_at": now, "package_mode": "full",
+              "release_notes": notes, "payload_sha256": digest, "payload_size": len(final),
+              "source_version": SOURCE_VERSION, "preflop_node_count": 75,
+              "hand_classes_per_node": 169, "preflop_hand_rows": 12675,
+              "nodes_with_raise_actions": 50, "nodes_with_allin_actions": 20,
+              "preflop_module_changed": False, "gto_plus_engine_removed_from_runtime": True,
+              "gto_plus_solver_required_for_cash_cpu": False,
+              "frequency_method": "screenshot-colour-area estimated hand-class frequencies calibrated to displayed action totals; not solver-exact combo frequencies"
+          }
+          (outdir / "release.json").write_text(json.dumps(release, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
+          stable = {
+              "schema_version": 1, "product": "pigeon-poker", "channel": "stable",
+              "version": TARGET_VERSION, "published_at": now, "release_notes": notes,
+              "package_mode": "full", "payload_encoding": "base64",
+              "payload_url": f"https://raw.githubusercontent.com/{REPO}/main/releases/v{TARGET_VERSION}/payload-updater.zip.b64?v={digest}",
+              "payload_sha256": digest, "payload_size": len(final)
+          }
+          pathlib.Path("stable.json").write_text(json.dumps(stable, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
+          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
+          subprocess.run(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], check=True)
+          subprocess.run(["git", "add", "stable.json", str(outdir)], check=True)
+          subprocess.run(["git", "commit", "-m", "Release Pigeon Poker v1.3.91 without GTO+ ENGINE"], check=True)
+          subprocess.run(["git", "push"], check=True)
+          print(json.dumps({"version": TARGET_VERSION, "payload_sha256": digest,
+              "payload_size": len(final), "preflop_module_unchanged": True,
+              "gto_plus_engine_removed_from_runtime": True}, ensure_ascii=False, indent=2))
+          PY
