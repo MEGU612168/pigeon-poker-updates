@@ -56,6 +56,9 @@ _GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS = (
     "AA,[40%]AKs[/40%]",
     "[40%]AKs[/40%],AA",
 )
+# OOP and IP use the same GTO+ Source normalization syntax.
+# Keep an explicit IP alias so the IP roundtrip can validate its own allowlist.
+_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS = _GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS
 _GTO_PLUS_HALF_WEIGHT_AA_SOURCE = "[50%]AA[/50%]"
 
 
