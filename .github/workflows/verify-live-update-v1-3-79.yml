@@ -1,0 +1,144 @@
+name: Verify live Pigeon Poker v1.3.79 package and retained GTO lifecycle
+
+on:
+  push:
+    paths:
+      - "update-diagnostics/v1.3.79.request"
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch and validate v1.3.79 using the shipped v1.3.77 updater
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import sys
+          import zipfile
+
+          source = pathlib.Path("staging/source_1_3_77/pigeon_updater.py")
+          if not source.is_file():
+              raise SystemExit("Exact shipped v1.3.77 updater source is missing.")
+          sys.path.insert(0, str(source.parent))
+          import pigeon_updater as updater
+
+          manifest = updater._fetch_manifest()
+          if manifest["version"] != "1.3.79":
+              raise SystemExit(f"Stable manifest reports {manifest['version']!r}, not 1.3.79.")
+          if updater._version_tuple(manifest["version"]) <= updater._version_tuple("1.3.77"):
+              raise SystemExit("The shipped v1.3.77 updater does not consider 1.3.79 newer.")
+
+          limit = (
+              updater.MAX_COMPRESSED_BYTES * 2
+              if manifest.get("payload_encoding") == "base64"
+              else updater.MAX_COMPRESSED_BYTES
+          )
+          downloaded = updater._https_get(
+              str(manifest["payload_url"]), max_bytes=limit, timeout=60,
+          )
+          payload = updater._decode_downloaded_payload(downloaded, manifest)
+          if len(payload) != int(manifest["payload_size"]):
+              raise SystemExit("Decoded payload size does not match stable.json.")
+          if hashlib.sha256(payload).hexdigest() != manifest["payload_sha256"]:
+              raise SystemExit("Decoded payload SHA-256 does not match stable.json.")
+
+          with tempfile.TemporaryDirectory() as td:
+              destination = pathlib.Path(td) / "staged"
+              extracted = updater._validate_and_extract(payload, manifest, destination)
+              if (destination / "VERSION.txt").read_text(encoding="ascii").strip() != "1.3.79":
+                  raise SystemExit("Extracted VERSION.txt is not 1.3.79.")
+              if not {"PigeonPoker.pyw", "pigeon_updater.py"}.issubset(set(extracted)):
+                  raise SystemExit("Required root app/update files were not extracted.")
+
+          with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Published ZIP CRC validation failed.")
+              names = set(archive.namelist())
+              expected = {
+                  "PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
+                  "pigeon_gto_plus/auto_solve_ui.py",
+                  "pigeon_gto_plus/live_range_builder.py",
+                  "pigeon_gto_plus/ui_probe.py",
+                  "pigeon_poker/preflop_screenshot_ranges.py",
+              }
+              if names != expected:
+                  raise SystemExit(f"Unexpected package file set: {sorted(names)}")
+
+              main = archive.read("PigeonPoker.pyw").decode("utf-8")
+              required = (
+                  "def _auto_start_gto_plus(self):",
+                  "def _launch_gto(self, automatic: bool = False):",
+                  "def _attach_existing_gto(self, process_id: int, automatic: bool = False):",
+                  "def _connect_gto(self, automatic: bool = False, attempt: int = 0):",
+                  "self.after(350, self._auto_start_gto_plus)",
+                  "reference_width = 1320.0",
+                  "reference_height = 676.0",
+                  "self.integration.resize_docked_window(host_width, host_height)",
+                  'host_col.pack(side="left", fill="both", expand=True)',
+                  'controls_outer.pack(side="right", fill="y", padx=(12, 0))',
+                  'text="UP TO DATE"',
+                  '["taskkill", "/PID", str(self.gto_owned_pid), "/T", "/F"]',
+              )
+              for marker in required:
+                  if marker not in main:
+                      raise SystemExit("Published PigeonPoker.pyw is missing: " + marker)
+
+              range_files = {
+                  "pigeon_gto_plus/live_range_builder.py": "4b8d0c287acce64cce98562313ea63f73cfb3b60",
+                  "pigeon_gto_plus/ui_probe.py": "6984be9b528ce4f463d8f0bf7ce72d95038ed1fd",
+                  "pigeon_poker/preflop_screenshot_ranges.py": "5a816dc1a2a07d686c6fe83b7e04155549ac4818",
+              }
+              for name, expected_blob in range_files.items():
+                  data = archive.read(name)
+                  actual_blob = hashlib.sha1(
+                      b"blob " + str(len(data)).encode("ascii") + bytes([0]) + data
+                  ).hexdigest()
+                  if actual_blob != expected_blob:
+                      raise SystemExit("Published v1.3.69 range baseline changed: " + name)
+
+          def fit(width: int, height: int):
+              scale = min(width / 1320.0, height / 676.0, 1.0)
+              return scale, round(1320 * scale), round(676 * scale)
+
+          scale, width, height = fit(856, 548)
+          if (width, height) != (856, 438):
+              raise SystemExit(f"Expected 856x438 native zoom fit, got {width}x{height}.")
+          if width > 856 or height > 548:
+              raise SystemExit("Native GTO+ dimensions exceed the unchanged viewport.")
+          print(json.dumps({
+              "current_stable": manifest["version"],
+              "updater_source": "v1.3.77 shipped updater",
+              "downloaded_transport_bytes": len(downloaded),
+              "decoded_package_bytes": len(payload),
+              "sha256": manifest["payload_sha256"],
+              "zip_crc": "passed",
+              "updater_download_decode_extract": "passed",
+              "gto_auto_start_launch_reattach_connect_shutdown": "all present",
+              "outer_frame": "unchanged",
+              "native_gto_reference": [1320, 676],
+              "fit_example": {"scale": scale, "width": width, "height": height},
+              "v1_3_69_range_files": "byte-identical",
+          }, ensure_ascii=False, indent=2))
+          PY
+      - name: Record live v1.3.79 package verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+users.noreply.github.com"
+          printf '%s\n' "v1.3.79 passed shipped-updater download, hash, ZIP, GTO lifecycle, native zoom fit and v1.3.69 range checks." > update-diagnostics/v1.3.79.verified
+          git add update-diagnostics/v1.3.79.verified
+          git commit -m "Verify live Pigeon Poker v1.3.79 package"
+          git push
