@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.64",
-  "published_at": "2026-11-20T04:42:36Z",
-  "release_notes": "埋込GTO+を起動・再接続した直後にPigeonのホスト領域寸法で位置・サイズを再同期し、Tkレイアウト確定後にも再同期。ホスト領域のサイズ・位置変更時にも同じ同期処理を実行。OOP/IPの40%重み可逆診断を維持。Build Tree・Solver実行なし。",
+  "version": "1.3.65",
+  "published_at": "2026-11-20T05:04:55Z",
+  "release_notes": "埋込GTO+のBoardカード選択画面でAs・Kd・7cの3枚を一時選択し、Board欄への反映を確認後Clear＋Doneで元の空欄へ復元する可逆テストを追加。開始時にBoard欄が空でない場合は変更せず停止。OOP/IPのAA+AKs:40%可逆検証を維持。Build Tree・Solver実行なし。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.64/payload-updater.zip.b64",
-  "payload_sha256": "4d6b6a3a67f983b1f3d65fe83ba91e7819bcb96a25136f4343ccc39e28565ff7",
-  "payload_size": 208458
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.65/payload-updater.zip.b64",
+  "payload_sha256": "826c8a7bead0832a669f3b9a06f1dcc15a169ba6dc96cb9321c4cafb48d523ea",
+  "payload_size": 211567
 }
