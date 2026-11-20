@@ -396,7 +396,7 @@ jobs:
           )
           main = rep(
               main,
-              '            HOLE_REVEAL_PAUSE_MS, lambda tid=table_id: self._initial_hole_flip_frame(tid))',
+              '            max(1, HOLE_REVEAL_PAUSE_MS // 2), lambda tid=table_id: self._initial_hole_flip_frame(tid))',
               '            max(1, HOLE_REVEAL_PAUSE_MS // 4), lambda tid=table_id: self._initial_hole_flip_frame(tid))',
               "short initial reveal pause",
           )
