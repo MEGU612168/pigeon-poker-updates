@@ -17,7 +17,10 @@ def remove_engine(main_source: str) -> str:
         '        tk.Label(self.sidebar, text="GTO+ exact HU postflop\\n20s hero action clock", bg="#0d1726", fg=COLORS["green"], justify="left", font=("Segoe UI", 8, "bold")).pack(side="bottom", anchor="w", padx=16, pady=18)\n',
         "", "remove GTO+ sidebar status")
     source = _replace_once(source, "        self._build_gto_page()\n", "", "remove GTO+ page construction")
-    source = _replace_once(source, '        self.show_page("gto")\n', '        self.show_page("lobby")\n', "open lobby by default")
+    startup_page = '        self.show_page("gto")\n'
+    if source.count(startup_page) < 1:
+        raise ValueError("startup page selection not found")
+    source = source.replace(startup_page, '        self.show_page("lobby")\n', 1)
     source = _replace_once(source, "        self.after(1200, self._auto_start_gto_plus)\n", "",
                            "disable automatic GTO+ launch")
     # The separate solver bridge must not be a prerequisite for ordinary CPU turns.
