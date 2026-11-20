@@ -218,11 +218,6 @@ class PigeonPokerApp(tk.Tk):
         # tree-training page; exact HU postflop matches can use GTO+ directly.
         self.cash_table: CashTable | None = None
         self.cash_cpus: dict[str, CashGameCPU] = {}
-        self.cash_preflop_policy_penalties: dict[str, int] = {
-            str(key): max(0, int(value))
-            for key, value in self.config_data.get("cash_preflop_policy_penalties", {}).items()
-            if str(key)
-        } if isinstance(self.config_data.get("cash_preflop_policy_penalties", {}), dict) else {}
         self.cash_gto_session: GTOPlusLiveSession | None = None
         self.cash_gto_spot_mode = False
         self.cash_spot_side = "OOP"
