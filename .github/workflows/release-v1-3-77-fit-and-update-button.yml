@@ -149,8 +149,8 @@ jobs:
 
           # Preserve the outer Pigeon frame unchanged. Only the native GTO+
           # client child is fitted to the 665:570 reference viewport.
-          sync_start = main.find("    def _sync_embedded_gto_geometry(self, reason: str = "") -> bool:\n")
-          schedule_start = main.find("    def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:\n", sync_start)
+          sync_start = main.find("    def _sync_embedded_gto_geometry(")
+          schedule_start = main.find("    def _schedule_embedded_gto_geometry_sync(", sync_start)
           if sync_start < 0 or schedule_start < 0:
               raise SystemExit("Could not locate embedded GTO+ geometry methods.")
           geometry_methods = "\n".join([
