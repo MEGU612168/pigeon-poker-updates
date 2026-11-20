@@ -268,6 +268,12 @@ jobs:
           assert '"build_tree_dialog_opened": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_opened"))' in ui_source
           assert '"build_tree_probe_inputs_restored": bool(build_tree_sequence.get("all_test_inputs_restored"))' in ui_source
           assert '"build_tree_probe_may_remain_configured": bool(' in ui_source
+          assert '"build_tree_clicked": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("build_tree_clicked"))' in ui_source
+          assert '"tree_built": False' in ui_source
+          assert '"solver_run": False' in ui_source
+          assert 'current_text in allowed_texts' in ui_source
+          assert 'still_expected["ratio"] > 0.01' in ui_source
+          assert 'result["dialog_closed_verified"] = not still_popups and after_diff["ratio"] <= 0.01' in ui_source
           assert 'send(probe.wintypes.HWND(popup_hwnd), 0x0010, 0, 0)' in ui_source
           assert 'not result.get("dialog_closed_verified")' in ui_source
           assert "_board_card_center" in ui_source
@@ -325,6 +331,7 @@ jobs:
           assert "report_safety.get(\"build_tree_probe_inputs_restored\")" in main
           assert "report_safety.get(\"build_tree_probe_may_remain_configured\")" in main
           assert "report_safety.get(\"manual_close_required\")" in main
+          assert main.count("success = bool(report_safety.get(\"oop_expected_matrix_cells_reflection_verified\") and report_safety.get(\"oop_restore_source_text_accepted\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and report_safety.get(\"ip_expected_matrix_cells_reflection_verified\") and report_safety.get(\"ip_restore_source_text_accepted\") and report_safety.get(\"ip_test_range_restored\") and report_safety.get(\"ip_weight_display_capture_saved\") and report_safety.get(\"board_test_cards_reflection_verified\") and report_safety.get(\"board_test_restored\") and report_safety.get(\"build_tree_dialog_opened\") and report_safety.get(\"build_tree_dialog_closed_verified\") and report_safety.get(\"build_tree_probe_inputs_restored\") and not report_safety.get(\"build_tree_probe_may_remain_configured\") and not report_safety.get(\"manual_close_required\"))") == 1
 
           assert '"test_range": "AA,AKs:0.4"' in ui_source
           assert '"test_range_partial_weight": 0.4' in ui_source
@@ -332,7 +339,7 @@ jobs:
           assert '_GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS = (' in ui_source
           assert 'expected_test_source_texts = set(report["expected_gto_plus_source_texts"])' in ui_source
           assert '"restore_source_text_readback"' in ui_source
-          assert '"schema_version": 19' in ui_source
+          assert '"schema_version": 20' in ui_source
           assert '"pixels_per_cell": 4' in ui_source
           assert '"sampling": "2x2_inner_patch_channel_max"' in ui_source
           assert '"weight_display_capture_saved"' in ui_source
