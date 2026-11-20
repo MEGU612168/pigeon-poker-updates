@@ -97,7 +97,10 @@ jobs:
               raise SystemExit("Could not locate GTO ownership initialization.")
           main_text = main_text.replace(old, new, 1)
 
-          startup_anchor = (\n              "        self._job_drain_after_id = self.after(120, self._drain_jobs)\\n"\n              "        self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)\\n"\n          )
+          startup_anchor = (
+              "        self._job_drain_after_id = self.after(120, self._drain_jobs)\n"
+              "        self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)\n"
+          )
           if main_text.count(startup_anchor) != 1:
               raise SystemExit("Could not locate Pigeon startup scheduling point.")
           main_text = main_text.replace(
