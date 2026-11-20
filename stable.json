@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.69",
-  "published_at": "2026-11-20T06:28:43Z",
-  "release_notes": "Build Tree押下後のGTO+「プレイヤー2のレンジを入力してください」Program messageを識別。OK後に表示されたPlayer2レンジ編集画面でSource欄をクリックし、ネイティブEditを生成・特定してからSource文字列を読み取るよう修正。PID/クラス/ID/所有関係と既知のAA+AKs:40%テスト値を再確認できた場合のみDoneで再試行。再度拒否された場合も同じフォーカス・特定手順を経て既知テスト値だけClearし、IP/OOP/Boardを復元。Source欄を特定できない場合は手動対応フラグを立て、後続のClearを止める。Tree確定・Solver実行なし。",
+  "version": "1.3.70",
+  "published_at": "2026-11-20T07:22:23Z",
+  "release_notes": "GTO+ WORKSPACEを基準665x570の縦横比を維持するレスポンシブviewportへ変更。利用可能な幅・高さから単一倍率を選び、中央配置で最大サイズにし、横伸び・縦伸びを防止。GTO+埋め込みHWNDの実寸に合わせて、自動診断のクリック座標・許可矩形・Source欄位置・Boardカード位置・画像ROI・13x13マトリクス判定を同倍率で補正。非等方サイズは安全停止。Player2警告のSourceフォーカス復旧・テスト設定復元を維持。Tree確定・Solver実行なし。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.69/payload-updater.zip.b64",
-  "payload_sha256": "670186e8afe48c1e583db216c6ed36e44d724de0d920875113ebe15bdb0f1e89",
-  "payload_size": 221684
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.70/payload-updater.zip.b64",
+  "payload_sha256": "0141c7ee3aa4c622b711ab30ab92da8728653b470d2f5fd48d14c0337c0ef550",
+  "payload_size": 222852
 }
