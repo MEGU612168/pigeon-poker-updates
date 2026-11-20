@@ -156,11 +156,15 @@ def test_decisions_and_zero_rows():
     data=module._data()
     node=data['nodes'][20]
     hand=FakeHand(node, '72o')
-    assert module.choose_preflop_action(FakeTable(),hand,hand.actor_id,FakeCPU(.5)) is None
+    decision = module.choose_preflop_action(FakeTable(),hand,hand.actor_id,FakeCPU(.5))
+    assert decision is not None and decision.action == 'fold'
+    assert decision.source == 'screenshot-range'
     fallback=object()
     node2=data['nodes'][0]
     hand2=FakeHand(node2,'AA')
-    assert module.choose_preflop_action(FakeTable(),hand2,hand2.actor_id,FakeCPU(.1,level=1),fallback) is fallback
+    decision2 = module.choose_preflop_action(FakeTable(),hand2,hand2.actor_id,FakeCPU(.1,level=1),fallback)
+    assert decision2 is not fallback
+    assert decision2 is not None and decision2.source == 'screenshot-range'
 
 
 def test_legal_action_filtering_reweights_surviving_choices():
@@ -192,7 +196,9 @@ def test_all_12675_rows_and_every_positive_action_choice():
             positive=sum(float(a.get('frequency',0.0))>0 for a in raw_actions)
             if not positive:
                 assert choices==[], (node['id'],combo,choices)
-                assert module.choose_preflop_action(FakeTable(),hand,hand.actor_id,FakeCPU(.5)) is None
+                zero_decision = module.choose_preflop_action(FakeTable(),hand,hand.actor_id,FakeCPU(.5))
+                assert zero_decision is not None and zero_decision.action == 'fold'
+                assert zero_decision.source == 'screenshot-range'
                 continue
             active_rows += 1
             assert choices, (node['id'],combo,raw_actions)
@@ -228,9 +234,9 @@ def test_unsupported_preflop_fallback_call_is_blocked():
     decision = module.choose_preflop_action(
         FakeTable(), hand, hand.actor_id, FakeCPU(), legacy
     )
-    assert decision is not legacy
-    assert decision.action == 'fold'
-    assert decision.source == 'preflop-no-range-call-blocked'
+    # Unsupported histories return no chart action; runtime must pause rather
+    # than substitute any legacy action.
+    assert decision is None
 
 
 def test_unmodelled_call_becomes_check_when_check_is_legal():
@@ -247,8 +253,7 @@ def test_unmodelled_call_becomes_check_when_check_is_legal():
     decision = module.choose_preflop_action(
         FakeTable(), hand, hand.actor_id, FakeCPU(), legacy
     )
-    assert decision.action == 'check'
-    assert decision.source == 'preflop-no-range-call-blocked'
+    assert decision is None
 
 
 def test_chart_authorized_heads_up_call_is_preserved():
@@ -268,6 +273,44 @@ def test_chart_authorized_heads_up_call_is_preserved():
             assert decision.source == 'screenshot-range'
             return
     raise AssertionError("No chart-authorized CALL was found to test")
+
+
+def test_all_five_open_nodes_are_chart_only_at_every_cpu_level():
+    from types import SimpleNamespace
+    data = module._data()
+    open_ids = {
+        '01_UTG_OPEN', '02_HJ_OPEN', '03_CO_OPEN', '04_BTN_OPEN', '05_SB_OPEN'
+    }
+    open_nodes = [node for node in data['nodes'] if node['id'] in open_ids]
+    assert len(open_nodes) == 5
+    for node in open_nodes:
+        for combo, actions in node['hands'].items():
+            hand = FakeHand(node, combo)
+            legacy_limp = SimpleNamespace(action='limp', amount=None, source='legacy')
+            for level in range(1, 6):
+                decision = module.choose_preflop_action(
+                    FakeTable(), hand, hand.actor_id, FakeCPU(.37, level=level),
+                    legacy_limp,
+                )
+                assert decision is not None, (node['id'], combo, level)
+                assert decision.source == 'screenshot-range'
+                assert decision.action in {'fold', 'call', 'raise', 'all-in'}
+                assert decision.action != 'limp'
+                if not any(float(a.get('frequency', 0.0)) > 0 for a in actions):
+                    assert decision.action == 'fold', (node['id'], combo, decision)
+
+
+def test_unsupported_preflop_history_never_returns_a_legacy_limp():
+    from types import SimpleNamespace
+    node = module._data()['nodes'][0]
+    hand = FakeHand(node, 'AKo')
+    hand.events.append({
+        'type': 'action', 'street': 'preflop', 'player_id': 'p4', 'action': 'call'
+    })
+    legacy_limp = SimpleNamespace(action='limp', amount=None, source='legacy')
+    assert module.choose_preflop_action(
+        FakeTable(), hand, hand.actor_id, FakeCPU(), legacy_limp
+    ) is None
 
 def test_100bb_stack_gate_and_folded_short_stack():
     node=module._data()['nodes'][0]
