@@ -229,7 +229,7 @@ def _board_metrics(cards: tuple[str, str], board: list[str]) -> tuple[float, flo
             completion_ranks.update(missing)
         elif len(missing) == 2 and len(board) == 3:
             backdoor_straight = True
-    straight_draw = min(0.88, len(completion_ranks) * 0.10)
+    straight_draw = min(0.88, len(completion_ranks) * 0.40)
     if straight_draw <= 0 and backdoor_straight:
         straight_draw = 0.14
 
