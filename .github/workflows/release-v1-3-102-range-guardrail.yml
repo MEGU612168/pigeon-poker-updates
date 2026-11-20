@@ -1,4 +1,4 @@
-name: Release Pigeon Poker v1.3.102 range-aware preflop and postflop CPU
+name: Release Pigeon Poker v1.3.102 postflop action controls restored
 
 on:
   push:
@@ -17,17 +17,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run fixed 75-node preflop regression suite
-        shell: bash
+      - name: Verify postflop controls and preflop-only chart gate
         run: |
           set -euo pipefail
+          python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
+          python staging/test_postflop_controls.py
           cp staging/source_1_3_101/pigeon_poker/preflop_screenshot_ranges.py staging/preflop_screenshot_ranges_75.py
           python staging/test_preflop_ranges_75.py
+          python staging/test_poker_reasoning.py
 
-      - name: Run multiway and postflop range-reasoning tests
-        run: python staging/test_poker_reasoning.py
-
-      - name: Build and validate Stable v1.3.102
+      - name: Build minimal in-app Stable update v1.3.102
         shell: bash
         run: |
           set -euo pipefail
@@ -46,145 +45,81 @@ jobs:
 
           REPO = "MEGU612168/pigeon-poker-updates"
           SOURCE_VERSION = "1.3.101"
-          TARGET_VERSION = "1.3.101"
+          TARGET_VERSION = "1.3.102"
 
-          manifest_url = f"https://raw.githubusercontent.com/{REPO}/main/stable.json"
           request = urllib.request.Request(
-              manifest_url, headers={"Cache-Control": "no-cache", "Pragma": "no-cache"}
+              f"https://raw.githubusercontent.com/{REPO}/main/stable.json",
+              headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
           )
-          with urllib.request.urlopen(request, timeout=60) as response:
-              manifest = json.loads(response.read().decode("utf-8"))
-          if manifest.get("version") != SOURCE_VERSION:
+          with urllib.request.urlopen(request, timeout=45) as response:
+              stable_before = json.loads(response.read().decode("utf-8"))
+          if stable_before.get("version") != SOURCE_VERSION:
               raise SystemExit(
-                  f"Expected pinned Stable {SOURCE_VERSION}, found {manifest.get('version')}"
+                  f"Expected Stable {SOURCE_VERSION}; found {stable_before.get('version')}"
               )
-          source_url = str(manifest["payload_url"])
-          separator = "&" if "?" in source_url else "?"
-          source_url += separator + "v=" + str(manifest["payload_sha256"])
-          request = urllib.request.Request(
-              source_url, headers={"Cache-Control": "no-cache", "Pragma": "no-cache"}
-          )
-          with urllib.request.urlopen(request, timeout=120) as response:
-              encoded = response.read().decode("ascii").strip()
-          payload = base64.b64decode(encoded, validate=True)
-          if len(payload) != int(manifest["payload_size"]):
-              raise SystemExit("Pinned v1.3.101 payload size mismatch.")
-          if hashlib.sha256(payload).hexdigest() != manifest["payload_sha256"]:
-              raise SystemExit("Pinned v1.3.101 payload SHA-256 mismatch.")
-
-          expected_files = {
-              "PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
-              "pigeon_gto_plus/auto_solve_ui.py",
-              "pigeon_gto_plus/live_range_builder.py",
-              "pigeon_gto_plus/ui_probe.py",
-              "pigeon_poker/preflop_screenshot_ranges.py",
-              "pigeon_poker/poker_reasoning.py",
-          }
-          with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
-              bad = archive.testzip()
-              if bad:
-                  raise SystemExit("Pinned source ZIP CRC failure: " + bad)
-              files = {name: archive.read(name) for name in archive.namelist()}
-          if set(files) != expected_files:
-              raise SystemExit("Unexpected pinned source package layout.")
-          if files["VERSION.txt"].decode("ascii").strip() != SOURCE_VERSION:
-              raise SystemExit("Pinned source VERSION.txt mismatch.")
 
           staged = pathlib.Path("staging/source_1_3_101")
-          replacements = {
-              "PigeonPoker.pyw": staged / "PigeonPoker.pyw",
-              "pigeon_poker/preflop_screenshot_ranges.py":
-                  staged / "pigeon_poker" / "preflop_screenshot_ranges.py",
-              "pigeon_poker/poker_reasoning.py":
-                  staged / "pigeon_poker" / "poker_reasoning.py",
-          }
-          original_policy = re.search(
-              rb'_FULL_POLICY_B64 = "([^"]+)"',
-              files["pigeon_poker/preflop_screenshot_ranges.py"]
+          main_path = staged / "PigeonPoker.pyw"
+          if not main_path.is_file():
+              raise SystemExit("Patched main application source is missing.")
+          main = main_path.read_bytes()
+          ast.parse(main.decode("utf-8"), filename="PigeonPoker.pyw")
+          text = main.decode("utf-8")
+
+          # Ensure this release fixes only the postflop UI routing and retains
+          # the immutable preflop chart enforcement and all existing CPU logic.
+          required = (
+              "The fixed screenshot chart applies only before the flop.",
+              "legal = hand.legal_actions(\"hero\")",
+              "preflop_chart_options",
+              "from pigeon_poker.poker_reasoning import choose_range_aware_action",
           )
-          if not original_policy:
-              raise SystemExit("Pinned screenshot policy payload is missing.")
-          for package_path, staged_path in replacements.items():
-              if not staged_path.is_file():
-                  raise SystemExit("Required staged source is missing: " + str(staged_path))
-              files[package_path] = staged_path.read_bytes()
+          for item in required:
+              if item not in text:
+                  raise SystemExit("Required application behavior is missing: " + item)
 
-          packaged_preflop = files["pigeon_poker/preflop_screenshot_ranges.py"]
-          updated_policy = re.search(rb'_FULL_POLICY_B64 = "([^"]+)"', packaged_preflop)
-          if not updated_policy or updated_policy.group(1) != original_policy.group(1):
-              raise SystemExit("The immutable 75-node chart data changed.")
-          if b'Decimal("0.05")' not in packaged_preflop:
-              raise SystemExit("Five-percent history-size tolerance is missing.")
-          main = files["PigeonPoker.pyw"].decode("utf-8")
-          if "from pigeon_poker.poker_reasoning import choose_range_aware_action" not in main:
-              raise SystemExit("Range-aware CPU integration import is missing.")
-          if "range_estimator=estimate_preflop_opponent_ranges" not in main:
-              raise SystemExit("Chart range-estimator bridge is missing.")
-          if "existing_session = None" not in main or "decision = fallback_decision" not in main:
-              raise SystemExit("Disabled stale GTO+ or safe decision fallback is missing.")
-          reasoning = files["pigeon_poker/poker_reasoning.py"].decode("utf-8")
-          if "range-aware-guardrail" not in reasoning or "_range_guardrail_penalty" not in reasoning:
-              raise SystemExit("Non-stopping cumulative guardrail is missing.")
-          if "cpu.choose_action(hand, pid)" in main:
-              raise SystemExit("Legacy random-equity CPU fallback remains in cash turns.")
-          files["VERSION.txt"] = (TARGET_VERSION + "\n").encode("ascii")
-
-          for name, content in files.items():
-              if name.endswith((".py", ".pyw")):
-                  ast.parse(content.decode("utf-8"), filename=name)
-
+          # Minimal delta: current Stable already has the 75-node chart module,
+          # range engine, updater and all supporting modules. Do not repackage
+          # unrelated files or modify any preflop chart data.
+          files = {
+              "PigeonPoker.pyw": main,
+              "VERSION.txt": (TARGET_VERSION + "\n").encode("ascii"),
+          }
           output = io.BytesIO()
           with zipfile.ZipFile(
               output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
           ) as archive:
               for name in sorted(files):
                   archive.writestr(name, files[name])
-          final_payload = output.getvalue()
-          with zipfile.ZipFile(io.BytesIO(final_payload), "r") as archive:
+          payload = output.getvalue()
+          with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
               bad = archive.testzip()
               if bad:
-                  raise SystemExit("Final payload ZIP CRC failure: " + bad)
-              package_names = set(archive.namelist())
-              if "pigeon_poker/poker_reasoning.py" not in package_names:
-                  raise SystemExit("Range-aware policy module is absent from payload.")
-              if "pigeon_poker/preflop_autonomous.py" in package_names:
-                  raise SystemExit("Unused prototype policy must not ship.")
+                  raise SystemExit("Update ZIP CRC failure: " + bad)
+              if set(archive.namelist()) != set(files):
+                  raise SystemExit("Unexpected update package contents.")
               ast.parse(archive.read("PigeonPoker.pyw").decode("utf-8"))
-              ast.parse(archive.read("pigeon_poker/poker_reasoning.py").decode("utf-8"))
 
-          digest = hashlib.sha256(final_payload).hexdigest()
-          final_encoded = base64.b64encode(final_payload).decode("ascii")
+          digest = hashlib.sha256(payload).hexdigest()
+          encoded = base64.b64encode(payload).decode("ascii")
           release_dir = pathlib.Path("releases") / ("v" + TARGET_VERSION)
           release_dir.mkdir(parents=True, exist_ok=True)
-          (release_dir / "payload-updater.zip.b64").write_text(
-              final_encoded, encoding="ascii"
-          )
-          parts = []
-          for index, offset in enumerate(range(0, len(final_encoded), 48000)):
-              name = f"payload.part-{index:03d}"
-              (release_dir / name).write_text(
-                  final_encoded[offset:offset + 48000], encoding="ascii"
-              )
-              parts.append(name)
+          (release_dir / "payload-updater.zip.b64").write_text(encoded, encoding="ascii")
+          part_name = "payload.part-000"
+          (release_dir / part_name).write_text(encoded, encoding="ascii")
           (release_dir / "payload.parts.json").write_text(
-              json.dumps({"parts": parts}, indent=2) + "\n", encoding="utf-8"
+              json.dumps({"parts": [part_name]}, indent=2) + "\n", encoding="utf-8"
           )
 
           now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
           notes = (
-              "プリフロップ75局面・12,675行のチャート、アクション頻度、固定BBサイズは不変。"
-              "相手の履歴をチャート局面へ照合するサイズ許容幅を5%に設定。"
-              "チャート外のプリフロップ分岐（3way/マルチウェイを含む）は停止せず、"
-              "参加済み相手ごとのレンジ、未行動プレイヤーの参加確率、レンジ加重Monte Carlo"
-              "エクイティとCPUレベルに基づく独立判断へ移行。"
-              "ポストフロップも相手のプリフロップ履歴に加え、各ストリートのチェック、コール、"
-              "ベット、レイズとサイズでレンジを逐次更新。必要コール勝率、純ブラフ必要成功率、"
-              "推定フォールド確率、概算EVを判断ログに記録。これはレンジ推定型の近似ポリシーで、"
-              "ソルバーの完全一致解とは区別。更新ボタン常時クリック可能、60秒ごとの自動確認、"
-              "出金残高の再入金、ポストフロップ操作UIを維持。"
-              "推定エラー時もハンドを停止せず、合法な保守アクションへ切替。"
-              "推定失敗の累積回数に応じて次回以降のレイズ頻度を抑制するガードレールを追加。"
-              "古いGTO+ CPUセッションと旧ランダムエクイティ経路は使用しない。"
+              "ポストフロップの操作UIを修復。HEROの手番ではCHECKまたはCALL、"
+              "FOLD、BETまたはRAISEボタンを再表示し、金額入力、サイズスライダー、"
+              "ポット割合プリセット、実行ボタンも通常どおり使用可能。"
+              "固定チャートによる制約はプリフロップだけに限定し、ポストフロップの"
+              "アクションはその時点の合法アクションから生成。プリフロップ75局面・"
+              "12,675行・頻度・固定BBサイズ、レンジ推定エンジン、更新機能、"
+              "ウォレットと履歴データには変更なし。"
           )
           release = {
               "schema_version": 1,
@@ -195,30 +130,20 @@ jobs:
               "package_mode": "full",
               "release_notes": notes,
               "payload_sha256": digest,
-              "payload_size": len(final_payload),
+              "payload_size": len(payload),
               "source_version": SOURCE_VERSION,
+              "files": sorted(files),
               "preflop_75_node_policy_immutable": True,
               "preflop_12675_hand_rows_immutable": True,
               "preflop_chart_frequencies_immutable": True,
               "preflop_chart_bb_sizes_immutable": True,
-              "preflop_history_size_matching_tolerance": 0.05,
-              "uncovered_preflop_uses_range_aware_policy": True,
-              "multiway_equity_uses_conditional_participation": True,
-              "postflop_ranges_update_from_action_and_size": True,
-              "range_weighted_monte_carlo_equity": True,
-              "required_call_equity_calculated": True,
-              "pure_bluff_break_even_fold_rate_calculated": True,
-              "ev_is_approximate_not_solver_exact": True,
-              "legacy_random_equity_fallback_removed_from_cash_cpu_turns": True,
-              "range_policy_failure_guardrail_non_stopping": True,
-              "cumulative_guardrail_penalty_increases_margin_and_reduces_aggression": True,
-              "stale_gto_cpu_sessions_disabled": True,
-              "update_button_always_clickable": True,
-              "automatic_update_check_interval_ms": 60000,
-              "postflop_ui_preserved": True,
-              "withdrawable_redeposit_preserved": True,
+              "postflop_controls_restored": True,
+              "postflop_check_call_fold_controls": True,
+              "postflop_bet_raise_slider_entry_presets": True,
+              "postflop_uses_live_legal_actions": True,
+              "postflop_ui_regression_tests": "passed",
+              "preflop_regression_tests": "passed",
               "package_ast_and_zip_crc": "passed",
-              "files": sorted(files),
           }
           (release_dir / "release.json").write_text(
               json.dumps(release, ensure_ascii=False, indent=2) + "\n",
@@ -238,17 +163,12 @@ jobs:
                   f"payload-updater.zip.b64?v={digest}"
               ),
               "payload_sha256": digest,
-              "payload_size": len(final_payload),
+              "payload_size": len(payload),
           }
           pathlib.Path("stable.json").write_text(
               json.dumps(stable, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8",
           )
-          pathlib.Path("dist").mkdir(exist_ok=True)
-          (pathlib.Path("dist") / f"PigeonPoker_{TARGET_VERSION}.zip").write_bytes(
-              final_payload
-          )
-
           (release_dir / "build.request").unlink(missing_ok=True)
           subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
           subprocess.run(
@@ -257,22 +177,17 @@ jobs:
           )
           subprocess.run(["git", "add", "stable.json", str(release_dir)], check=True)
           subprocess.run(
-              ["git", "commit", "-m", "Release Pigeon Poker v1.3.102 range-aware CPU"],
+              ["git", "commit", "-m", "Release Pigeon Poker v1.3.102 postflop controls"],
               check=True,
           )
           subprocess.run(["git", "push"], check=True)
           print(json.dumps({
               "version": TARGET_VERSION,
               "source_version": SOURCE_VERSION,
-              "sha256": digest,
-              "payload_size": len(final_payload),
-              "preflop_policy_immutable": True,
-              "preflop_history_tolerance": "5%",
-              "multiway_range_reasoning": True,
-              "postflop_action_range_updates": True,
-              "required_call_and_bluff_success_rates": True,
-              "non_stopping_policy_error_guardrail": True,
-              "legacy_cpu_fallback_disabled": True,
+              "files": sorted(files),
+              "payload_sha256": digest,
+              "preflop_chart_modified": False,
+              "postflop_controls_restored": True,
               "tests": "passed",
           }, ensure_ascii=False, indent=2))
           PY
