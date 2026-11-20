@@ -175,7 +175,7 @@ jobs:
                   "[OOP複数ハンド可逆テスト] AA+AKsの2セル反映・40%正規化・Source読戻し・完全復元に未達です。",
                   "[OOP複数ハンド可逆テスト] 診断JSONの確認に失敗: "
               ]
-              new_error = "[OOP/IP複数ハンド可逆テスト] OOPとIPの両方で2セル反映・40%正規化・Source読戻し・完全復元に未達です。"
+              new_error = "[Build Tree可逆テスト] 設定ダイアログの表示・閉鎖、または一時レンジ/Boardの復元に未達です。"
               for old_error in old_errors:
                   main = main.replace(old_error, new_error)
               legacy_aa_key = "oop_aa_only_matrix_reflection_verified"
@@ -260,9 +260,19 @@ jobs:
           ui_source=pathlib.Path("staging/auto_hu_solve_candidate/auto_solve_ui.py").read_text(encoding="utf-8")
           ast.parse(ui_source,filename="auto_solve_ui.py")
           assert "_run_board_selection_roundtrip" in ui_source
+          assert "_run_build_tree_dialog_probe" in ui_source
+          assert "_clear_committed_test_range" in ui_source
+          assert "_clear_committed_test_board" in ui_source
+          assert "restore_after_commit=False" in ui_source
+          assert '"stage": "build_tree_dialog_probe"' in ui_source
+          assert '"build_tree_dialog_opened": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_opened"))' in ui_source
+          assert '"build_tree_probe_inputs_restored": bool(build_tree_sequence.get("all_test_inputs_restored"))' in ui_source
+          assert '"build_tree_probe_may_remain_configured": bool(' in ui_source
+          assert 'send(probe.wintypes.HWND(popup_hwnd), 0x0010, 0, 0)' in ui_source
+          assert 'not result.get("dialog_closed_verified")' in ui_source
           assert "_board_card_center" in ui_source
           assert "_bmp_region_dark_pixel_ratio" in ui_source
-          assert '"schema_version": 19' in ui_source
+          assert '"schema_version": 20' in ui_source
           assert '"board_test_cards": list(_BOARD_TEST_CARDS)' in ui_source
           assert '"board_test_restored": bool(board_roundtrip and board_roundtrip.get("board_test_restored"))' in ui_source
           assert '"board_test_cards_reflection_verified": bool(board_roundtrip and board_roundtrip.get("board_cards_reflection_verified"))' in ui_source
@@ -275,6 +285,14 @@ jobs:
               '"board_test_cards_reflection_verified": bool(board_roundtrip and board_roundtrip.get("board_cards_reflection_verified"))',
               '"board_test_restored": bool(board_roundtrip and board_roundtrip.get("board_test_restored"))',
               '"board_test_may_remain_set": bool(board_roundtrip and board_roundtrip.get("board_test_may_remain_set"))',
+              '"build_tree_button_clicked_for_dialog_probe": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("build_tree_clicked"))',
+              '"build_tree_dialog_opened": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_opened"))',
+              '"build_tree_dialog_closed_verified": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_closed_verified"))',
+              '"build_tree_probe_oop_range_restored": bool(build_tree_sequence.get("oop_test_range_restored"))',
+              '"build_tree_probe_ip_range_restored": bool(build_tree_sequence.get("ip_test_range_restored"))',
+              '"build_tree_probe_board_restored": bool(build_tree_sequence.get("board_test_restored"))',
+              '"build_tree_probe_inputs_restored": bool(build_tree_sequence.get("all_test_inputs_restored"))',
+              '"build_tree_probe_may_remain_configured": bool(',
           ):
               assert required_safety_key in safety_block
           assert '_BOARD_TEST_CARDS = ("As", "Kd", "7c")' in ui_source
@@ -290,8 +308,8 @@ jobs:
           assert 'report_safety.get("board_test_cards_reflection_verified")' in main
           assert 'report_safety.get("board_test_restored")' in main
           assert 'report_safety.get("board_test_may_remain_set")' in main
-          assert "未知HU局面の自動Solve設定を診断（OOP/IP/Board可逆テスト）" in main
-          assert "OOP/IPの両レンジとBoard欄が空の場合のみ" in main
+          assert "未知HU局面の自動Solve設定を診断（OOP/IP/Board/Build Tree設定ダイアログ可逆テスト）" in main
+          assert "OOP/IPレンジとBoard欄が空の場合のみ" in main
           assert "oop_expected_matrix_cells_reflection_verified" in main
           assert "oop_restore_source_text_accepted" in main
           assert "oop_weight_display_capture_saved" in main
@@ -302,6 +320,11 @@ jobs:
           assert "[AA可逆テスト] OOPのAA反映・復元確認に未達です。" not in main
           assert "[AA可逆テスト] 診断JSONの確認に失敗:" not in main
           assert "report_safety.get(\"board_test_restored\")" in main
+          assert "report_safety.get(\"build_tree_dialog_opened\")" in main
+          assert "report_safety.get(\"build_tree_dialog_closed_verified\")" in main
+          assert "report_safety.get(\"build_tree_probe_inputs_restored\")" in main
+          assert "report_safety.get(\"build_tree_probe_may_remain_configured\")" in main
+          assert "report_safety.get(\"manual_close_required\")" in main
 
           assert '"test_range": "AA,AKs:0.4"' in ui_source
           assert '"test_range_partial_weight": 0.4' in ui_source
@@ -355,7 +378,7 @@ jobs:
           assert '"done_button_clicked_for_ip_multi_range_test"' in ui_source
           assert "_temporary_source_field_window_adjustment" in ui_source
           assert "_source_field_occlusion_shift" in ui_source
-          assert '"probe": "verified_gto_plus_oop_ip_weighted_range_and_board_card_selector_roundtrip_v19"' in ui_source
+          assert '"probe": "verified_gto_plus_oop_ip_board_and_build_tree_dialog_roundtrip_v20"' in ui_source
           assert "unique_captures" in ui_source
           assert "_source_field_underlay_is_verified_gto_view" in ui_source
           assert "_click_verified_gto_hit_target" in ui_source
