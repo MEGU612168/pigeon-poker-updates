@@ -1684,6 +1684,227 @@ def _run_ip_multi_range_commit_roundtrip(
                     report["status"] = "range_restored_but_window_position_restore_failed"
 
 
+
+_BOARD_CARD_RANK_ORDER = "AKQJT98765432"
+_BOARD_CARD_SUIT_ORDER = "hcds"
+_BOARD_CARD_X = (124, 147, 170, 193)
+_BOARD_CARD_Y = (108, 130, 154, 178, 202, 224, 246, 268, 291, 314, 337, 361, 384)
+_BOARD_SELECTOR_ROI = (105, 68, 297, 403)
+_BOARD_SELECTOR_TEXT_ROI = (211, 227, 288, 244)
+_BOARD_ENTRY_FIELD_ROI = (26, 233, 83, 245)
+_BOARD_ENTRY_DIFF_ROI = (23, 230, 85, 248)
+_BOARD_CLEAR_CENTER = (258, 108)
+_BOARD_DONE_CENTER = (258, 385)
+_BOARD_TEST_CARDS = ("As", "Kd", "7c")
+
+
+def _bmp_region_dark_pixel_ratio(path: str | Path, roi: tuple[int, int, int, int], *, threshold: int = 180) -> float:
+    """Return the proportion of dark pixels in a client-relative BMP region."""
+    data = Path(path).read_bytes()
+    if len(data) < 54 or data[:2] != b"BM":
+        raise ValueError("capture is not a Windows BMP")
+    offset = struct.unpack_from("<I", data, 10)[0]
+    width, signed_height, planes, bpp, compression = struct.unpack_from("<iiHHI", data, 18)
+    height = abs(signed_height)
+    if width <= 0 or height <= 0 or planes != 1 or bpp != 32 or compression != 0:
+        raise ValueError("capture is not an uncompressed 32-bit BMP")
+    stride = ((width * bpp + 31) // 32) * 4
+    if offset + stride * height > len(data):
+        raise ValueError("BMP pixel data is truncated")
+    x0, y0, x1, y1 = roi
+    if not (0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height):
+        raise ValueError(f"ROI outside capture dimensions: {roi}")
+    dark = total = 0
+    for y in range(y0, y1):
+        row_y = y if signed_height < 0 else height - 1 - y
+        row = offset + row_y * stride
+        for x in range(x0, x1):
+            i = row + x * 4
+            blue, green, red = data[i], data[i + 1], data[i + 2]
+            total += 1
+            if max(red, green, blue) < int(threshold):
+                dark += 1
+    return dark / total if total else 1.0
+
+
+def _board_card_center(card: str) -> tuple[int, int]:
+    """Map a standard two-character card code to the measured GTO+ selector grid."""
+    if not isinstance(card, str) or len(card.strip()) != 2:
+        raise ValueError(f"invalid board card code: {card!r}")
+    value = card.strip()
+    rank = value[0].upper()
+    suit = value[1].lower()
+    if rank not in _BOARD_CARD_RANK_ORDER or suit not in _BOARD_CARD_SUIT_ORDER:
+        raise ValueError(f"unsupported board card code: {card!r}")
+    row = _BOARD_CARD_RANK_ORDER.index(rank)
+    column = _BOARD_CARD_SUIT_ORDER.index(suit)
+    return _BOARD_CARD_X[column], _BOARD_CARD_Y[row]
+
+
+def _click_board_selector_target(user32, root_hwnd: int, root_pid: int, RECT, POINT, point: tuple[int, int], *, label: str) -> dict[str, Any]:
+    """Click only one of the measured card, Clear, or Done targets in GTO's custom view."""
+    x, y = map(int, point)
+    card_points = {_board_card_center(rank + suit) for rank in _BOARD_CARD_RANK_ORDER for suit in _BOARD_CARD_SUIT_ORDER}
+    if label == "select_board_card":
+        if (x, y) not in card_points:
+            raise ValueError("board card click is outside the calibrated 52-card grid")
+    elif label == "clear_board_selector":
+        if (x, y) != _BOARD_CLEAR_CENTER:
+            raise ValueError("Clear click does not match its calibrated point")
+    elif label == "commit_board_selector_done":
+        if (x, y) != _BOARD_DONE_CENTER:
+            raise ValueError("Done click does not match its calibrated point")
+    else:
+        raise ValueError(f"unregistered board selector click: {label}")
+    return _click_verified_gto_hit_target(user32, root_hwnd, root_pid, RECT, POINT, (x, y), label=label)
+
+
+def _run_board_selection_roundtrip(user32, EnumWindowsProc, EnumChildProc, RECT, POINT, target_hwnd: int, target_pid: int, output_dir: Path, stem: str, baseline_path: str, actions: list[dict[str, Any]], all_captures: list[dict[str, Any]]) -> dict[str, Any]:
+    """Select a known flop through the GTO+ card grid, then Clear and verify exact restoration."""
+    result: dict[str, Any] = {
+        "stage": "board_selector_roundtrip",
+        "test_cards": list(_BOARD_TEST_CARDS),
+        "card_centers": {card: list(_board_card_center(card)) for card in _BOARD_TEST_CARDS},
+        "status": "not_started",
+        "selector_opened": False,
+        "cards_selected": False,
+        "board_cards_reflection_verified": False,
+        "board_test_temporarily_committed": False,
+        "board_test_restored": False,
+        "board_test_may_remain_set": False,
+        "manual_close_required": False,
+    }
+    selector_open = False
+    committed = False
+
+    def capture(stage: str) -> tuple[list[dict[str, Any]], str]:
+        windows = _capture_related_windows(user32, EnumWindowsProc, EnumChildProc, RECT, POINT, target_hwnd, target_pid, output_dir, stem, stage)
+        all_captures.extend(w["capture"] for w in windows)
+        return windows, _root_capture_path(windows, stage)
+
+    def clear_and_done() -> dict[str, Any]:
+        nonlocal selector_open
+        clear_click = _click_board_selector_target(user32, target_hwnd, target_pid, RECT, POINT, _BOARD_CLEAR_CENTER, label="clear_board_selector")
+        actions.append(clear_click)
+        time.sleep(0.20)
+        done_click = _click_board_selector_target(user32, target_hwnd, target_pid, RECT, POINT, _BOARD_DONE_CENTER, label="commit_board_selector_done")
+        actions.append(done_click)
+        time.sleep(0.45)
+        selector_open = False
+        windows, path = capture("board_selector_restored_main")
+        difference = _bmp_region_difference_ratio(baseline_path, path, _BOARD_ENTRY_DIFF_ROI)
+        dark_ratio = _bmp_region_dark_pixel_ratio(path, _BOARD_ENTRY_FIELD_ROI)
+        return {"windows": windows, "screenshot": path, "baseline_field_difference": difference, "entry_field_dark_pixel_ratio": dark_ratio, "clear_click": clear_click, "done_click": done_click}
+
+    try:
+        baseline_dark = _bmp_region_dark_pixel_ratio(baseline_path, _BOARD_ENTRY_FIELD_ROI)
+        result["initial_board_field_dark_pixel_ratio"] = baseline_dark
+        if baseline_dark > 0.002:
+            result["status"] = "stopped_existing_board_not_empty"
+            result["reason"] = "Board field is not empty; no selection or Clear action was sent."
+            return result
+
+        open_click = _click_exact_client(user32, target_hwnd, target_pid, RECT, POINT, _BOARD_INPUT_CENTER, label="focus_board_input")
+        actions.append(open_click)
+        time.sleep(0.45)
+        windows, open_path = capture("board_selector_roundtrip_open")
+        appearance = _bmp_region_difference_ratio(baseline_path, open_path, _BOARD_SELECTOR_ROI)
+        result["open_click"] = open_click
+        result["selector_open_difference"] = appearance
+        result["selector_opened"] = bool(appearance["ratio"] >= 0.05)
+        selector_open = result["selector_opened"]
+        if not selector_open:
+            raise RuntimeError("Board card selector did not open at the measured coordinates")
+
+        card_clicks = []
+        for card in _BOARD_TEST_CARDS:
+            point = _board_card_center(card)
+            click = _click_board_selector_target(user32, target_hwnd, target_pid, RECT, POINT, point, label="select_board_card")
+            click["card"] = card
+            card_clicks.append(click)
+            actions.append(click)
+            time.sleep(0.16)
+        result["card_clicks"] = card_clicks
+        windows, selected_path = capture("board_selector_cards_selected")
+        selected_dark = _bmp_region_dark_pixel_ratio(selected_path, _BOARD_SELECTOR_TEXT_ROI)
+        result["selected_cards_capture"] = selected_path
+        result["selected_board_display_dark_pixel_ratio"] = selected_dark
+        result["cards_selected"] = True
+        if selected_dark <= 0.004:
+            raise RuntimeError("The selector's selected-card display did not show the expected non-empty text region")
+
+        done_click = _click_board_selector_target(user32, target_hwnd, target_pid, RECT, POINT, _BOARD_DONE_CENTER, label="commit_board_selector_done")
+        actions.append(done_click)
+        time.sleep(0.45)
+        selector_open = False
+        committed = True
+        windows, committed_path = capture("board_selector_test_committed_main")
+        committed_difference = _bmp_region_difference_ratio(baseline_path, committed_path, _BOARD_ENTRY_DIFF_ROI)
+        committed_dark = _bmp_region_dark_pixel_ratio(committed_path, _BOARD_ENTRY_FIELD_ROI)
+        result["done_click"] = done_click
+        result["committed_screenshot"] = committed_path
+        result["committed_board_field_difference"] = committed_difference
+        result["committed_board_field_dark_pixel_ratio"] = committed_dark
+        result["board_test_temporarily_committed"] = True
+        result["board_cards_reflection_verified"] = bool(committed_difference["ratio"] > 0.005 and committed_dark > baseline_dark + 0.004)
+        if not result["board_cards_reflection_verified"]:
+            raise RuntimeError("The selected flop was not visibly reflected in the main Board field")
+
+        reopen_click = _click_exact_client(user32, target_hwnd, target_pid, RECT, POINT, _BOARD_INPUT_CENTER, label="focus_board_input")
+        actions.append(reopen_click)
+        time.sleep(0.40)
+        windows, clear_open_path = capture("board_selector_clear_open")
+        clear_appearance = _bmp_region_difference_ratio(baseline_path, clear_open_path, _BOARD_SELECTOR_ROI)
+        result["clear_selector_open_difference"] = clear_appearance
+        selector_open = clear_appearance["ratio"] >= 0.05
+        if not selector_open:
+            raise RuntimeError("Board selector did not reopen for the restoration step")
+
+        restore = clear_and_done()
+        result["restore"] = restore
+        restored_ratio = float(restore["baseline_field_difference"]["ratio"])
+        result["board_test_restored"] = restored_ratio <= 0.002 and float(restore["entry_field_dark_pixel_ratio"]) <= 0.002
+        result["board_test_may_remain_set"] = not result["board_test_restored"]
+        result["status"] = "three_card_flop_selected_and_cleared_verified" if result["board_test_restored"] and result["board_cards_reflection_verified"] else "board_test_restoration_not_verified"
+        result["manual_close_required"] = not result["board_test_restored"]
+        return result
+    except Exception as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
+        if selector_open:
+            try:
+                result["recovery"] = clear_and_done()
+            except Exception as recovery_exc:
+                result["recovery_error"] = f"{type(recovery_exc).__name__}: {recovery_exc}"
+        elif committed:
+            try:
+                reopen_click = _click_exact_client(user32, target_hwnd, target_pid, RECT, POINT, _BOARD_INPUT_CENTER, label="focus_board_input")
+                actions.append(reopen_click)
+                time.sleep(0.40)
+                windows, reopen_path = capture("board_selector_recovery_open")
+                appearance = _bmp_region_difference_ratio(baseline_path, reopen_path, _BOARD_SELECTOR_ROI)
+                result["recovery_open_difference"] = appearance
+                selector_open = appearance["ratio"] >= 0.05
+                if selector_open:
+                    result["recovery"] = clear_and_done()
+            except Exception as recovery_exc:
+                result["recovery_error"] = f"{type(recovery_exc).__name__}: {recovery_exc}"
+        recovery = result.get("recovery")
+        if isinstance(recovery, dict):
+            ratio = float((recovery.get("baseline_field_difference") or {}).get("ratio", 1.0))
+            dark = float(recovery.get("entry_field_dark_pixel_ratio", 1.0))
+            result["board_test_restored"] = ratio <= 0.002 and dark <= 0.002
+        result["board_test_may_remain_set"] = bool(committed and not result.get("board_test_restored"))
+        result["manual_close_required"] = bool(result.get("board_test_may_remain_set") or selector_open)
+        result["status"] = (
+            "board_test_failed_but_original_empty_state_restored"
+            if committed and result.get("board_test_restored")
+            else "board_test_failed_and_restoration_unverified"
+            if committed else "board_test_not_committed"
+        )
+        return result
+
+
+
 def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: int) -> Path:
     if os.name != "nt":
         raise OSError("This GTO+ setup probe is Windows-only.")
@@ -2007,6 +2228,27 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         }
         stages.append(board_input_result)
 
+    # Stage 4: select a measured test flop in the GTO+ card picker, then Clear and verify exact restoration.
+    board_roundtrip: dict[str, Any] | None = None
+    if continue_after_oop and board_input_result and board_input_result.get("visually_closed"):
+        board_roundtrip = _run_board_selection_roundtrip(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, baseline_path,
+            actions, all_captures,
+        )
+        stages.append(board_roundtrip)
+        manual_close_required = manual_close_required or bool(board_roundtrip.get("manual_close_required"))
+    else:
+        board_roundtrip = {
+            "stage": "board_selector_roundtrip",
+            "status": "skipped_previous_setup_stage_not_verified",
+            "board_cards_reflection_verified": False,
+            "board_test_restored": False,
+            "board_test_may_remain_set": False,
+            "manual_close_required": False,
+        }
+        stages.append(board_roundtrip)
+
     # Deduplicate repeated references; the round-trip stage also appears in capture_windows.
     unique_captures: list[dict[str, Any]] = []
     seen_capture_paths: set[str] = set()
@@ -2021,9 +2263,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     all_captures = unique_captures
 
     report = {
-        "schema_version": 18,
+        "schema_version": 19,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_ip_multi_hand_ak_s40_weighted_commit_roundtrip_v18_ip_roi_null_safe_summary",
+        "probe": "verified_gto_plus_oop_ip_weighted_range_and_board_card_selector_roundtrip_v19",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -2062,6 +2304,11 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "oop_restore_source_text_accepted": bool(oop_roundtrip.get("restore_source_text_accepted")),
             "range_committed": False,
             "board_text_entered": False,
+            "board_test_cards": list(_BOARD_TEST_CARDS),
+            "board_test_temporarily_committed": bool(board_roundtrip and board_roundtrip.get("board_test_temporarily_committed")),
+            "board_test_cards_reflection_verified": bool(board_roundtrip and board_roundtrip.get("board_cards_reflection_verified")),
+            "board_test_restored": bool(board_roundtrip and board_roundtrip.get("board_test_restored")),
+            "board_test_may_remain_set": bool(board_roundtrip and board_roundtrip.get("board_test_may_remain_set")),
             "temporary_window_position_restore_required": True,
         },
         "coordinate_reference": {
@@ -2081,6 +2328,11 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "board_input_center": list(_BOARD_INPUT_CENTER),
             "board_close_rect": list(_BOARD_CLOSE_RECT),
             "board_close_center": list(_BOARD_CLOSE_CENTER),
+            "board_selector_roi": list(_BOARD_SELECTOR_ROI),
+            "board_selector_test_cards": list(_BOARD_TEST_CARDS),
+            "board_selector_test_card_centers": {card: list(_board_card_center(card)) for card in _BOARD_TEST_CARDS},
+            "board_selector_clear_center": list(_BOARD_CLEAR_CENTER),
+            "board_selector_done_center": list(_BOARD_DONE_CENTER),
             "build_tree_button_rect": list(_BUILD_TREE_RECT),
             "build_tree_button_center": list(_BUILD_TREE_CENTER),
             "visual_verification_roi": list(_DIALOG_ROI),
@@ -2138,7 +2390,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "If a foreign window covers the Source field, only the exact embedded GTO child is temporarily shifted within its verified parent-client coordinate system; the exact original parent-relative position is restored and verified immediately after the field probe. The host window and other processes are not moved.",
             "The OOP and IP Source Edits are each tested with a temporary AA+AKs:40% multi-hand range. Exactly two matrix cells must change in the relevant 13x13 mini-matrix, GTO+ normalized Source text must match the exact allowlist, and Clear plus Done must restore the exact baseline signature.",
             "The OOP/IP range editor is dismissed with its measured X button; when the overlay remains, one direct WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP retry is sent only to the verified GTO drawing view and visually rechecked.",
-            "The Board selector is dismissed with its measured X button; when it remains, the same exact-view-only mouse-message retry is used and visually checked. No board text is entered and no card is selected.",
+            "The Board selector is tested with three measured rank/suit buttons (As, Kd, 7c), Done commits the temporary flop, then Clear plus Done must restore the original empty Board field. If the starting Board field is not empty, no card selection or Clear action is sent.",
             "The OOP and IP multi-hand tests are temporary. Both final 13x13 matrices must match their empty baselines before the report marks restoration successful. Board/Pot/Stack/Rake are not changed; Build Tree and Solver are not run.",
             "Escape is sent only when the detected selector belongs to the exact GTO process and that process owns keyboard focus.",
         ],
@@ -2181,6 +2433,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"IP normalized Source text: {ip_roundtrip.get('restore_source_text_readback') if ip_roundtrip else None}",
         f"IP weighted range restored: {bool(ip_roundtrip and ip_roundtrip.get('range_restored'))}",
         f"Board input: {board_input_result['status'] if board_input_result else 'not_attempted'}",
+        f"Board selector three-card commit/clear: {board_roundtrip.get('status') if board_roundtrip else 'not_attempted'}",
+        f"Board cards reflected in main field: {bool(board_roundtrip and board_roundtrip.get('board_cards_reflection_verified'))}",
+        f"Board original empty field restored: {bool(board_roundtrip and board_roundtrip.get('board_test_restored'))}",
         f"Source click sent: {bool(oop_source_probe.get('click_sent', False))}",
         f"Temporary GTO window move: {oop_source_probe.get('temporary_window_adjustment', {}).get('status', 'not_reported')}",
         f"Temporary GTO window move restored: {bool(oop_source_probe.get('window_position_restore_verified', True))}",
