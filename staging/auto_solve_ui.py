@@ -1849,6 +1849,10 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                 build_tree_sequence.get("test_setup_committed")
                 and not build_tree_sequence.get("all_test_inputs_restored")
             ),
+            "build_tree_player2_validation_seen": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_range_validation_seen")),
+            "build_tree_player2_validation_recovered": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_range_validation_recovered")),
+            "build_tree_player2_range_cleanup_restored": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_validation_cleanup_restored_ip")),
+            "build_tree_probe_safe_to_cleanup": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("safe_to_cleanup")),
             "oop_restore_source_text_readback": oop_roundtrip.get("restore_source_text_readback"),
             "oop_restore_source_text_accepted": bool(oop_roundtrip.get("restore_source_text_accepted")),
             "board_changed": False,
