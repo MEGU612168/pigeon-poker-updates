@@ -80,7 +80,7 @@ engine_mod.make_deck = make_deck
 engine_mod.evaluate_seven = evaluate_seven
 sys.modules["pigeon_poker.engine"] = engine_mod
 
-MODULE_PATH = Path(__file__).with_name("source_1_3_100") / "pigeon_poker" / "poker_reasoning.py"
+MODULE_PATH = Path(__file__).with_name("source_1_3_101") / "pigeon_poker" / "poker_reasoning.py"
 if not MODULE_PATH.is_file():
     MODULE_PATH = Path(__file__).with_name("poker_reasoning_test_target.py")
 spec = importlib.util.spec_from_file_location("pigeon_poker.poker_reasoning", MODULE_PATH)
