@@ -461,6 +461,108 @@ def _dismiss_exact_gto_message_with_ok(user32, target_pid: int,
     }
 
 
+def _focus_and_read_player2_source_field(
+    user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+    target_hwnd: int, target_pid: int, output_dir: Path, stem: str,
+    actions: list[dict[str, Any]], all_captures: list[dict[str, Any]],
+    label: str,
+) -> dict[str, Any]:
+    """Focus the already-open Player 2 Source field, then read it without overwriting."""
+    result: dict[str, Any] = {
+        "stage": "player2_source_field_focus_and_read",
+        "status": "not_started",
+        "source_text_accepted": False,
+        "manual_close_required": False,
+        "write_sent": False,
+    }
+    position: dict[str, Any] = {"moved": False, "status": "not_attempted"}
+    try:
+        position = _temporary_source_field_window_adjustment(
+            user32, target_hwnd, RECT, POINT
+        )
+        result["temporary_window_adjustment"] = position
+        source_probe = _probe_source_field_readback_restore_at_current_position(
+            user32, target_hwnd, EnumWindowsProc, EnumChildProc,
+            RECT, POINT, output_dir, stem, "IP"
+        )
+        result["source_field_probe"] = source_probe
+        if source_probe.get("field_click"):
+            actions.append(source_probe["field_click"])
+        for capture_key in ("temporary_capture", "restored_capture"):
+            capture = source_probe.get(capture_key)
+            if capture:
+                all_captures.append(capture)
+        result["source_field_probe_status"] = source_probe.get("status")
+        edit_hwnd = int(source_probe.get("edit_hwnd") or 0)
+        result["edit_hwnd"] = edit_hwnd or None
+        if source_probe.get("status") != "nonempty_source_field_preserved" or not edit_hwnd:
+            result["status"] = "player2_source_field_focus_or_native_edit_not_verified"
+            result["note"] = (
+                "The Player 2 Source field was clicked, but no uniquely identified nonempty "
+                "native Edit was returned. No Source text was written and Done/Clear was not clicked."
+            )
+            result["manual_close_required"] = True
+            return result
+
+        host_hwnd = probe._top_level_ancestor(user32, target_hwnd)
+        identity_ok = (
+            user32.IsWindow(probe.wintypes.HWND(edit_hwnd))
+            and probe._window_pid(user32, edit_hwnd) == int(target_pid)
+            and probe._class_name(user32, edit_hwnd) == "Edit"
+            and int(user32.GetDlgCtrlID(probe.wintypes.HWND(edit_hwnd))) == 5458
+            and probe._window_is_related_to_embedded_target(
+                user32, edit_hwnd, target_hwnd, host_hwnd
+            )
+        )
+        result["source_edit_identity_verified"] = bool(identity_ok)
+        if not identity_ok:
+            result["status"] = "player2_source_edit_identity_unverified"
+            result["manual_close_required"] = True
+            return result
+
+        source_text = probe._read_native_edit_text(user32, edit_hwnd)
+        result["source_text_readback"] = source_text
+        result["source_text_accepted"] = (
+            source_text in set(_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS)
+        )
+        windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, label + "_source_focused"
+        )
+        all_captures.extend(w["capture"] for w in windows)
+        result["source_focused_screenshot"] = _root_capture_path(
+            windows, label + "_source_focused"
+        )
+        if result["source_text_accepted"]:
+            result["status"] = "player2_source_text_exactly_verified"
+            result["note"] = (
+                "The focused Player 2 Source field exactly matches the known AA+AKs:40% test value. "
+                "No text was changed."
+            )
+        else:
+            result["status"] = "player2_source_text_unrecognized_preserved"
+            result["note"] = (
+                "The Player 2 Source text differs from the exact known test forms. "
+                "It was preserved; no Done or Clear action was sent."
+            )
+            result["manual_close_required"] = True
+        return result
+    except Exception as exc:
+        result["status"] = "player2_source_focus_safe_stop"
+        result["error"] = f"{type(exc).__name__}: {exc}"
+        result["manual_close_required"] = True
+        return result
+    finally:
+        if position.get("moved"):
+            restore = _restore_source_field_window_position(
+                user32, target_hwnd, RECT, position
+            )
+            result["temporary_window_restore"] = restore
+            result["window_position_restore_verified"] = bool(restore.get("verified"))
+            if not restore.get("verified"):
+                result["manual_close_required"] = True
+
+
 def _commit_verified_player2_editor_after_prompt(
     user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
     target_hwnd: int, target_pid: int,
@@ -468,7 +570,7 @@ def _commit_verified_player2_editor_after_prompt(
     actions: list[dict[str, Any]], all_captures: list[dict[str, Any]],
     label: str,
 ) -> dict[str, Any]:
-    """Commit the already-open Player 2 editor only if Source is the exact test-only value."""
+    """Commit the visible Player 2 editor only after focusing and verifying exact Source text."""
     result: dict[str, Any] = {
         "stage": "player2_range_validation_recovery",
         "status": "not_started",
@@ -478,15 +580,33 @@ def _commit_verified_player2_editor_after_prompt(
         "test_range_preserved": True,
         "manual_close_required": False,
     }
-    edits = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
-    result["visible_source_edit_count"] = len(edits)
-    if len(edits) != 1:
-        result["status"] = "stopped_no_unique_player2_source_edit"
-        result["note"] = "No unique visible Source Edit was found after the Player 2 message; no text or Done action was sent."
-        result["manual_close_required"] = bool(edits)
+    source = _focus_and_read_player2_source_field(
+        user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+        target_hwnd, target_pid, output_dir, stem, actions, all_captures,
+        label + "_focus",
+    )
+    result["source_field_focus_and_read"] = source
+    result["source_field_probe_status"] = source.get("source_field_probe_status")
+    result["visible_source_edit_count"] = (
+        1 if source.get("source_edit_identity_verified") else 0
+    )
+    edit_hwnd = int(source.get("edit_hwnd") or 0)
+    result["source_text_readback"] = source.get("source_text_readback")
+    result["source_text_accepted"] = bool(source.get("source_text_accepted"))
+    if (
+        not source.get("source_edit_identity_verified")
+        or not result["source_text_accepted"]
+        or not edit_hwnd
+        or not source.get("window_position_restore_verified", True)
+    ):
+        result["status"] = "stopped_player2_source_not_exactly_verified"
+        result["note"] = (
+            "The Player 2 Source field was not uniquely identified with the exact known test text. "
+            "No text was changed and Done was not clicked."
+        )
+        result["manual_close_required"] = True
         return result
-    edit_hwnd, edit_rect = edits[0]
-    edit_hwnd = int(edit_hwnd)
+
     host_hwnd = probe._top_level_ancestor(user32, target_hwnd)
     if (
         not user32.IsWindow(probe.wintypes.HWND(edit_hwnd))
@@ -500,12 +620,12 @@ def _commit_verified_player2_editor_after_prompt(
         result["status"] = "stopped_source_edit_identity_unverified"
         result["manual_close_required"] = True
         return result
+
+    # Re-read immediately before Done; never trust the earlier screenshot alone.
     source_text = probe._read_native_edit_text(user32, edit_hwnd)
-    result["source_text_readback"] = source_text
-    result["source_text_accepted"] = source_text in set(_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS)
-    if not result["source_text_accepted"]:
-        result["status"] = "stopped_unrecognized_player2_source_text_preserved"
-        result["note"] = "Source was not the exact AA+AKs:40% test value; no Done, Clear, or keyboard action was sent."
+    result["source_text_readback_before_done"] = source_text
+    if source_text not in set(_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS):
+        result["status"] = "stopped_unrecognized_source_changed_before_done"
         result["manual_close_required"] = True
         return result
 
@@ -528,9 +648,7 @@ def _commit_verified_player2_editor_after_prompt(
         time.sleep(0.45)
         remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
     result["done_native_retry"] = retry
-    result["editor_closed_verified"] = not remaining
     result["remaining_source_edits"] = len(remaining)
-    result["test_range_preserved"] = True
     if not remaining:
         closed_windows = _capture_related_windows(
             user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
@@ -548,8 +666,11 @@ def _commit_verified_player2_editor_after_prompt(
         result["post_done_editor_difference"] = _bmp_region_difference_ratio(
             before_path, closed_path, _RANGE_EDITOR_VERIFY_ROI
         )
+        remaining_after_capture = probe._batch_visible_source_edits(
+            user32, RECT, target_hwnd
+        )
         result["editor_closed_verified"] = bool(
-            not probe._batch_visible_source_edits(user32, RECT, target_hwnd)
+            not remaining_after_capture
             and result["ip_matrix_matches_pre_build_tree"]
             and result["post_done_editor_difference"]["ratio"] <= 0.01
         )
@@ -560,9 +681,10 @@ def _commit_verified_player2_editor_after_prompt(
     )
     result["manual_close_required"] = not result["editor_closed_verified"]
     result["note"] = (
-        "The exact known AA+AKs:40% Player 2 Source value was confirmed and Done was sent once."
+        "The Player 2 Source field was focused, read back as the exact AA+AKs:40% test value, "
+        "and Done was sent once. The IP matrix still matches its pre-Build-Tree test state."
         if result["editor_closed_verified"]
-        else "The exact test Source value was confirmed, but the editor remained visible after Done."
+        else "The exact test Source value was confirmed, but Done/closure or the retained IP matrix could not be verified."
     )
     return result
 
