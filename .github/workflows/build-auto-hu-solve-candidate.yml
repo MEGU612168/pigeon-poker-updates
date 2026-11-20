@@ -134,6 +134,33 @@ jobs:
                       break
               if not error_replaced and new_error not in main:
                   raise SystemExit("Could not update the weighted multi-hand diagnostic failure message")
+              q = chr(34)
+              legacy_aa_validation = "\n".join([
+                  "                if success:",
+                  "                    try:",
+                  "                        with zipfile.ZipFile(report, " + q + "r" + q + ") as report_zip:",
+                  "                            report_json_name = next((name for name in report_zip.namelist() if name.endswith(" + q + ".json" + q + ")), None)",
+                  "                            if report_json_name is None:",
+                  "                                success = False",
+                  "                            else:",
+                  "                                report_json = json.loads(report_zip.read(report_json_name).decode(" + q + "utf-8" + q + "))",
+                  "                                report_safety = report_json.get(" + q + "safety" + q + ", {})",
+                  "                                success = bool(report_safety.get(" + q + "oop_aa_only_matrix_reflection_verified" + q + ") and report_safety.get(" + q + "oop_test_range_restored" + q + ") and not report_safety.get(" + q + "manual_close_required" + q + "))",
+                  "                                if not success:",
+                  "                                    detail += " + q + " [AA可逆テスト] OOPのAA反映・復元確認に未達です。診断JSONと画像を確認してください。" + q,
+                  "                    except Exception as exc:",
+                  "                        success = False",
+                  "                        detail += " + q + " [AA可逆テスト] 診断JSONの確認に失敗: " + q + "+str(exc)",
+              ])
+              if legacy_aa_validation in main:
+                  main = main.replace(legacy_aa_validation, "", 1)
+              elif "oop_aa_only_matrix_reflection_verified" in main:
+                  raise SystemExit("Found a stale AA-only gate in an unexpected form")
+              if "oop_aa_only_matrix_reflection_verified" in main:
+                  raise SystemExit("Stale AA-only gate remains after cleanup")
+              final_gate = 'success = bool(report_safety.get("oop_expected_matrix_cells_reflection_verified") and report_safety.get("oop_restore_source_text_accepted") and report_safety.get("oop_test_range_restored") and report_safety.get("oop_weight_display_capture_saved") and not report_safety.get("manual_close_required"))'
+              if main.count(final_gate) != 1:
+                  raise SystemExit("Expected exactly one OOP multi-hand success gate")
               target=root/"pigeon_gto_plus"/"live_range_builder.py"
               ui_target=root/"pigeon_gto_plus"/"auto_solve_ui.py"
               target.write_text(module,encoding="utf-8",newline="\n")
@@ -158,7 +185,7 @@ jobs:
               shutil.copy2(ui_target,out/"auto_solve_ui.py")
               shutil.copy2(probe_target,out/"ui_probe.py")
               shutil.copy2(preflop_target,out/"preflop_screenshot_ranges.py")
-              (out/"VERSION.txt").write_text("1.3.57\n",encoding="ascii")
+              (out/"VERSION.txt").write_text("1.3.58\n",encoding="ascii")
               print("Patched app queue: range reconstruction result will be attached to every unknown HU request.")
           PY
       - name: Test source and actual embedded chart compatibility
@@ -177,6 +204,9 @@ jobs:
           assert "oop_expected_matrix_cells_reflection_verified" in main
           assert "oop_restore_source_text_accepted" in main
           assert "oop_weight_display_capture_saved" in main
+          assert "oop_aa_only_matrix_reflection_verified" not in main
+          assert "AA可逆テスト" not in main
+          assert main.count('success = bool(report_safety.get("oop_expected_matrix_cells_reflection_verified") and report_safety.get("oop_restore_source_text_accepted") and report_safety.get("oop_test_range_restored") and report_safety.get("oop_weight_display_capture_saved") and not report_safety.get("manual_close_required"))') == 1
           assert '"test_range": "AA,AKs:0.4"' in ui_source
           assert '"test_range_partial_weight": 0.4' in ui_source
           assert "_matrix_signature_matches_selected_cells" in ui_source
@@ -351,7 +381,7 @@ jobs:
           python - <<'PY'
           import pathlib,zipfile,hashlib
           root=pathlib.Path("staging/auto_hu_solve_candidate")
-          out=pathlib.Path("staging/auto_hu_solve_v1.3.57.zip")
+          out=pathlib.Path("staging/auto_hu_solve_v1.3.58.zip")
           with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED,compresslevel=9) as z:
               z.write(root/"PigeonPoker.pyw","PigeonPoker.pyw")
               z.write(root/"pigeon_updater.py","pigeon_updater.py")
@@ -364,30 +394,30 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: auto-hu-solve-v1.3.57
-          path: staging/auto_hu_solve_v1.3.57.zip
+          name: auto-hu-solve-v1.3.58
+          path: staging/auto_hu_solve_v1.3.58.zip
 
-      - name: Queue the verified v1.3.57 stable release (main branch only)
+      - name: Queue the verified v1.3.58 stable release (main branch only)
         if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import base64, datetime, hashlib, io, json, pathlib, zipfile
-          payload_path = pathlib.Path("staging/auto_hu_solve_v1.3.57.zip")
+          payload_path = pathlib.Path("staging/auto_hu_solve_v1.3.58.zip")
           payload = payload_path.read_bytes()
           with zipfile.ZipFile(io.BytesIO(payload)) as z:
               if z.testzip() is not None:
-                  raise SystemExit("v1.3.57 update ZIP integrity failed")
+                  raise SystemExit("v1.3.58 update ZIP integrity failed")
               required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
                           "pigeon_gto_plus/live_range_builder.py",
                           "pigeon_gto_plus/auto_solve_ui.py",
                           "pigeon_gto_plus/ui_probe.py",
                           "pigeon_poker/preflop_screenshot_ranges.py"}
               if not required.issubset(set(z.namelist())):
-                  raise SystemExit("v1.3.57 update ZIP is missing required files")
-              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.57":
-                  raise SystemExit("v1.3.57 VERSION.txt mismatch")
+                  raise SystemExit("v1.3.58 update ZIP is missing required files")
+              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.58":
+                  raise SystemExit("v1.3.58 VERSION.txt mismatch")
               import ast
               ast.parse(z.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
               ast.parse(z.read("pigeon_gto_plus/live_range_builder.py").decode("utf-8"),
@@ -398,7 +428,7 @@ jobs:
                         filename="pigeon_gto_plus/ui_probe.py")
               ast.parse(z.read("pigeon_poker/preflop_screenshot_ranges.py").decode("utf-8"),
                         filename="pigeon_poker/preflop_screenshot_ranges.py")
-          release = pathlib.Path("releases/v1.3.57")
+          release = pathlib.Path("releases/v1.3.58")
           release.mkdir(parents=True, exist_ok=True)
           for old in release.glob("payload.part-*"):
               old.unlink()
@@ -413,17 +443,17 @@ jobs:
               "schema_version": 1,
               "product": "pigeon-poker",
               "channel": "stable",
-              "version": "1.3.57",
+              "version": "1.3.58",
               "published_at": datetime.datetime.now(datetime.timezone.utc).isoformat(
                   timespec="seconds").replace("+00:00", "Z"),
-              "release_notes": "OOPの2セル判定を各セルの2x2内側画素のRGB最大値で評価。GTO+が40%のAKsに描画する細い青いマーカーを検出し、AA+AKsだけの反映確認後にClear＋完了で復元。想定外テキストは変更せず停止。Build Tree・Solver実行なし。",
+              "release_notes": "複数ハンド可逆テストの実機成功判定を1回に統一。旧AA単独テストの二重判定を削除し、AA+AKs:40%の2セル反映・Source正規化・完全復元を確認。40%の細い青マーカーは2x2画素で検出。Build Tree・Solver実行なし。",
               "package_mode": "full"
           }
           (release/"release.json").write_text(
               json.dumps(metadata, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
           (release/"payload.parts.json").write_text(
               json.dumps({"parts": names}, indent=2) + chr(10), encoding="utf-8")
-          (release/"payload.ready").write_text("verified v1.3.57" + chr(10), encoding="ascii")
+          (release/"payload.ready").write_text("verified v1.3.58" + chr(10), encoding="ascii")
           # Publish stable.json here; GITHUB_TOKEN pushes do not trigger a second workflow.
           with zipfile.ZipFile(io.BytesIO(payload)) as z:
               zip_names = set(z.namelist())
@@ -437,7 +467,7 @@ jobs:
                       raise SystemExit("Non-allow-listed update file: " + name)
               if not allowed_roots.issubset(zip_names):
                   raise SystemExit("Missing required root update files")
-              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.57":
+              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.58":
                   raise SystemExit("Update VERSION mismatch")
           (release/"payload-updater.zip.b64").write_text(
               base64.b64encode(payload).decode("ascii"), encoding="ascii")
@@ -445,25 +475,25 @@ jobs:
               "schema_version": 1,
               "product": "pigeon-poker",
               "channel": "stable",
-              "version": "1.3.57",
+              "version": "1.3.58",
               "published_at": metadata["published_at"],
               "release_notes": metadata["release_notes"],
               "package_mode": "full",
               "payload_encoding": "base64",
-              "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.57/payload-updater.zip.b64",
+              "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.58/payload-updater.zip.b64",
               "payload_sha256": hashlib.sha256(payload).hexdigest(),
               "payload_size": len(payload),
           }
           pathlib.Path("stable.json").write_text(
               json.dumps(manifest, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
           print(json.dumps({
-              "version": "1.3.57", "payload_size": len(payload),
+              "version": "1.3.58", "payload_size": len(payload),
               "payload_sha256": manifest["payload_sha256"],
               "part_count": len(names), "zip_files": sorted(zip_names)
           }, ensure_ascii=False))
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stable.json releases/v1.3.57/
-          git commit -m "Queue verified Pigeon Poker v1.3.57 release"
+          git add stable.json releases/v1.3.58/
+          git commit -m "Queue verified Pigeon Poker v1.3.58 release"
           git push
