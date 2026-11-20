@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.83",
+  "published_at": "2026-11-20T11:32:30Z",
+  "package_mode": "full",
+  "release_notes": "GTO+ WORKSPACEをGTO+ ENGINEページのメイン領域いっぱいに拡大。旧ページ見出しと固定右320px列を撤去し、右側のCONNECTION/AUTOMATIC TREE ANALYSIS/STRATEGY CACHE等を右端スライド式オーバーレイドロワーへ移動。初期状態は格納。右端の左矢印で開き、右矢印で閉じる。展開時はGTO+ WORKSPACEの上へ重ねるだけで、workspace/viewport/HWNDの寸法を変更しない。GTO+の全体比率1320:676を維持し、約80%基準サイズを上限として表示領域内に配置。更新確認は起動時と30分ごとの自動確認のみ。最新版と確認失敗時は更新ボタン無効、更新がある場合だけUPDATE NOWを有効化。v1.3.82の権限復旧・PID引継ぎ・自動起動/接続とv1.3.69のレンジ本体を維持。",
+  "payload_sha256": "d7c7f1e0916eb458a950375beaa5cfbb227f35f66c4f7184cd785b543c81164e",
+  "payload_size": 223811,
+  "source_version": "1.3.82",
+  "gto_workspace_uses_full_page": true,
+  "gto_controls_drawer_default": "collapsed",
+  "gto_controls_overlay_width": 400,
+  "drawer_toggle_resizes_workspace": false,
+  "gto_reference_size": [
+    1320,
+    676
+  ],
+  "gto_reference_scale_cap": 1.0,
+  "automatic_update_check_on_startup": true,
+  "automatic_update_check_interval_minutes": 30,
+  "up_to_date_update_button_disabled": true,
+  "manual_check_buttons_removed": true,
+  "range_baseline": "1.3.69",
+  "gto_permission_recovery": "preserved from v1.3.81/v1.3.82",
+  "automatic_gto_lifecycle": true,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/preflop_screenshot_ranges.py",
+    "pigeon_updater.py"
+  ]
+}
