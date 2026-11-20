@@ -1,0 +1,1 @@
+Build v1.3.74: keep v1.3.69-identical HU/preflop range logic; open GTO+ Engine at app startup so auto-launch and auto-connect run on a mapped host.
