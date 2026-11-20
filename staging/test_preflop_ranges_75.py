@@ -292,7 +292,7 @@ def test_opponent_ranges_follow_the_observed_action_line():
     hand.events.append({'type':'action','street':'preflop','player_id':'p3','action':'raise','target':2000})
     hand.players[3].stack=8000
     hand.players[3].total_contribution=2000
-    estimate=module.estimate_preflop_opponent_ranges(FakeTable(),hand,exclude_player_id='hero')
+    estimate=module.estimate_preflop_opponent_ranges(FakeTable(),hand)
     assert estimate['supported'] is True
     utg=estimate['players']['p3']
     hj=estimate['players']['p4']
@@ -361,6 +361,39 @@ def test_six_seat_table_requires_six_dealt_players():
     estimate=module.estimate_preflop_opponent_ranges(FakeTable(),hand)
     assert estimate['supported'] is False
     assert estimate['reason']=='requires_six_player_100bb_table'
+
+
+
+def test_opponent_ranges_remove_known_hero_and_board_blockers():
+    node=module._data()['nodes_by_id']['21_UTG_VS_HJ_3BET']
+    hand=FakeHand(node,'AA')
+    hand.events.append({'type':'action','street':'preflop','player_id':'p3','action':'raise','target':2000})
+    hand.players[3].stack=8000
+    hand.players[3].total_contribution=2000
+    hand.board=('Q♠',)
+    hero_id=hand.actor_id
+    estimate=module.estimate_preflop_opponent_ranges(FakeTable(),hand,exclude_player_id=hero_id)
+    assert estimate['supported'] is True
+    assert set(estimate['blocker_cards'])=={'Ah','As','Qs'}
+    assert estimate['available_combos']==1176
+    assert hero_id not in estimate['players']
+    opponent=estimate['players']['p4']
+    assert opponent['supported'] is True
+    assert opponent['available_combos']==1176
+    assert abs(sum(opponent['hand_class_probabilities'].values())-1.0)<1e-9
+    assert module._available_combos_for_class('AA',{('A','s'),('A','h'),('Q','s')})==1
+    assert module._available_combos_for_class('AQs',{('A','s'),('A','h'),('Q','s')})==2
+    assert module._available_combos_for_class('AQo',{('A','s'),('A','h'),('Q','s')})==4
+    assert module._available_combos_for_class('AKs',{('A','s'),('A','h')})==2
+    assert module._available_combos_for_class('AKo',{('A','s'),('A','h')})==6
+
+
+def test_opponent_ranges_require_valid_known_blocker_cards():
+    node=module._data()['nodes_by_id']['21_UTG_VS_HJ_3BET']
+    hand=FakeHand(node,'AA')
+    estimate=module.estimate_preflop_opponent_ranges(FakeTable(),hand,exclude_player_id='not-a-player')
+    assert estimate['supported'] is False
+    assert estimate['reason']=='known_blocker_cards_unavailable_or_invalid'
 
 
 def test_hand_class_parsing():
