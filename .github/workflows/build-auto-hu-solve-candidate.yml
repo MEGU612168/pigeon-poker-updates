@@ -135,23 +135,34 @@ jobs:
               if not error_replaced and new_error not in main:
                   raise SystemExit("Could not update the weighted multi-hand diagnostic failure message")
               final_gate = 'success = bool(report_safety.get("oop_expected_matrix_cells_reflection_verified") and report_safety.get("oop_restore_source_text_accepted") and report_safety.get("oop_test_range_restored") and report_safety.get("oop_weight_display_capture_saved") and not report_safety.get("manual_close_required"))'
+              legacy_aa_key = "oop_aa_only_matrix_reflection_verified"
+              if legacy_aa_key in main:
+                  legacy_pos = main.index(legacy_aa_key)
+                  legacy_start = main.rfind("                if success:", 0, legacy_pos)
+                  legacy_end = main.find("                self.after(0, lambda: finish(success, report, detail, completed.returncode))", legacy_pos)
+                  if legacy_start < 0 or legacy_end < 0:
+                      raise SystemExit("Could not bound the legacy AA-only report-validation block")
+                  legacy_block = main[legacy_start:legacy_end]
+                  if legacy_block.count(legacy_aa_key) != 1 or "report_safety.get(" not in legacy_block:
+                      raise SystemExit("Legacy AA key was not inside the expected report-validation block")
+                  main = main[:legacy_start] + main[legacy_end:]
               gate_count = main.count(final_gate)
               if gate_count == 2:
                   gate_positions = [i for i in range(len(main)) if main.startswith(final_gate, i)]
                   duplicate_start = main.rfind("                if success:", 0, gate_positions[1])
                   duplicate_end = main.find("                self.after(0, lambda: finish(success, report, detail, completed.returncode))", gate_positions[1])
                   if duplicate_start < 0 or duplicate_end < 0:
-                      raise SystemExit("Could not bound the duplicate second report-validation block")
+                      raise SystemExit("Could not bound a duplicate multi-hand report-validation block")
                   duplicate_block = main[duplicate_start:duplicate_end]
                   if duplicate_block.count(final_gate) != 1 or "report_safety.get(" not in duplicate_block:
-                      raise SystemExit("Second report-validation block was not the expected duplicate")
+                      raise SystemExit("Second validation block was not the expected duplicate")
                   main = main[:duplicate_start] + main[duplicate_end:]
               elif gate_count != 1:
-                  raise SystemExit("Expected one or two multi-hand validators before deduplication; found "+str(gate_count))
-              if main.count(final_gate) != 1:
-                  raise SystemExit("Exactly one multi-hand success gate must remain")
+                  raise SystemExit("Expected one or two multi-hand validators after removing legacy AA block; found "+str(gate_count))
               main = main.replace("[AA可逆テスト]", "[OOP複数ハンド可逆テスト]")
-              if "oop_aa_only_matrix_reflection_verified" in main or "[AA可逆テスト]" in main:
+              if main.count(final_gate) != 1:
+                  raise SystemExit("Exactly one OOP multi-hand success gate must remain")
+              if legacy_aa_key in main or "[AA可逆テスト]" in main:
                   raise SystemExit("Legacy AA-only success criteria or messages remain")
               target=root/"pigeon_gto_plus"/"live_range_builder.py"
               ui_target=root/"pigeon_gto_plus"/"auto_solve_ui.py"
