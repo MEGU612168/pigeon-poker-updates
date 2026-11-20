@@ -33,6 +33,8 @@ class ScreenshotRangeDecision:
     node_id: str = ""
     hand_class: str = ""
     action_frequency: float = 0.0
+    policy_penalty: int = 0
+    guardrail_reason: str = ""
 
 
 @lru_cache(maxsize=1)
@@ -312,8 +314,9 @@ def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
                 if actual_amount is None:
                     matched = False
                     break
-                tolerance = 0.75 if expected_item["action"] == "allin" else 0.06
-                if abs(actual_amount - float(expected_amount)) > tolerance:
+                if not _history_size_matches(
+                    actual_amount, expected_amount, int(hand.big_blind), expected_item["action"]
+                ):
                     matched = False
                     break
         if matched:
@@ -353,8 +356,9 @@ def _node_for_historical_action(table: Any, hand: Any, positions: dict[str, str]
             expected_amount = expected.get("amount_bb")
             if expected_amount is not None:
                 actual_amount = _event_target_bb(event, hand, pid)
-                tolerance = 0.75 if expected["action"] == "allin" else 0.06
-                if actual_amount is None or abs(actual_amount - float(expected_amount)) > tolerance:
+                if actual_amount is None or not _history_size_matches(
+                    actual_amount, expected_amount, int(hand.big_blind), expected["action"]
+                ):
                     matched = False
                     break
         if matched:
@@ -382,8 +386,9 @@ def _action_mass_for_observation(node: dict[str, Any], action: str,
                 target = item.get("amount_bb")
                 if target is None:
                     continue
-                tolerance = 0.75 if action == "allin" else 0.06
-                if abs(float(target) - float(observed_target)) > tolerance:
+                if not _history_size_matches(
+                    observed_target, target, int(getattr(hand, "big_blind", 0) or 0), action
+                ):
                     continue
             weight += max(0.0, float(item.get("frequency", 0.0)))
         if weight > 0.0:
@@ -538,6 +543,70 @@ def _bb_target_to_cents(amount_bb: Any, big_blind_cents: int) -> int:
     return int(amount.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
+def _history_size_matches(actual_amount_bb: float, expected_amount_bb: float,
+                          big_blind_cents: int, action: str) -> bool:
+    """Match observed history to the immutable chart with a 5% size tolerance.
+
+    This tolerance is only for recognizing an opponent's historical action.
+    It never changes the chart's stored frequencies or the CPU's fixed BB target.
+    All-in matching retains its existing wider 0.75 BB tolerance.
+    """
+    try:
+        blind = int(big_blind_cents)
+        actual_bb = Decimal(str(actual_amount_bb))
+        expected_bb = Decimal(str(expected_amount_bb))
+        if blind <= 0 or not actual_bb.is_finite() or not expected_bb.is_finite():
+            return False
+        if action == "allin":
+            return abs(actual_bb - expected_bb) <= Decimal("0.75")
+        expected_cents = Decimal(_bb_target_to_cents(expected_bb, blind))
+        actual_cents = actual_bb * Decimal(blind)
+        tolerance_cents = max(Decimal("0.5"), abs(expected_cents) * Decimal("0.05"))
+        return abs(actual_cents - expected_cents) <= tolerance_cents
+    except (TypeError, ValueError, ArithmeticError, OverflowError):
+        return False
+
+
+def _guardrail_preflop_decision(hand: Any, actor_id: str, cpu: Any,
+                                reason: str) -> ScreenshotRangeDecision | None:
+    """Never stop or use a legacy untrained action when chart history is unmatched."""
+    legal = _legal_actions(hand, str(actor_id))
+    legal_names = {
+        str(value).lower().replace("-", "_"): str(value).lower()
+        for value in legal.get("actions", ())
+    }
+    # A free check is preferred; facing a wager, fold is safer than inventing
+    # a call/raise line. Call is only a last resort when it is the sole passive
+    # legal action. No off-chart bet, raise or shove is ever generated here.
+    if "check" in legal_names:
+        action = legal_names["check"]
+    elif "fold" in legal_names:
+        action = legal_names["fold"]
+    elif "call" in legal_names:
+        action = legal_names["call"]
+    else:
+        return None
+
+    try:
+        previous = max(0, int(getattr(cpu, "_preflop_policy_penalty", 0) or 0))
+    except (TypeError, ValueError, OverflowError):
+        previous = 0
+    penalty = min(100000, previous + 100)
+    try:
+        setattr(cpu, "_preflop_policy_penalty", penalty)
+    except Exception:
+        pass
+    try:
+        hand_class = hand_class_from_cards(getattr(hand.player(actor_id), "hole_cards", ())) or ""
+    except Exception:
+        hand_class = ""
+    return ScreenshotRangeDecision(
+        action=action, amount=None, source="preflop-guardrail",
+        node_id="", hand_class=hand_class, action_frequency=0.0,
+        policy_penalty=penalty, guardrail_reason=str(reason)[:160],
+    )
+
+
 def _clamp_raise_target(desired: int, legal: dict[str, Any]) -> int | None:
     """Accept the fixed chart target unchanged; never resize it to fit."""
     try:
@@ -668,10 +737,20 @@ def _choose_preflop_action_from_chart(table: Any, hand: Any, actor_id: str, cpu:
 
 def choose_preflop_action(table: Any, hand: Any, actor_id: str, cpu: Any,
                           fallback_decision: Any = None) -> ScreenshotRangeDecision | None:
-    """Execute only the supplied screenshot chart; never consult legacy CPU policy."""
+    """Use the fixed screenshot chart; on a miss, keep playing under strict guardrails."""
     if str(getattr(hand, "street", "")).lower() != "preflop":
         return None
-    return _choose_preflop_action_from_chart(table, hand, actor_id, cpu, None)
+    try:
+        decision = _choose_preflop_action_from_chart(table, hand, actor_id, cpu, None)
+        if decision is not None:
+            return decision
+        return _guardrail_preflop_decision(
+            hand, actor_id, cpu, "history_not_covered_by_fixed_75_node_chart"
+        )
+    except Exception as exc:
+        return _guardrail_preflop_decision(
+            hand, actor_id, cpu, "chart_lookup_error:" + type(exc).__name__
+        )
 
 
 
