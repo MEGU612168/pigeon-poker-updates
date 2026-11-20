@@ -1,1 +1,1 @@
-Extract stable v1.3.75 source including the root pigeon_updater.py module so the update failure can be diagnosed.
+Extract stable v1.3.76 for post-publication source review: verify full-width GTO host, automatic launch/connect, managed PID shutdown, no GTO+ elevation prompt, and exact v1.3.69 range blobs.
