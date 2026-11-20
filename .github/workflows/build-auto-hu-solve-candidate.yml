@@ -251,7 +251,9 @@ jobs:
           assert 'label="close_board_selector"' in ui_source
           assert "_BOARD_CLOSE_CENTER" in ui_source
           assert "manual_close_required = (not oop_closed_ok" in ui_source
-          assert "or not ip_closed_ok" in ui_source
+          assert "ip_roundtrip_ok = bool(" in ui_source
+          assert "continue_after_oop = ip_roundtrip_ok" in ui_source
+          assert '"done_button_clicked_for_ip_multi_range_test"' in ui_source
           assert "_temporary_source_field_window_adjustment" in ui_source
           assert "_source_field_occlusion_shift" in ui_source
           assert '"probe": "verified_gto_plus_oop_ip_multi_hand_ak_s40_weighted_commit_roundtrip_v17_partial_marker_sampling"' in ui_source
