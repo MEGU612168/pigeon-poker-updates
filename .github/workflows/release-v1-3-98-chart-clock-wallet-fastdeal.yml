@@ -601,9 +601,9 @@ jobs:
                               self.cash_status_var.set("CPU TIMEOUT • ACTION RECOVERY ERROR")
                           self._refresh_table_windows()
           '''
-          timeout_handler = "\\n".join(
+          timeout_handler = "\n".join(
               ("        " + line) if line else ""
-              for line in timeout_handler.split("\\n")
+              for line in timeout_handler.split("\n")
           )
           main = rep(
               main,
