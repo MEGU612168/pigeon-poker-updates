@@ -36,14 +36,15 @@ class PokerDecisionMetrics:
 
 def _event_action(event: dict[str, Any]) -> str:
     raw = str(event.get("action", "")).strip().lower().replace("-", "_").replace(" ", "_")
+    # A short all-in call is still a call, not a raise/shove for range purposes.
+    if raw in {"call", "called", "all_in_call", "allin_call", "call_all_in"}:
+        return "call"
     if event.get("is_all_in") or event.get("all_in") or event.get("jam"):
         return "allin"
     if raw in {"allin", "all_in", "jam", "shove"}:
         return "allin"
     if raw in {"raise", "bet", "raise_to", "bet_to"}:
         return "raise"
-    if raw in {"call", "called", "all_in_call"}:
-        return "call"
     if raw in {"fold", "folded"}:
         return "fold"
     return raw
