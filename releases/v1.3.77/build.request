@@ -1,1 +1,1 @@
-Retry v1.3.77 with geometry methods found by stable prefixes; validate fixed outer layout, 665x570 inner fit, startup update availability and disabled current-state button.
+Retry v1.3.77 with the auto-check scheduled only in the constructor; run source syntax, geometry, range baseline and updater checks.
