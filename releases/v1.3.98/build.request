@@ -2,3 +2,4 @@ Build Stable v1.3.98: human preflop uses exact chart-fixed BB sizes (FOLD/CALL/C
 Validation loader fix: register the dynamically loaded chart module in sys.modules before executing dataclass definitions.
 Retry build after fixing Python assertion quoting.
 Retry after adjusting the v1.3.97 already-shortened reveal pause anchor.
+Retry with robust GTO CPU timer hook insertion.
