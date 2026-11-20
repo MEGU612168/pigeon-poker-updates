@@ -105,12 +105,12 @@ jobs:
               raise SystemExit("Unexpected duplicate GTO elevation recovery helper.")
 
           # Preserve Pigeon-owned process handoff state.
-          constructor_state = (
-              "        self.gto_owned_process_pid: int | None = None\\n"
-              "        self._gto_auto_start_started = False\\n"
-              "        self._gto_auto_connect_busy = False\\n"
-          )
-          constructor_state_replacement = constructor_state + "        self._gto_handoff_in_progress = False\\n"
+          constructor_state = chr(10).join([
+              "        self.gto_owned_process_pid: int | None = None",
+              "        self._gto_auto_start_started = False",
+              "        self._gto_auto_connect_busy = False",
+          ])
+          constructor_state_replacement = constructor_state + chr(10) + "        self._gto_handoff_in_progress = False"
           main = replace_once(
               main, constructor_state, constructor_state_replacement,
               "GTO process handoff state",
