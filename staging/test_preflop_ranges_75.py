@@ -220,12 +220,77 @@ def test_100bb_stack_gate_and_folded_short_stack():
     hand.players[4].stack=6000
     assert not module._supports_100bb_effective_stack(hand)
     assert module._node_for_actor(FakeTable(),hand,hand.actor_id) is None
-    # A folded short stack is irrelevant to the current pot's effective depth.
+    # A folded short stack still influenced the line; it must invalidate the 100BB chart.
     hand=FakeHand(node,'AA')
     hand.players[1].eligible=False
     hand.players[1].stack=0
     hand.players[1].total_contribution=2000
-    assert module._supports_100bb_effective_stack(hand)
+    assert not module._supports_100bb_effective_stack(hand)
+    assert module._node_for_actor(FakeTable(),hand,hand.actor_id) is None
+
+def test_opponent_ranges_follow_the_observed_action_line():
+    node=module._data()['nodes_by_id']['21_UTG_VS_HJ_3BET']
+    hand=FakeHand(node,'AA')
+    # UTG's 4-bet is the final observed decision at node 21.
+    hand.events.append({'type':'action','street':'preflop','player_id':'p3','action':'raise','target':2000})
+    hand.players[3].stack=8000
+    hand.players[3].total_contribution=2000
+    estimate=module.estimate_preflop_opponent_ranges(FakeTable(),hand,exclude_player_id='hero')
+    assert estimate['supported'] is True
+    utg=estimate['players']['p3']
+    hj=estimate['players']['p4']
+    assert utg['supported'] and utg['node_id']=='21_UTG_VS_HJ_3BET' and utg['action']=='raise'
+    assert hj['supported'] and hj['node_id']=='06_HJ_VS_UTG' and hj['action']=='raise'
+    assert abs(sum(utg['hand_class_probabilities'].values())-1.0)<1e-9
+    assert abs(sum(hj['hand_class_probabilities'].values())-1.0)<1e-9
+    # The mass in each posterior must be proportional to physical combos in that class.
+    raw=node['hands']
+    weighted={}
+    total=0.0
+    for combo,actions in raw.items():
+        f=sum(a['frequency'] for a in actions if a['action']=='raise' and abs(float(a['amount_bb'])-20.0)<0.01)
+        if f>0:
+            multiplicity=6 if len(combo)==2 else (4 if combo.endswith('s') else 12)
+            weighted[combo]=f*multiplicity
+            total += f*multiplicity
+    expected={combo:value/total for combo,value in weighted.items()}
+    assert set(expected)==set(utg['hand_class_probabilities'])
+    for combo in expected:
+        assert abs(expected[combo]-utg['hand_class_probabilities'][combo])<1e-9
+
+
+def test_opponent_ranges_fail_closed_after_unsupported_call_branch():
+    node=module._data()['nodes_by_id']['06_HJ_VS_UTG']
+    hand=FakeHand(node,'AA')
+    # HJ calls UTG's open; a later CO decision after this call is not in the screenshots.
+    hand.events.append({'type':'action','street':'preflop','player_id':'p4','action':'call'})
+    hand.events.append({'type':'action','street':'preflop','player_id':'p5','action':'raise','target':800})
+    hand.players[5].stack=9200
+    hand.players[5].total_contribution=800
+    estimate=module.estimate_preflop_opponent_ranges(FakeTable(),hand)
+    assert estimate['players']['p4']['supported'] is True
+    assert estimate['players']['p4']['node_id']=='06_HJ_VS_UTG'
+    assert estimate['players']['p5']['supported'] is False
+    assert estimate['players']['p5']['reason']=='unsupported_preflop_history'
+
+
+def test_action_weights_reproduce_all_75_screenshot_totals():
+    data=module._data()
+    combo_count=lambda combo: 6 if len(combo)==2 else (4 if combo.endswith('s') else 12)
+    assert len(data['nodes'])==75
+    for node in data['nodes']:
+        observed={}
+        for combo,actions in node['hands'].items():
+            for item in actions:
+                label=item['label']
+                observed[label]=observed.get(label,0.0)+float(item['frequency'])*combo_count(combo)
+        total=sum(observed.values())
+        targets=node['target_action_frequencies_pct']
+        assert abs(sum(targets.values())-100.0)<=0.11, (node['id'],sum(targets.values()))
+        for label,target_pct in targets.items():
+            actual_pct=(observed.get(label,0.0)/total*100.0) if total else 0.0
+            assert abs(actual_pct-float(target_pct))<=0.15, (node['id'],label,target_pct,actual_pct)
+
 
 def test_hand_class_parsing():
     assert module.hand_class_from_cards(('A♠','A♥'))=='AA'
