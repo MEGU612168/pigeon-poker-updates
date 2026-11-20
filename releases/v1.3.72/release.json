@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.72",
+  "published_at": "2026-11-20T08:02:34Z",
+  "package_mode": "full",
+  "release_notes": "GTO+ WORKSPACEを665:570の縦横比のまま表示枠内へ均等にフィットし、中央配置。右端を含む画面全体を切り取らず表示し、幅・高さの広い側へ引き伸ばさない。自動診断のクリック座標・許可矩形・Source欄・Board・画像ROI・13x13判定も実クライアント倍率へ補正。v1.3.71のGTO+自動起動・自動接続・Pigeon終了時の所有PID限定終了を維持。",
+  "payload_sha256": "58f5d2a456d13a93f3167c91959a4d3def8713271fc759f5581464ab469ccbed",
+  "payload_size": 223610,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/preflop_screenshot_ranges.py",
+    "pigeon_updater.py"
+  ],
+  "source_version": "1.3.71",
+  "responsive_gto_workspace": true,
+  "automatic_gto_lifecycle": true
+}
