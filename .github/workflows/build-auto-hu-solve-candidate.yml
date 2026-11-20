@@ -367,8 +367,8 @@ jobs:
           assert "report_safety.get(\"manual_close_required\")" in main
           assert main.count("success = bool(report_safety.get(\"oop_expected_matrix_cells_reflection_verified\") and report_safety.get(\"oop_restore_source_text_accepted\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and report_safety.get(\"ip_expected_matrix_cells_reflection_verified\") and report_safety.get(\"ip_restore_source_text_accepted\") and report_safety.get(\"ip_test_range_restored\") and report_safety.get(\"ip_weight_display_capture_saved\") and report_safety.get(\"board_test_cards_reflection_verified\") and report_safety.get(\"board_test_restored\") and report_safety.get(\"build_tree_dialog_opened\") and report_safety.get(\"build_tree_dialog_closed_verified\") and report_safety.get(\"build_tree_probe_inputs_restored\") and not report_safety.get(\"build_tree_probe_may_remain_configured\") and not report_safety.get(\"manual_close_required\"))") == 1
 
-          assert '"test_range": "AA,AKs:0.4"' in ui_source
-          assert '"test_range_partial_weight": 0.4' in ui_source
+          assert '"oop_test_range_text": "AA,AKs:0.4"' in ui_source
+          assert '"oop_test_range_partial_weight": 0.4' in ui_source
           assert "_matrix_signature_matches_selected_cells" in ui_source
           assert '_GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS = (' in ui_source
           assert 'expected_test_source_texts = set(report["expected_gto_plus_source_texts"])' in ui_source
