@@ -682,9 +682,17 @@ def _choose_range_aware_action_impl(
     guardrail_penalty = min(
         1000, max(0, int(getattr(cpu, "_range_guardrail_penalty", 0) or 0))
     )
+    expected_opponents = sum(
+        max(0.0, min(1.0, float(opponent.participation_probability)))
+        for opponent in ranges.values()
+    )
     uncertainty = (
-        sum(1.0 - opponent.confidence for opponent in ranges.values()) / max(1, len(ranges))
-        if ranges else 0.0
+        sum(
+            max(0.0, min(1.0, float(opponent.participation_probability)))
+            * (1.0 - opponent.confidence)
+            for opponent in ranges.values()
+        ) / max(1e-9, expected_opponents)
+        if expected_opponents > 0 else 0.0
     )
     uncertainty_margin = min(
         0.20, uncertainty * 0.11 + guardrail_penalty / 1000.0 * 0.12
@@ -703,10 +711,11 @@ def _choose_range_aware_action_impl(
     if street == "preflop":
         # Require stronger equity when multiple players still have cards and
         # when the opponent ranges are uncertain.
-        active_count = len(ranges)
+        # Unacted seats contribute according to their conditional entry
+        # probability, not as certain extra opponents.
         required_call = min(
             0.99, required_call + margin + uncertainty_margin
-            + max(0, active_count - 1) * 0.018
+            + max(0.0, expected_opponents - 1.0) * 0.018
         )
         decision_name = "multiway preflop range decision"
     else:
