@@ -2636,13 +2636,13 @@ class PigeonPokerApp(tk.Tk):
                         else:
                             fallback_decision = choose_range_aware_action(
                                 table, hand, pid, cpu,
-                                range_estimator=estimate_preflop_opponent_ranges,
+                                range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(\n                                    **kwargs, opponent_profiles=profiles\n                                ),
                             )
                     elif not (session is not None and session.hand_token == id(hand) and session.context is not None):
                         # The same opponent-range engine handles postflop decisions.
                         fallback_decision = choose_range_aware_action(
                             table, hand, pid, cpu,
-                            range_estimator=estimate_preflop_opponent_ranges,
+                            range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(\n                                    **kwargs, opponent_profiles=profiles\n                                ),
                         )
                     if hand.street == "preflop":
                         if fallback_decision is not None and fallback_decision.action == "fold":
@@ -2743,7 +2743,7 @@ class PigeonPokerApp(tk.Tk):
                             # Never fall back to the old random-equity CPU.
                             decision = choose_range_aware_action(
                                 table, hand, pid, cpu,
-                                range_estimator=estimate_preflop_opponent_ranges,
+                                range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(\n                                    **kwargs, opponent_profiles=profiles\n                                ),
                             )
                         if cancel_event.is_set():
                             break
