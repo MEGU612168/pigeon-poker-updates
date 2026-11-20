@@ -1,0 +1,235 @@
+name: Release Pigeon Poker v1.3.105 updater package repair
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.105/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify all application tests and updater's exact package contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
+          python -m py_compile staging/source_1_3_101/pigeon_updater.py
+          python staging/test_updater_package_requirements.py
+          python staging/test_preflop_user_actions.py
+          python staging/test_postflop_controls.py
+          python staging/test_sound_volume_settings.py
+          cp staging/source_1_3_101/pigeon_poker/preflop_screenshot_ranges.py staging/preflop_screenshot_ranges_75.py
+          python staging/test_preflop_ranges_75.py
+          python staging/test_poker_reasoning.py
+
+      - name: Rebuild full updater-compatible Stable v1.3.105 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import importlib.util
+          import io
+          import json
+          import pathlib
+          import shutil
+          import subprocess
+          import sys
+          import tempfile
+          import time
+          import zipfile
+
+          REPO = "MEGU612168/pigeon-poker-updates"
+          SOURCE_VERSION = "1.3.104"
+          TARGET_VERSION = "1.3.105"
+
+          current_manifest = json.loads(pathlib.Path("stable.json").read_text(encoding="utf-8"))
+          if current_manifest.get("version") != SOURCE_VERSION:
+              raise SystemExit(
+                  f"Expected Stable {SOURCE_VERSION}; found {current_manifest.get('version')}"
+              )
+
+          source = pathlib.Path("staging/source_1_3_101")
+          app_path = source / "PigeonPoker.pyw"
+          updater_path = source / "pigeon_updater.py"
+          if not app_path.is_file() or not updater_path.is_file():
+              raise SystemExit("The application or its matching updater source is missing.")
+          app_bytes = app_path.read_bytes()
+          updater_bytes = updater_path.read_bytes()
+          ast.parse(app_bytes.decode("utf-8"), filename="PigeonPoker.pyw")
+          ast.parse(updater_bytes.decode("utf-8"), filename="pigeon_updater.py")
+
+          app_source = app_bytes.decode("utf-8")
+          for required in (
+              "YOUR TURN • PREFLOP RAISE SIZE FIXED",
+              "_fixed_preflop_raise_target",
+              "legal = hand.legal_actions(\"hero\")",
+              "効果音音量 / EFFECT VOLUME",
+              "_preview_master_sound_volume",
+          ):
+              if required not in app_source:
+                  raise SystemExit("Required application behavior missing: " + required)
+
+          files = {
+              "PigeonPoker.pyw": app_bytes,
+              "pigeon_updater.py": updater_bytes,
+              "VERSION.txt": (TARGET_VERSION + "\n").encode("ascii"),
+          }
+          output = io.BytesIO()
+          with zipfile.ZipFile(
+              output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+          ) as archive:
+              for name in sorted(files):
+                  archive.writestr(name, files[name])
+          payload = output.getvalue()
+          digest = hashlib.sha256(payload).hexdigest()
+
+          # Validate this exact ZIP using the same function used by the
+          # currently installed updater before publishing it.
+          spec = importlib.util.spec_from_file_location(
+              "pigeon_updater_release_validation", updater_path
+          )
+          if spec is None or spec.loader is None:
+              raise SystemExit("Could not load the shipped updater for validation.")
+          updater = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = updater
+          spec.loader.exec_module(updater)
+          validator_manifest = {
+              "version": TARGET_VERSION,
+              "payload_size": len(payload),
+              "payload_sha256": digest,
+              "package_mode": "full",
+          }
+          with tempfile.TemporaryDirectory() as tmp:
+              extracted = updater._validate_and_extract(
+                  payload, validator_manifest, pathlib.Path(tmp) / "staging"
+              )
+          if set(extracted) != set(files):
+              raise SystemExit("The updater extracted a different file set.")
+
+          with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Final package CRC failure.")
+              if set(archive.namelist()) != set(files):
+                  raise SystemExit("Unexpected archive members.")
+              for name, expected in files.items():
+                  if archive.read(name) != expected:
+                      raise SystemExit("Package content mismatch: " + name)
+
+          encoded = base64.b64encode(payload).decode("ascii")
+          release_dir = pathlib.Path("releases") / ("v" + TARGET_VERSION)
+          release_dir.mkdir(parents=True, exist_ok=True)
+          (release_dir / "payload-updater.zip.b64").write_text(encoded, encoding="ascii")
+          (release_dir / "payload.part-000").write_text(encoded, encoding="ascii")
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": ["payload.part-000"]}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          notes = (
+              "プリフロップのユーザー操作制限を撤廃。手番ではエンジン上合法なFOLD、"
+              "CHECK/CALL、RAISE、ALL-INをチャート頻度に関係なく選択可能に変更。"
+              "固定するのはプリフロップのRAISE金額だけで、対象チャートに金額がある場合は"
+              "そのBBサイズを使い、チャート未対応時も操作を止めず合法な最小レイズ額を使用。"
+              "アクションの頻度・選択自体はユーザーに強制しない。ポストフロップは従来どおり"
+              "金額入力・スライダー・ポット割合プリセットを自由に使用可能。"
+              "Settingsの効果音音量・%表示・試聴・自動保存も維持。"
+              "プリフロップ75局面・12,675行・頻度・固定BBサイズ表は変更なし。"
+              "配信前に実際の更新プログラムでZIP展開検証。"
+          )
+          release = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "package_mode": "full",
+              "release_notes": notes,
+              "payload_sha256": digest,
+              "payload_size": len(payload),
+              "source_version": SOURCE_VERSION,
+              "files": sorted(files),
+              "updater_contract_validated_with_installed_code": True,
+              "updater_required_root_files": sorted(files),
+              "updater_actual_extract_validation": "passed",
+              "hero_preflop_actions_unrestricted": True,
+              "preflop_fold_call_raise_allin_actions_available_when_legal": True,
+              "preflop_raise_amount_fixed_only": True,
+              "preflop_chart_frequencies_do_not_gate_hero_actions": True,
+              "uncovered_preflop_lines_remain_playable": True,
+              "postflop_controls_restored": True,
+              "sound_master_volume_slider": True,
+              "sound_master_volume_percent_display": True,
+              "sound_master_volume_preview": True,
+              "sound_master_and_group_volumes_auto_saved": True,
+              "preflop_75_node_policy_immutable": True,
+              "preflop_12675_hand_rows_immutable": True,
+              "preflop_chart_frequencies_immutable": True,
+              "preflop_chart_bb_sizes_immutable": True,
+              "sound_volume_ui_regression_tests": "passed",
+              "postflop_ui_regression_tests": "passed",
+              "preflop_regression_tests": "passed",
+              "range_reasoning_regression_tests": "passed",
+              "preflop_user_action_freedom_tests": "passed",
+              "package_ast_sha_crc": "passed",
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(release, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "release_notes": notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": (
+                  f"https://raw.githubusercontent.com/{REPO}/main/releases/v{TARGET_VERSION}/"
+                  f"payload-updater.zip.b64?v={digest}"
+              ),
+              "payload_sha256": digest,
+              "payload_size": len(payload),
+          }
+          pathlib.Path("stable.json").write_text(
+              json.dumps(stable, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          (release_dir / "build.request").unlink(missing_ok=True)
+          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
+          subprocess.run(
+              ["git", "config", "user.email", "41898282+users.noreply.github.com"],
+              check=True,
+          )
+          subprocess.run(["git", "add", "stable.json", str(release_dir)], check=True)
+          subprocess.run(
+              ["git", "commit", "-m", "Release Pigeon Poker v1.3.105 updater repair"],
+              check=True,
+          )
+          subprocess.run(["git", "push"], check=True)
+          print(json.dumps({
+              "version": TARGET_VERSION,
+              "files": sorted(files),
+              "payload_sha256": digest,
+              "updater_actual_validator": "passed",
+              "hero_preflop_actions_unrestricted": True,
+              "preflop_raise_amount_fixed_only": True,
+              "preflop_chart_modified": False,
+              "postflop_controls_preserved": True,
+              "effect_volume_settings_preserved": True,
+          }, ensure_ascii=False, indent=2))
+          PY
