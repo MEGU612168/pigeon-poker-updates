@@ -180,7 +180,7 @@ jobs:
                   ("未知HU局面の自動Solve設定を診断（OOP AA可逆テスト）",
                    "未知HU局面の自動Solve設定を診断（OOP/IP/Board/Build Tree/Player2入力復旧）"),
                   ("OOPレンジが空の場合のみAAを一時確定してマトリクス反映を確認し、Clear＋完了で元に戻します。空でない場合は変更せず停止。Board/Pot/Stack/Rake・Tree・Solverは操作しません。",
-                   GTO+ワークスペースを縦横比665:570のまま表示枠へ均等に拡大・縮小し、中央配置。自動診断のクリック座標・Source欄・Board・画像ROI・マトリクス照合も実クライアント倍率に合わせて変換。OOP/IPレンジとBoard欄が空の場合のみテスト値を一時投入し、Player2入力要求の復旧・全テスト設定の復元を検証します。Pot/Stack/Rake変更・Tree確定・Solver実行はしません。),
+                    "GTO+ワークスペースを縦横比665:570のまま表示枠へ均等に拡大・縮小し、中央配置。自動診断のクリック座標・Source欄・Board・画像ROI・マトリクス照合も実クライアント倍率に合わせて変換。OOP/IPレンジとBoard欄が空の場合のみテスト値を一時投入し、Player2入力要求の復旧・全テスト設定の復元を検証します。Pot/Stack/Rake変更・Tree確定・Solver実行はしません。"),
                   ("未知局面Solve用のGTO+入力を可逆テスト中…（OOP AAを一時確定して復元）",
                    "GTO+ワークスペース倍率・クリック座標・画像ROIを検査し、Player2入力要求とテスト設定の復元を確認中…"),
                   ("GTO+画面診断完了（OOP AAの反映・復元を確認。Tree/Solver未実行）",
