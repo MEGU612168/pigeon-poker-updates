@@ -1303,7 +1303,10 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             stages.append(build_tree_dialog_probe)
 
         # Never edit setup values while an unclosed Build Tree/modal dialog is visible.
-        if build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_closed_verified"):
+        if build_tree_dialog_probe and (
+            build_tree_dialog_probe.get("dialog_closed_verified")
+            or build_tree_dialog_probe.get("safe_to_cleanup")
+        ):
             if (
                 board_build_tree_setup
                 and board_build_tree_setup.get("board_test_temporarily_committed")
@@ -1325,6 +1328,12 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                     }
                     stages.append(board_build_tree_cleanup)
             if (
+                build_tree_dialog_probe
+                and build_tree_dialog_probe.get("player2_validation_cleanup_restored_ip")
+            ):
+                ip_build_tree_cleanup = build_tree_dialog_probe.get("player2_validation_cleanup")
+                stages.append(ip_build_tree_cleanup)
+            elif (
                 ip_build_tree_range
                 and ip_build_tree_range.get("range_committed_temporarily")
                 and ip_build_tree_range.get("editor_closed_after_commit")
@@ -1383,7 +1392,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         )
         dialog_not_closed = bool(
             build_tree_dialog_probe
-            and build_tree_dialog_probe.get("build_tree_clicked")
+            and build_tree_dialog_probe.get("dialog_opened")
             and not build_tree_dialog_probe.get("dialog_closed_verified")
         )
         build_tree_sequence["manual_close_required"] = bool(cleanup_failed or dialog_not_closed)
@@ -1429,9 +1438,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     all_captures = unique_captures
 
     report = {
-        "schema_version": 20,
+        "schema_version": 21,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_ip_board_and_build_tree_dialog_roundtrip_v20",
+        "probe": "verified_gto_plus_oop_ip_board_build_tree_player2_recovery_roundtrip_v21",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -1486,6 +1495,10 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                 build_tree_sequence.get("test_setup_committed")
                 and not build_tree_sequence.get("all_test_inputs_restored")
             ),
+            "build_tree_player2_validation_seen": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_range_validation_seen")),
+            "build_tree_player2_validation_recovered": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_range_validation_recovered")),
+            "build_tree_player2_range_cleanup_restored": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_validation_cleanup_restored_ip")),
+            "build_tree_probe_safe_to_cleanup": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("safe_to_cleanup")),
             "temporary_window_position_restore_required": True,
         },
         "coordinate_reference": {
@@ -1518,6 +1531,10 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "build_tree_probe_sequence_status": build_tree_sequence.get("status"),
             "build_tree_dialog_popup_windows": build_tree_dialog_probe.get("popup_windows", []) if build_tree_dialog_probe else [],
             "build_tree_dialog_native_controls": build_tree_dialog_probe.get("dialog_controls_main", []) if build_tree_dialog_probe else [],
+            "build_tree_player2_validation_seen": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_range_validation_seen")),
+            "build_tree_player2_validation_recovered": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_range_validation_recovered")),
+            "build_tree_player2_range_cleanup_restored": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_validation_cleanup_restored_ip")),
+            "build_tree_probe_safe_to_cleanup": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("safe_to_cleanup")),
             "build_tree_button_rect": list(_BUILD_TREE_RECT),
             "build_tree_button_center": list(_BUILD_TREE_CENTER),
             "visual_verification_roi": list(_DIALOG_ROI),
@@ -1592,7 +1609,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "The OOP and IP Source Edits are each tested with a temporary AA+AKs:40% multi-hand range. Exactly two matrix cells must change in the relevant 13x13 mini-matrix, GTO+ normalized Source text must match the exact allowlist, and Clear plus Done must restore the exact baseline signature.",
             "The OOP/IP range editor is dismissed with its measured X button; when the overlay remains, one direct WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP retry is sent only to the verified GTO drawing view and visually rechecked.",
             "The Board selector is tested with three measured rank/suit buttons (As, Kd, 7c), Done commits the temporary flop, then Clear plus Done must restore the original empty Board field. If the starting Board field is not empty, no card selection or Clear action is sent.",
-            "After the initial reversible range and Board tests pass, the exact AA+AKs:40% OOP/IP test ranges and As/Kd/7c Board are committed a second time only to inspect the Build Tree setup dialog. The dialog is closed without confirming a tree build; guarded exact-text/matrix/Board-image cleanup then restores the initial empty state. Pot/Stack/Rake are not changed and Solver is not run.",
+            "After the initial reversible range and Board tests pass, the exact AA+AKs:40% OOP/IP test ranges and As/Kd/7c Board are committed a second time only to inspect the Build Tree setup dialog. A GTO+ Program message requesting Player 2 range is distinguished from the real setup dialog. Only an exact known Player 2 test Source value may be confirmed or cleared; all other values are preserved. Guarded Source/matrix/Board cleanup then restores the initial empty state. Pot/Stack/Rake are not changed and Solver is not run.",
             "Escape is sent only when the detected selector belongs to the exact GTO process and that process owns keyboard focus.",
         ],
     }
@@ -1638,6 +1655,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"Board cards reflected in main field: {bool(board_roundtrip and board_roundtrip.get('board_cards_reflection_verified'))}",
         f"Board original empty field restored: {bool(board_roundtrip and board_roundtrip.get('board_test_restored'))}",
         f"Build Tree dialog: {build_tree_dialog_probe.get('status') if build_tree_dialog_probe else 'not_attempted'}",
+        f"Build Tree Player 2 validation message: {bool(build_tree_dialog_probe and build_tree_dialog_probe.get('player2_range_validation_seen'))}",
+        f"Build Tree Player 2 recovery: {bool(build_tree_dialog_probe and build_tree_dialog_probe.get('player2_range_validation_recovered'))}",
+        f"Build Tree Player 2 test range restored: {bool(build_tree_dialog_probe and build_tree_dialog_probe.get('player2_validation_cleanup_restored_ip'))}",
         f"Build Tree dialog opened: {bool(build_tree_dialog_probe and build_tree_dialog_probe.get('dialog_opened'))}",
         f"Build Tree dialog closed: {bool(build_tree_dialog_probe and build_tree_dialog_probe.get('dialog_closed_verified'))}",
         f"Build Tree probe OOP range restored: {bool(build_tree_sequence.get('oop_test_range_restored'))}",
