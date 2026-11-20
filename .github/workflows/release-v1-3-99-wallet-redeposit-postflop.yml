@@ -452,7 +452,7 @@ jobs:
               "tk.Scale(",
               "self.bet_pot_percentages",
               "BET TO",
-              "cpu_action_timer_jobs",
+              "cash_cpu_timeout",
               "action_seconds_for_street(hand.street)",
               "progress=min(1.0,job[\"frame\"]/2.0)",
               'self.after(1, lambda tid=table_id: self._deal_animation_frame(tid))',
@@ -488,7 +488,7 @@ jobs:
               assert "AVAILABLE TO DEPOSIT" in packaged_main
               assert "self._redeposit_available_funds(amount)" in packaged_main
               assert "self.bet_pot_percentages" in packaged_main
-              assert "same action-clock timeout as HERO" in packaged_main
+              assert "cash_cpu_timeout" in packaged_main
 
           digest = hashlib.sha256(final_payload).hexdigest()
           final_encoded = base64.b64encode(final_payload).decode("ascii")
