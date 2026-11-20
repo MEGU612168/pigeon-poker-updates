@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.69",
-  "published_at": "2026-11-20T06:28:43Z",
-  "release_notes": "Build Tree押下後のGTO+「プレイヤー2のレンジを入力してください」Program messageを識別。OK後に表示されたPlayer2レンジ編集画面でSource欄をクリックし、ネイティブEditを生成・特定してからSource文字列を読み取るよう修正。PID/クラス/ID/所有関係と既知のAA+AKs:40%テスト値を再確認できた場合のみDoneで再試行。再度拒否された場合も同じフォーカス・特定手順を経て既知テスト値だけClearし、IP/OOP/Boardを復元。Source欄を特定できない場合は手動対応フラグを立て、後続のClearを止める。Tree確定・Solver実行なし。",
+  "version": "1.3.71",
+  "published_at": "2026-11-20T07:39:57Z",
+  "release_notes": "v1.3.69の機能内容を維持した再パッケージ版。機能ファイルはv1.3.69の検証済みパッケージからバイト単位で引き継ぎ、VERSION.txtのみ1.3.71へ更新。v1.3.70からの更新判定を通すための版数更新。GTO+ Player2レンジSourceフォーカス対応を含む。v1.3.70のレスポンシブWORKSPACE変更は含まない。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.69/payload-updater.zip.b64",
-  "payload_sha256": "670186e8afe48c1e583db216c6ed36e44d724de0d920875113ebe15bdb0f1e89",
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.71/payload-updater.zip.b64",
+  "payload_sha256": "81f5bf109f028a30afb32f7e8d72cc7bd005c8704b79e8d3f6be1d96203b0f7c",
   "payload_size": 221684
 }
