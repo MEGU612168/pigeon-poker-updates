@@ -526,7 +526,7 @@ def _sample_action(choices: list[tuple[str, int | None, float]], rng: Any):
     return choices[-1]
 
 
-def choose_preflop_action(table: Any, hand: Any, actor_id: str, cpu: Any,
+def _choose_preflop_action_from_chart(table: Any, hand: Any, actor_id: str, cpu: Any,
                           fallback_decision: Any = None) -> ScreenshotRangeDecision | Any | None:
     """Choose from the 75 screenshot nodes; unsupported trees use the legacy CPU."""
     if str(getattr(hand, "street", "")).lower() != "preflop":
@@ -565,6 +565,50 @@ def choose_preflop_action(table: Any, hand: Any, actor_id: str, cpu: Any,
         )
     except (AttributeError, KeyError, TypeError, ValueError, RuntimeError, OverflowError):
         return None
+
+
+
+
+def choose_preflop_action(table: Any, hand: Any, actor_id: str, cpu: Any,
+                          fallback_decision: Any = None) -> ScreenshotRangeDecision | Any | None:
+    """Use a chart action when covered; never inherit an unmodelled preflop call.
+
+    The 75 screenshot nodes contain no limp or multiway calling ranges. The
+    legacy CPU may still provide folds, raises and checks for unsupported spots,
+    but an unsupported/legacy CALL is not evidence-based and is blocked.
+    Calls explicitly selected by a matched screenshot node remain untouched.
+    """
+    decision = _choose_preflop_action_from_chart(
+        table, hand, actor_id, cpu, fallback_decision
+    )
+    if str(getattr(hand, "street", "")).lower() != "preflop":
+        return decision
+
+    # The chart's own CALL is allowed. A legacy decision returned because the
+    # node was unsupported or the CPU level deviated is not chart-authorized.
+    if decision is not None and getattr(decision, "source", "") == "screenshot-range":
+        return decision
+
+    candidate = decision if decision is not None else fallback_decision
+    if candidate is None or str(getattr(candidate, "action", "")).lower() != "call":
+        return candidate
+
+    legal = _legal_actions(hand, str(actor_id))
+    legal_names = {
+        str(value).lower().replace("-", "_")
+        for value in legal.get("actions", ())
+    }
+    # With nothing to call, BB may check. Otherwise fold rather than invent a
+    # limp, overlimp, or unsupported multiway flat-call range.
+    safe_action = "check" if "check" in legal_names else "fold"
+    return ScreenshotRangeDecision(
+        action=safe_action,
+        amount=None,
+        source="preflop-no-range-call-blocked",
+        node_id="",
+        hand_class="",
+        action_frequency=0.0,
+    )
 
 
 def coverage_summary() -> dict[str, Any]:
