@@ -1,1 +1,1 @@
-Re-extract and verify the final stable v1.3.71 package after rebuilding with GTO+ automatic lifecycle source writeback.
+Verify final stable v1.3.71 source using the digest-keyed payload URL; confirm auto GTO+ startup, connection, and shutdown code is present.
