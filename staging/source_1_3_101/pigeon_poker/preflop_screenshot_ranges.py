@@ -447,9 +447,11 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
     if positions is None:
         return {"supported": False, "reason": "seat_positions_unavailable", "players": {}}
     blocker_result = _known_public_blockers(hand, exclude_player_id)
-    if blocker_result is None:
+    public_blocker_result = _known_public_blockers(hand, None)
+    if blocker_result is None or public_blocker_result is None:
         return {"supported": False, "reason": "known_blocker_cards_unavailable_or_invalid", "players": {}}
     blockers, blocker_labels = blocker_result
+    public_blockers, _public_blocker_labels = public_blocker_result
     remaining_cards = 52 - len(blockers)
     available_combos = remaining_cards * (remaining_cards - 1) // 2
     if available_combos <= 0:
@@ -488,6 +490,8 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
         else:
             masses, total_mass = _action_mass_for_observation(
                 node, action, event, hand, actor_id, blockers=blockers)
+            unblocked_masses, unblocked_total_mass = _action_mass_for_observation(
+                node, action, event, hand, actor_id, blockers=public_blockers)
             if total_mass <= 0.0:
                 latest[actor_id] = {
                     "supported": False,
@@ -498,6 +502,11 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
                 }
             else:
                 probabilities = {combo: mass / total_mass for combo, mass in masses.items()}
+                unblocked_probabilities = (
+                    {combo: mass / unblocked_total_mass
+                     for combo, mass in unblocked_masses.items()}
+                    if unblocked_total_mass > 0.0 else probabilities
+                )
                 latest[actor_id] = {
                     "supported": True,
                     "position": positions[actor_id],
@@ -505,10 +514,12 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
                     "node_id": node["id"],
                     "source_image": node.get("source_image", ""),
                     "combo_mass": total_mass,
+                    "combo_mass_without_hero_blockers": unblocked_total_mass,
                     "available_combos": available_combos,
                     "range_percent_of_available_combos": total_mass / available_combos * 100.0,
                     "hand_class_probabilities": probabilities,
-                    "method": "screenshot-derived per-combo weights adjusted for known hero/public-card blockers; uniform within each 169-class bucket",
+                    "unblocked_hand_class_probabilities": unblocked_probabilities,
+                    "method": "screenshot-derived action weights with exact public-card and hero-card removal; unblocked weights retained for blocker diagnostics",
                 }
         prior_events.append(event)
 
