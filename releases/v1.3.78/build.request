@@ -1,1 +1,0 @@
-Retry v1.3.78 after removing private launch helper name from the structural check; preserve 1.3.77 lifecycle unchanged.

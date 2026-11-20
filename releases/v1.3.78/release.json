@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.78",
+  "published_at": "2026-11-20T09:13:45Z",
+  "package_mode": "full",
+  "release_notes": "Pigeonの外側のGTO+ WORKSPACE枠・左右パネル配置は一切変更しない。元のGTO+画面スクリーンショット1320x676を正しい基準比率として使用し、GTO+のネイティブウィンドウだけを固定枠内に均等縮小。GTO+自身のWM_SIZEに応じた内部ズーム機能を利用し、レンジ一覧・マトリクス・操作UIを同じ倍率で縮小表示。サイズ変更後250ms/900msに再同期してネイティブズーム後の寸法を安定化。v1.3.77の自動起動・自動ソケット設定・自動接続・所有PID終了・更新なしボタン無効化を維持。v1.3.69のHU/プリフロップレンジ本体はバイト単位で維持。",
+  "payload_sha256": "44770652595288b0d1adfbeb45871a06676949094f4117376044e1596ce8b90f",
+  "payload_size": 215419,
+  "source_version": "1.3.77",
+  "range_baseline": "1.3.69",
+  "gto_native_reference_size": [
+    1320,
+    676
+  ],
+  "fixed_outer_workspace_frame": true,
+  "native_gto_zoom_on_resize": true,
+  "uniform_inner_fit": true,
+  "automatic_gto_lifecycle": true,
+  "update_button_disabled_when_current": true,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/preflop_screenshot_ranges.py",
+    "pigeon_updater.py"
+  ]
+}
