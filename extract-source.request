@@ -1,1 +1,1 @@
-Extract and verify stable v1.3.39 source to confirm CPU preflop range integration.
+Extract and verify stable v1.3.64 full Python source to continue automated HU GTO+ setup. Include pigeon_gto_plus and PigeonPoker.pyw.
