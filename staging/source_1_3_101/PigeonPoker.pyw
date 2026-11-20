@@ -2496,7 +2496,8 @@ class PigeonPokerApp(tk.Tk):
         profiles = dict(self.cash_cpu_profiles)
         vip_roles = dict(slot_state.get("vip_cpu_roles", self.vip_cpu_roles))
         active_mode = normalize_table_mode(slot_state.get("cash_game_mode", self.cash_game_mode))
-        existing_session = self.cash_gto_session if session_ready else None
+        # GTO+ live CPU execution has been removed; always use the local range policy.
+        existing_session = None
         timing_rng = self.cash_random
         cancel_event = threading.Event()
         self.cash_cpu_cancel_events[table_id] = cancel_event
@@ -2662,6 +2663,7 @@ class PigeonPokerApp(tk.Tk):
                     event_amount = None
                     gto_used = False
                     chart_used = False
+                    range_policy_used = False
 
                     if session is not None and session.hand_token == id(hand) and session.context is not None:
                         try:
@@ -2724,7 +2726,13 @@ class PigeonPokerApp(tk.Tk):
                         }))
                         return
                     if not gto_used:
-                        decision = fallback_decision or cpu.choose_action(hand, pid)
+                        decision = fallback_decision
+                        if decision is None:
+                            # Never fall back to the old random-equity CPU.
+                            decision = choose_range_aware_action(
+                                table, hand, pid, cpu,
+                                range_estimator=estimate_preflop_opponent_ranges,
+                            )
                         if cancel_event.is_set():
                             break
                         with turn_lock:
@@ -2736,7 +2744,9 @@ class PigeonPokerApp(tk.Tk):
                         event_action = str(decision.action)
                         event_amount = decision.amount
                         chart_used = getattr(decision, "source", "") == "screenshot-range"
-                        range_policy_used = getattr(decision, "source", "") == "range-aware-policy"
+                        range_policy_used = getattr(decision, "source", "") in {
+                            "range-aware-policy", "range-aware-guardrail"
+                        }
                         if chart_used:
                             line = (
                                 f"{actor_name}: {decision.action.upper()}"
@@ -2769,7 +2779,8 @@ class PigeonPokerApp(tk.Tk):
                             self.store.record_cpu_decision(
                                 fallback_key,
                                 "preflop_screenshot_range" if chart_used else (
-                                    "range_aware_policy" if range_policy_used else "fallback_unsupported"
+                                    "range_aware_guardrail" if getattr(decision, "source", "") == "range-aware-guardrail"
+                                else "range_aware_policy" if range_policy_used else "fallback_unsupported"
                                 ),
                                 event_action,
                                 table_id=str(table_id or ""),
@@ -2790,6 +2801,7 @@ class PigeonPokerApp(tk.Tk):
                         "gto_used": gto_used,
                         "strategy_source": (
                             "screenshot-preflop-range" if chart_used else
+                            "range-aware-guardrail" if getattr(fallback_decision, "source", "") == "range-aware-guardrail" else
                             "range-aware-policy" if range_policy_used else
                             ("gtoplus" if gto_used else "local-fallback")
                         ),
