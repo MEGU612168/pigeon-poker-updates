@@ -1,0 +1,10 @@
+{
+  "parts": [
+    "payload.part-000",
+    "payload.part-001",
+    "payload.part-002",
+    "payload.part-003",
+    "payload.part-004",
+    "payload.part-005"
+  ]
+}

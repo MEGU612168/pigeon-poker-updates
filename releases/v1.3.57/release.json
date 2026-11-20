@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.57",
+  "published_at": "2026-11-20T02:43:31Z",
+  "release_notes": "OOPの2セル判定を各セルの2x2内側画素のRGB最大値で評価。GTO+が40%のAKsに描画する細い青いマーカーを検出し、AA+AKsだけの反映確認後にClear＋完了で復元。想定外テキストは変更せず停止。Build Tree・Solver実行なし。",
+  "package_mode": "full"
+}
