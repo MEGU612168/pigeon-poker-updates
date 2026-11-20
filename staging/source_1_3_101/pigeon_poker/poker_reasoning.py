@@ -424,6 +424,21 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
             participation = {0: 0.42, 1: 0.29, 2: 0.17, 3: 0.10}.get(
                 min(3, raises_seen), 0.07
             )
+            previous_raise = next(
+                (event for event in reversed(all_preflop_events)
+                 if _event_action(event) in {"raise", "allin"}),
+                None,
+            )
+            if previous_raise is not None:
+                target_bb = max(
+                    0.0,
+                    float(previous_raise.get("target", previous_raise.get("paid", 0)) or 0)
+                    / max(1, int(getattr(hand, "big_blind", 1) or 1)),
+                )
+                anchors = (2.3, 7.5, 17.0, 28.0)
+                anchor = anchors[min(3, max(0, raises_seen - 1))]
+                size_factor = max(0.55, min(1.0, anchor / max(1.0, target_bb)))
+                participation *= size_factor
         ranges[pid] = OpponentRange(
             pid, normalised, source, confidence, participation
         )
