@@ -2741,37 +2741,29 @@ class PigeonPokerApp(tk.Tk):
                         event_action = str(decision.action)
                         event_amount = decision.amount
                         chart_used = getattr(decision, "source", "") == "screenshot-range"
-                        guardrail_used = getattr(decision, "source", "") == "preflop-guardrail"
+                        range_policy_used = getattr(decision, "source", "") == "range-aware-policy"
                         if chart_used:
                             line = (
                                 f"{actor_name}: {decision.action.upper()}"
                                 + (f" ${decision.amount/100:.2f}" if decision.amount is not None else "")
-                                + f" [image range {decision.node_id}/{decision.hand_class} • {decision.action_frequency*100:.1f}%]"
+                                + f" [fixed chart {decision.node_id}/{decision.hand_class} • {decision.action_frequency*100:.1f}%]"
                             )
-                            source_status = f"Screenshot-derived preflop range • {decision.node_id}"
-                        elif guardrail_used:
+                            source_status = f"Immutable screenshot chart • {decision.node_id}"
+                        elif range_policy_used:
+                            equity_pct = 100.0 * float(decision.equity_estimate or 0.0)
                             line = (
                                 f"{actor_name}: {decision.action.upper()}"
-                                + (" $" + f"{decision.amount/100:.2f}" if decision.amount is not None else "")
-                                + f" [PRE-FLOP GUARDRAIL • penalty {getattr(decision, 'policy_penalty', 100)}]"
+                                + (f" ${decision.amount/100:.2f}" if decision.amount is not None else "")
+                                + f" [range-aware • equity {equity_pct:.1f}%]"
                             )
-                            source_status = (
-                                "Preflop history outside fixed chart • safe action only • "
-                                f"cumulative penalty {getattr(decision, 'policy_penalty', 100)}"
-                            )
+                            source_status = str(getattr(decision, "note", "Range-aware decision"))
                         else:
                             line = (
                                 f"{actor_name}: {decision.action.upper()}"
                                 + (f" ${decision.amount/100:.2f}" if decision.amount is not None else "")
                                 + f" [fallback, equity≈{decision.equity_estimate:.0%}]"
                             )
-                            source_status = (
-                                "VIP role specification only • level-5 local fallback (not exact GTO)"
-                                if is_vip_mode(active_mode) else
-                                "Pool fallback policy • GTO+ unsupported here (preflop/multiway)"
-                                if not gto_supported else
-                                "Pool fallback policy • GTO+ exact match unavailable for this spot"
-                            )
+                            source_status = "Legacy fallback policy (not solver-exact)"
                         decisions.append(line)
                         action_label = self._describe_action(actor_name, decision.action, decision.amount, hand.big_blind)
                         try:
@@ -2782,7 +2774,7 @@ class PigeonPokerApp(tk.Tk):
                             self.store.record_cpu_decision(
                                 fallback_key,
                                 "preflop_screenshot_range" if chart_used else (
-                                    "preflop_guardrail_penalty" if guardrail_used else "fallback_unsupported"
+                                    "range_aware_policy" if range_policy_used else "fallback_unsupported"
                                 ),
                                 event_action,
                                 table_id=str(table_id or ""),
@@ -2792,8 +2784,8 @@ class PigeonPokerApp(tk.Tk):
                                     "range_node": getattr(decision, "node_id", ""),
                                     "range_hand": getattr(decision, "hand_class", ""),
                                     "range_frequency": getattr(decision, "action_frequency", None),
-                                    "preflop_policy_penalty": getattr(decision, "policy_penalty", None),
-                                    "guardrail_reason": getattr(decision, "guardrail_reason", "")})
+                                    "equity_estimate": getattr(decision, "equity_estimate", None),
+                                    "decision_note": getattr(decision, "note", "")})
                         except Exception:
                             pass
 
@@ -2803,8 +2795,8 @@ class PigeonPokerApp(tk.Tk):
                         "gto_used": gto_used,
                         "strategy_source": (
                             "screenshot-preflop-range" if chart_used else
-                            "preflop-guardrail-penalty" if getattr(fallback_decision, "source", "") == "preflop-guardrail"
-                            else ("gtoplus" if gto_used else "local-fallback")
+                            "range-aware-policy" if range_policy_used else
+                            ("gtoplus" if gto_used else "local-fallback")
                         ),
                         "street": hand.street, "pot": hand.pot,
                         "board_changed": len(hand.board) > len(old_board),
