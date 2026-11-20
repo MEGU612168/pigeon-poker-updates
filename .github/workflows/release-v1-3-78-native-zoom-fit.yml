@@ -207,7 +207,7 @@ jobs:
               'text="UPDATE NOW"',
               'self.after(350, self._auto_start_gto_plus)',
               "self.integration.enable_socket_connection()",
-              "launch_and_dock(",
+              "def _launch_gto(self, automatic: bool = False):",
               '["taskkill", "/PID", str(self.gto_owned_pid), "/T", "/F"]',
           )
           for item in required_main:
