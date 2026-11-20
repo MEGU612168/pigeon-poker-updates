@@ -19,8 +19,9 @@ jobs:
           python staging/test_preflop_ranges_75.py
           python - <<'PY'
           import importlib.util
+          import sys
           spec = importlib.util.spec_from_file_location("chart", "staging/preflop_screenshot_ranges_75.py")
-          m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+          m = importlib.util.module_from_spec(spec); sys.modules[spec.name] = m; spec.loader.exec_module(m)
           d = m._data()
           assert len(d["nodes"]) == 75
           assert sum(len(n["hands"]) for n in d["nodes"]) == 12675
