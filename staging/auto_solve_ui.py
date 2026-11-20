@@ -9,6 +9,7 @@ against the baseline screenshot before the next click is allowed.
 from __future__ import annotations
 
 # Build marker: OOP/IP matrix ROIs calibrated; None-safe stage summaries; schema v18.
+# Rebuild trigger: align synthetic matrix signature sampling expectation to scaled patches.
 # Rebuild trigger: update matrix sampling and schema assertions for scaled screenshots.
 # Rebuild trigger: align geometry assertions to viewport-configure callback.
 # Rebuild trigger: fix doubled escapes in generated responsive docking method strings.
