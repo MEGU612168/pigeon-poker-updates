@@ -9,3 +9,4 @@ Retry with temporary CPU event handler indentation diagnostics.
 Retry after correcting debug output escaping.
 Retry with correctly aligned CPU timeout event handler indentation.
 Retry after fixing literal newline splitting for timeout handler indentation.
+Retry with source scan for Tencent credential material before release.
