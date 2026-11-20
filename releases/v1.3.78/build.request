@@ -1,1 +1,1 @@
-Retry v1.3.78; verify auto-start hook/socket setup and process cleanup without coupling to private launch method names.
+Retry v1.3.78 after removing private launch helper name from the structural check; preserve 1.3.77 lifecycle unchanged.
