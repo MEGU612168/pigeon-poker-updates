@@ -83,17 +83,38 @@ jobs:
           # Preflop uses fixed chart BB buttons only. Postflop explicitly
           # retains the legacy slider / amount box / presets / BET or RAISE.
           refresh_start = main.index("    def _refresh_table_windows(")
-          hero_condition = 'if hand.next_to_act == "hero":'
-          hero_condition_pos = main.index(hero_condition, refresh_start)
-          hero_start = main.rfind("\n", refresh_start, hero_condition_pos) + 1
-          base_indent = main[hero_start:hero_condition_pos]
+          hero_start = None
+          base_indent = ""
+          search_pos = refresh_start
+          while search_pos < len(main):
+              line_end = main.find("\\n", search_pos)
+              if line_end < 0:
+                  line_end = len(main)
+              line = main[search_pos:line_end]
+              if line.strip() == 'if hand.next_to_act == "hero":':
+                  hero_start = search_pos
+                  base_indent = line[:len(line) - len(line.lstrip())]
+                  break
+              search_pos = line_end + 1
+          if hero_start is None:
+              raise SystemExit("Could not locate the HERO action branch as a complete source line.")
+          hero_condition_pos = hero_start + len(base_indent)
           actor_marker = 'actor = hand.player(hand.next_to_act).name if hand.next_to_act else "CPU"'
           actor_pos = main.index(actor_marker, hero_condition_pos)
-          actor_line_start = main.rfind("\n", hero_condition_pos, actor_pos) + 1
-          outer_else_pos = main.rfind("else:", hero_condition_pos, actor_line_start)
-          if outer_else_pos < 0:
-              raise SystemExit("Could not locate the original CPU-turn else branch.")
-          hero_end = main.rfind("\n", hero_condition_pos, outer_else_pos) + 1
+          actor_line_start = main.rfind("\\n", hero_condition_pos, actor_pos) + 1
+          hero_end = None
+          search_pos = hero_start
+          while search_pos < actor_line_start:
+              line_end = main.find("\\n", search_pos)
+              if line_end < 0 or line_end > actor_line_start:
+                  line_end = actor_line_start
+              line = main[search_pos:line_end]
+              indent = line[:len(line) - len(line.lstrip())]
+              if line.strip() == "else:" and indent == base_indent:
+                  hero_end = search_pos
+              search_pos = line_end + 1
+          if hero_end is None:
+              raise SystemExit("Could not locate the matching top-level CPU-turn else branch.")
           hero_block = '''            if hand.next_to_act == "hero":
                   record["status"].set("YOUR TURN")
                   try:
