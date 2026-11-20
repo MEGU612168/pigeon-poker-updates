@@ -311,15 +311,15 @@ jobs:
                   px=bytearray(w*h*4)
                   # AA is a filled green cell; AKs=40% is a narrow blue marker
                   # at the inner-left pixel (32,90), not at the old center (33,91).
-                  for x,y,color in active_cells:
+                  for x,y,bgr in active_cells:
                       i=(y*w+x)*4
-                      px[i:i+4]=bytes((*color,0))
+                      px[i:i+4]=bytes((*bgr,0))
                   header=b"BM"+struct.pack("<IHHI",54+len(px),0,0,54)
                   dib=struct.pack("<IiiHHIIiiII",40,w,-h,1,32,0,len(px),0,0,0,0)
                   pathlib.Path(path).write_bytes(header+dib+px)
               matrix_bmp(pathlib.Path(td)/"matrix_empty.bmp",())
-              matrix_bmp(pathlib.Path(td)/"matrix_aa.bmp",((29,91,(0x20,0xC0,0x40)),))
-              matrix_bmp(pathlib.Path(td)/"matrix_aa_aks.bmp",((29,91,(0x20,0xC0,0x40)),(32,90,(0x20,0x80,0xE0))))
+              matrix_bmp(pathlib.Path(td)/"matrix_aa.bmp",((29,91,(50,160,0)),))
+              matrix_bmp(pathlib.Path(td)/"matrix_aa_aks.bmp",((29,91,(50,160,0)),(32,90,(198,122,22))))
               empty_sig=_bmp_matrix_center_signature(pathlib.Path(td)/"matrix_empty.bmp")
               aa_sig=_bmp_matrix_center_signature(pathlib.Path(td)/"matrix_aa.bmp")
               aa_aks_sig=_bmp_matrix_center_signature(pathlib.Path(td)/"matrix_aa_aks.bmp")
