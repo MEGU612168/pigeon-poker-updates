@@ -237,7 +237,7 @@ jobs:
               "            self.gto_placeholder_label = None",
               ""
           ]) + "\n"
-          helper_anchor = "    def _launch_gto(self):\n"          helper_anchor = "    def _launch_gto(self):\n"
+          helper_anchor = "    def _launch_gto(self):\n"
           if main.count(helper_anchor) != 1:
               raise SystemExit("Could not locate _launch_gto() for placeholder helper.")
           main = main.replace(helper_anchor, placeholder_helper + helper_anchor, 1)
