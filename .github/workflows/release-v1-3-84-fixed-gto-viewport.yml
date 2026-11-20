@@ -1,0 +1,435 @@
+name: Release Pigeon Poker v1.3.84 fixed GTO viewport and bottom fit
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.84/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build from verified v1.3.83 stable package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import time
+          import urllib.request
+          import zipfile
+
+          REPO = "MEGU612168/pigeon-poker-updates"
+          SOURCE_VERSION = "1.3.83"
+          TARGET_VERSION = "1.3.84"
+          SOURCE_SHA256 = "d7c7f1e0916eb458a950375beaa5cfbb227f35f66c4f7184cd785b543c81164e"
+          SOURCE_SIZE = 223811
+          SOURCE_URL = (
+              f"https://raw.githubusercontent.com/{REPO}/main/releases/v{SOURCE_VERSION}/"
+              f"payload-updater.zip.b64?v={SOURCE_SHA256}"
+          )
+
+          with urllib.request.urlopen(SOURCE_URL, timeout=90) as response:
+              source_transport = response.read().decode("ascii").strip()
+          source_payload = base64.b64decode(source_transport, validate=True)
+          if len(source_payload) != SOURCE_SIZE:
+              raise SystemExit("Pinned v1.3.83 package size mismatch.")
+          if hashlib.sha256(source_payload).hexdigest() != SOURCE_SHA256:
+              raise SystemExit("Pinned v1.3.83 package SHA-256 mismatch.")
+
+          EXPECTED_FILES = {
+              "PigeonPoker.pyw",
+              "pigeon_updater.py",
+              "VERSION.txt",
+              "pigeon_gto_plus/auto_solve_ui.py",
+              "pigeon_gto_plus/live_range_builder.py",
+              "pigeon_gto_plus/ui_probe.py",
+              "pigeon_poker/preflop_screenshot_ranges.py",
+          }
+          with zipfile.ZipFile(io.BytesIO(source_payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("Pinned v1.3.83 ZIP CRC failure: " + bad)
+              files = {name: archive.read(name) for name in archive.namelist()}
+          if set(files) != EXPECTED_FILES:
+              raise SystemExit("Unexpected v1.3.83 package file set.")
+          if files["VERSION.txt"].decode("ascii").strip() != SOURCE_VERSION:
+              raise SystemExit("Pinned v1.3.83 version marker mismatch.")
+
+          # Keep the validated range implementation and data byte-for-byte.
+          range_blobs = {
+              "pigeon_gto_plus/live_range_builder.py": "4b8d0c287acce64cce98562313ea63f73cfb3b60",
+              "pigeon_gto_plus/ui_probe.py": "6984be9b528ce4f463d8f0bf7ce72d95038ed1fd",
+              "pigeon_poker/preflop_screenshot_ranges.py": "5a816dc1a2a07d686c6fe83b7e04155549ac4818",
+          }
+          for name, expected_blob in range_blobs.items():
+              data = files[name]
+              actual_blob = hashlib.sha1(
+                  b"blob " + str(len(data)).encode("ascii") + bytes([0]) + data
+              ).hexdigest()
+              if actual_blob != expected_blob:
+                  raise SystemExit("Range baseline changed: " + name)
+
+          main = files["PigeonPoker.pyw"].decode("utf-8")
+
+          def replace_once(source: str, old: str, new: str, label: str) -> str:
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one exact match, got {count}.")
+              return source.replace(old, new, 1)
+
+          def replace_method(source: str, signature: str,
+                             replacement: str, label: str) -> str:
+              if source.count(signature) != 1:
+                  raise SystemExit(label + ": method signature is not unique.")
+              start = source.find(signature)
+              end = source.find("\n    def ", start + len(signature))
+              if start < 0 or end < 0:
+                  raise SystemExit(label + ": could not locate method boundary.")
+              if replacement.count(signature) != 1:
+                  raise SystemExit(label + ": replacement signature mismatch.")
+              return source[:start] + replacement.rstrip() + "\n" + source[end + 1:]
+
+          # 1) GTO+ gets a direct, fixed Tk page instead of the generic
+          # scroll-canvas wrapper. Other pages keep their existing scroll behavior.
+          old_new_page = (
+              '        page = tk.Frame(self.content, bg=COLORS["bg"])\n'
+              '        canvas = tk.Canvas(\n'
+          )
+          new_page = (
+              '        page = tk.Frame(self.content, bg=COLORS["bg"])\n'
+              '        if key == "gto":\n'
+              '            # Solver coordinates must not drift with a page scroll.\n'
+              '            # Keep GTO+ as a fixed viewport; the settings drawer has its own scroll.\n'
+              '            self.pages[key] = page\n'
+              '            return page\n'
+              '        canvas = tk.Canvas(\n'
+          )
+          main = replace_once(main, old_new_page, new_page, "fixed non-scroll GTO page")
+
+          # 2) Remove the tiny outer margins so WORKSPACE reaches the visible
+          # area on all four sides. The GTO title strip stays as the only header.
+          main = replace_once(
+              main,
+              '        row.pack(fill="both", expand=True, padx=4, pady=4)',
+              '        row.pack(fill="both", expand=True, padx=0, pady=0)',
+              "remove GTO workspace outer margins",
+          )
+          main = replace_once(
+              main,
+              '        self.gto_viewport.pack(fill="both", expand=True, padx=2, pady=2)',
+              '        self.gto_viewport.pack(fill="both", expand=True, padx=0, pady=0)',
+              "remove GTO viewport margins",
+          )
+
+          # 3) The embedded native GTO+ window reserves a top strip in its
+          # child-window frame. The last screenshot shows roughly 42 px between
+          # the viewport top and the actual solver content, which pushes the
+          # bottom of the solver below the viewport. Overscan that top strip:
+          # move the native child upward by the scaled inset and extend its
+          # outer HWND height by the same amount. Visible client content then
+          # starts exactly at the workspace top and ends exactly at its bottom.
+          old_host = (
+              '        self.gto_host = tk.Frame(\n'
+              '            self.gto_viewport, bg="#080f18", width=1320, height=676,\n'
+              '        )\n'
+              '        self.gto_host.place(\n'
+              '            relx=0.5, rely=0.5, anchor="center", width=1320, height=676,\n'
+              '        )\n'
+          )
+          new_host = (
+              '        self.gto_host = tk.Frame(\n'
+              '            self.gto_viewport, bg="#080f18", width=1320, height=718,\n'
+              '        )\n'
+              '        self.gto_host.place(\n'
+              '            relx=0.5, rely=0.0, anchor="n", y=-42,\n'
+              '            width=1320, height=718,\n'
+              '        )\n'
+          )
+          main = replace_once(main, old_host, new_host, "GTO native top-inset overscan host")
+
+          layout_signature = "    def _layout_embedded_gto_host(self) -> bool:\n"
+          layout_replacement = """    def _layout_embedded_gto_host(self) -> bool:
+                  \"\"\"Fit the GTO+ client area exactly into the fixed viewport.
+
+                  The embedded GTO+ frame keeps an approximately 42px native top
+                  reservation. Its outer HWND is overscanned upward by that scaled
+                  amount so the visible solver content starts at y=0 and its bottom
+                  lands on the viewport bottom instead of being clipped.
+                  \"\"\"
+                  try:
+                      self.update_idletasks()
+                      viewport_width = int(self.gto_viewport.winfo_width())
+                      viewport_height = int(self.gto_viewport.winfo_height())
+                      if viewport_width < 2 or viewport_height < 2:
+                          return False
+
+                      content_width = 1320.0
+                      content_height = 676.0
+                      native_top_inset = 42.0
+
+                      # Fit to both axes. Do not cap at 100%: on larger client
+                      # areas GTO+ should grow to use the workspace, not leave
+                      # an artificial strip of empty space underneath.
+                      scale = min(
+                          viewport_width / content_width,
+                          viewport_height / content_height,
+                      )
+                      if scale <= 0:
+                          return False
+
+                      target_width = max(2, min(viewport_width, int(content_width * scale)))
+                      target_client_height = max(
+                          2, min(viewport_height, int(content_height * scale))
+                      )
+                      top_inset = max(0, int(round(native_top_inset * scale)))
+                      target_window_height = target_client_height + top_inset
+
+                      self.gto_host.place_configure(
+                          relx=0.5,
+                          rely=0.0,
+                          anchor="n",
+                          x=0,
+                          y=-top_inset,
+                          width=target_width,
+                          height=target_window_height,
+                      )
+                      self._gto_display_scale = scale
+                      self._gto_content_scale_percent = int(round(scale * 100))
+                      self._gto_native_top_inset = top_inset
+                      return True
+                  except (tk.TclError, ZeroDivisionError, ValueError):
+                      return False
+          """
+          main = replace_method(
+              main, layout_signature, layout_replacement, "GTO top-inset viewport fit"
+          )
+
+          # 4) Keep the existing 30-minute automatic update check. The disabled
+          # UP TO DATE state and automatic-only update policy are asserted below.
+          required = (
+              'if key == "gto":',
+              'self.pages[key] = page',
+              'self.gto_viewport.pack(fill="both", expand=True, padx=0, pady=0)',
+              'row.pack(fill="both", expand=True, padx=0, pady=0)',
+              'width=1320, height=718',
+              'relx=0.5, rely=0.0, anchor="n", y=-42',
+              'native_top_inset = 42.0',
+              'target_window_height = target_client_height + top_inset',
+              'y=-top_inset',
+              'self.integration.resize_docked_window(host_width, host_height)',
+              'self.after(30 * 60 * 1000, self._periodic_update_check)',
+              'text="UP TO DATE"',
+              'text="UPDATE NOW"',
+              'def _toggle_gto_controls_drawer(self):',
+              'self.gto_controls_panel.place_forget()',
+          )
+          for marker in required:
+              if marker not in main:
+                  raise SystemExit("Missing v1.3.84 requirement: " + marker)
+
+          if 'self.page_scroll_canvases[key] = canvas' in main:
+              # This generic assignment stays for other pages, but ensure GTO's
+              # early return occurs before the generic Canvas is constructed.
+              start = main.find("    def _new_page(")
+              end = main.find("\n    def ", start + 5)
+              method_source = main[start:end]
+              if method_source.find('if key == "gto":') > method_source.find("canvas = tk.Canvas"):
+                  raise SystemExit("GTO page still passes through the outer scroll Canvas.")
+          if "CHECK AGAIN" in main or "RETRY CHECK" in main:
+              raise SystemExit("Manual update-check buttons have reappeared.")
+
+          layout_start = main.find(layout_signature)
+          layout_end = main.find("\n    def ", layout_start + len(layout_signature))
+          layout_source = main[layout_start:layout_end]
+          if "min(" not in layout_source or "viewport_width / content_width" not in layout_source:
+              raise SystemExit("GTO fit does not use both live viewport dimensions.")
+
+          # Geometry tests for realistic viewport sizes: actual visible content
+          # fills the viewport while the 42px native frame reservation is clipped
+          # above the workspace, not stolen from the bottom.
+          def fit(width: int, height: int):
+              scale = min(width / 1320.0, height / 676.0)
+              content_w = max(2, min(width, int(1320.0 * scale)))
+              client_h = max(2, min(height, int(676.0 * scale)))
+              inset = max(0, int(round(42.0 * scale)))
+              outer_h = client_h + inset
+              origin_y = -inset
+              visible_start = origin_y + inset
+              visible_end = origin_y + outer_h
+              return scale, content_w, client_h, inset, outer_h, visible_start, visible_end
+
+          for vw, vh in ((1320, 676), (1390, 676), (1450, 720), (1640, 788), (1680, 800), (1024, 600)):
+              scale, fw, fh, inset, outer_h, visible_start, visible_end = fit(vw, vh)
+              if fw > vw or fh > vh or inset <= 0 or outer_h != fh + inset:
+                  raise SystemExit(f"Invalid GTO geometry for {vw}x{vh}: {fit(vw, vh)}")
+              if visible_start != 0 or visible_end != fh:
+                  raise SystemExit(f"GTO content would not fill the viewport for {vw}x{vh}: {fit(vw, vh)}")
+
+          files["PigeonPoker.pyw"] = main.encode("utf-8")
+          files["VERSION.txt"] = (TARGET_VERSION + chr(10)).encode("ascii")
+          for name, data in files.items():
+              if name.endswith(".py") or name.endswith(".pyw"):
+                  ast.parse(data.decode("utf-8"), filename=name)
+
+          output = io.BytesIO()
+          with zipfile.ZipFile(
+              output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+          ) as archive:
+              for name in sorted(files):
+                  archive.writestr(name, files[name])
+          final_payload = output.getvalue()
+          with zipfile.ZipFile(io.BytesIO(final_payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("Final v1.3.84 ZIP CRC failure: " + bad)
+              if set(archive.namelist()) != EXPECTED_FILES:
+                  raise SystemExit("Final v1.3.84 package file list changed.")
+              if archive.read("VERSION.txt").decode("ascii").strip() != TARGET_VERSION:
+                  raise SystemExit("Final v1.3.84 version marker mismatch.")
+              ast.parse(archive.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
+
+          digest = hashlib.sha256(final_payload).hexdigest()
+          encoded_final = base64.b64encode(final_payload).decode("ascii")
+          release_dir = pathlib.Path("releases") / ("v" + TARGET_VERSION)
+          release_dir.mkdir(parents=True, exist_ok=True)
+          (release_dir / "payload-updater.zip.b64").write_text(
+              encoded_final, encoding="ascii"
+          )
+
+          chunk_size = 48000
+          chunks = []
+          for index, offset in enumerate(range(0, len(encoded_final), chunk_size)):
+              name = f"payload.part-{index:03d}"
+              (release_dir / name).write_text(
+                  encoded_final[offset:offset + chunk_size], encoding="ascii"
+              )
+              chunks.append(name)
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": chunks}, indent=2) + chr(10), encoding="utf-8"
+          )
+
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          notes = (
+              "GTO+ ENGINEページを固定ビューポート化し、ページ外側のスクロールを廃止。"
+              "スクロールバー/ホイールでGTO+の表示位置がずれない。"
+              "GTO+ WORKSPACEの外側余白をなくし、ページの幅・高さをすべて使用。"
+              "埋め込みGTO+の約42pxの上部ネイティブ予約領域を上方向へオーバースキャンし、"
+              "実際のGTO+ UIの先頭をWORKSPACE上端へ合わせ、下端の見切れを防止。"
+              "内容倍率は固定上限なしで横幅・高さの両方から算出し、表示領域いっぱいにフィット。"
+              "右側設定ドロワーは初期格納・矢印開閉・重ね表示を維持し、開閉でWORKSPACE寸法は変更しない。"
+              "更新確認は起動時と30分ごとの自動実行のみ。最新版の更新ボタンは無効。"
+              "v1.3.83のGTO+接続・権限復旧・自動起動/接続とv1.3.69のレンジ本体を維持。"
+          )
+          release = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "package_mode": "full",
+              "release_notes": notes,
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+              "source_version": SOURCE_VERSION,
+              "gto_page_outer_scroll": False,
+              "gto_viewport_fixed": True,
+              "gto_workspace_outer_margins": 0,
+              "gto_native_top_inset_compensation_px": 42,
+              "gto_bottom_clipping_compensation": True,
+              "gto_scale_fit_live_width_and_height": True,
+              "gto_controls_drawer_default": "collapsed",
+              "drawer_toggle_resizes_workspace": False,
+              "automatic_update_check_on_startup": True,
+              "automatic_update_check_interval_minutes": 30,
+              "up_to_date_update_button_disabled": True,
+              "manual_check_buttons_removed": True,
+              "range_baseline": "1.3.69",
+              "gto_permission_recovery": "preserved from v1.3.81-v1.3.83",
+              "automatic_gto_lifecycle": True,
+              "files": sorted(files),
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(release, ensure_ascii=False, indent=2) + chr(10),
+              encoding="utf-8",
+          )
+          (release_dir / "payload.ready").write_text(
+              "verified " + TARGET_VERSION + chr(10), encoding="ascii"
+          )
+
+          stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "release_notes": notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": (
+                  f"https://raw.githubusercontent.com/{REPO}/main/releases/v{TARGET_VERSION}/"
+                  f"payload-updater.zip.b64?v={digest}"
+              ),
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+          }
+          pathlib.Path("stable.json").write_text(
+              json.dumps(stable, ensure_ascii=False, indent=2) + chr(10),
+              encoding="utf-8",
+          )
+
+          dist = pathlib.Path("dist")
+          dist.mkdir(exist_ok=True)
+          artifact = dist / f"PigeonPoker_{TARGET_VERSION}_Improved.zip"
+          artifact.write_bytes(final_payload)
+          with zipfile.ZipFile(artifact, "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Download artifact ZIP CRC validation failed.")
+
+          (release_dir / "build.request").unlink(missing_ok=True)
+          print(json.dumps({
+              "published_version": TARGET_VERSION,
+              "source_version": SOURCE_VERSION,
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+              "GTO_page_scroll": False,
+              "GTO_top_inset_px": 42,
+              "GTO_bottom_clip_compensated": True,
+              "GTO_viewport_outer_margins": 0,
+              "drawer_default_collapsed": True,
+              "drawer_overlay_does_not_resize_workspace": True,
+              "automatic_update_only": True,
+              "range_baseline_preserved": True,
+          }, ensure_ascii=False))
+          PY
+
+      - name: Upload installable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: PigeonPoker_1.3.84_Improved
+          path: dist/PigeonPoker_1.3.84_Improved.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish stable v1.3.84 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+users.noreply.github.com"
+          git add stable.json releases/v1.3.84/
+          git commit -m "Release Pigeon Poker v1.3.84 fixed GTO viewport and bottom fit"
+          git push
