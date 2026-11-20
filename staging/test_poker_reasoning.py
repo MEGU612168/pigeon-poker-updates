@@ -531,6 +531,113 @@ def test_all_cpu_levels_choose_a_legal_action_in_the_same_multiway_spot():
         assert decision.action in {"fold", "call", "raise"}
 
 
+
+
+def test_archetypes_change_action_posteriors_and_calling_behavior():
+    weak_call_station = module._action_likelihood(
+        "call", 0.05, 0.0, 1.0, "flop", "calling_station"
+    )
+    weak_call_balanced = module._action_likelihood(
+        "call", 0.05, 0.0, 1.0, "flop", "balanced"
+    )
+    weak_call_overfolder = module._action_likelihood(
+        "call", 0.05, 0.0, 1.0, "flop", "overfolder"
+    )
+    weak_bet_aggressive = module._action_likelihood(
+        "bet", 0.05, 0.0, 1.0, "flop", "aggressive"
+    )
+    weak_bet_balanced = module._action_likelihood(
+        "bet", 0.05, 0.0, 1.0, "flop", "balanced"
+    )
+    weak_bet_underbluffer = module._action_likelihood(
+        "bet", 0.05, 0.0, 1.0, "flop", "underbluffer"
+    )
+    assert weak_call_station > weak_call_balanced > weak_call_overfolder
+    assert weak_bet_aggressive > weak_bet_balanced > weak_bet_underbluffer
+
+    station_continue = module._response_continue_probability(
+        0.05, 0.0, 1.0, "flop", "calling_station"
+    )
+    overfolder_continue = module._response_continue_probability(
+        0.05, 0.0, 1.0, "flop", "overfolder"
+    )
+    assert station_continue > overfolder_continue
+
+
+def test_blocker_metrics_distinguish_removed_value_and_bluff_combos():
+    players = [
+        FakePlayer("hero", ("As", "Kc")),
+        FakePlayer("villain", ("2s", "3d")),
+    ]
+    hand = FakeHand(
+        players, board=("Qh", "Jd", "2c"), pot=1000, street="river",
+        to_call=0, actions=("check", "bet"), min_target=100, max_target=2000,
+    )
+    value_removed = module.OpponentRange(
+        "villain", (), "test", 0.9, 1.0, "balanced",
+        ((("As", "Ah"), 0.60), (("3s", "4d"), 0.40)),
+    )
+    value_metrics = module._blocker_removal_metrics(
+        hand, "hero", {"villain": value_removed}, 0.75
+    )
+    bluff_removed = module.OpponentRange(
+        "villain", (), "test", 0.9, 1.0, "balanced",
+        ((("3s", "4d"), 0.90), (("As", "Ah"), 0.10)),
+    )
+    bluff_metrics = module._blocker_removal_metrics(
+        hand, "hero", {"villain": bluff_removed}, 0.75
+    )
+    assert value_metrics["value_call_combos_blocked"] > value_metrics["bluff_call_combos_blocked"]
+    assert bluff_metrics["bluff_call_combos_blocked"] > bluff_metrics["value_call_combos_blocked"]
+
+
+def test_thin_value_threshold_is_lower_heads_up_and_rises_multiway():
+    heads_up = module._thin_value_threshold(
+        level=5, uncertainty=0.0, expected_callers=1.0,
+        required_call=0.25, street="river",
+    )
+    three_way = module._thin_value_threshold(
+        level=5, uncertainty=0.0, expected_callers=3.0,
+        required_call=0.25, street="river",
+    )
+    uncertain = module._thin_value_threshold(
+        level=5, uncertainty=0.8, expected_callers=1.0,
+        required_call=0.25, street="river",
+    )
+    conservative = module._thin_value_threshold(
+        level=1, uncertainty=0.0, expected_callers=1.0,
+        required_call=0.25, street="river",
+    )
+    assert 0.50 <= heads_up < three_way
+    assert uncertain > heads_up
+    assert conservative > heads_up
+
+
+def test_candidate_ev_simulation_budget_is_smaller_than_full_equity_budget():
+    board = ["Jh", "7d", "2c"]
+    players = [
+        FakePlayer("hero", ("As", "Ah")),
+        FakePlayer("UTG", ("3s", "4d")),
+    ]
+    hand = FakeHand(
+        players, board=board, pot=1000, street="flop",
+        to_call=0, actions=("check", "bet"), min_target=200,
+    )
+    ranges = {
+        "UTG": module.OpponentRange(
+            "UTG", ((("Kc", "Kd"), 0.6), (("Qc", "Qd"), 0.4)),
+            "test", 0.9, 1.0,
+        )
+    }
+    cpu = FakeCPU(3)
+    _, full_samples = module._equity_vs_ranges(hand, "hero", ranges, cpu)
+    _, _, _, candidate_samples = module._bet_response_metrics(
+        hand, "hero", ranges, board, 0.75, cpu,
+        simulation_multiplier=0.40,
+    )
+    assert 0 < candidate_samples < full_samples
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
