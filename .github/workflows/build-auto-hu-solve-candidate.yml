@@ -118,18 +118,6 @@ jobs:
                    "GTO+画面診断は安全停止しました。Build Tree設定画面の閉鎖、OOP/IPレンジ・Boardの復元結果をログで確認してください。"),
                   ("AAテストの復元に未達の可能性があります。診断ログを確認してください。Tree/Solverは未実行です。",
                    "Build Tree設定画面の検査またはテスト設定の復元に未達です。診断JSONと画像を確認してください。Tree/Solverは未実行です。"),
-                  ("未知HU局面の自動Solve設定を診断（OOP/IP複数ハンド重み可逆テスト）",
-                   "未知HU局面の自動Solve設定を診断（OOP/IP/Board/Build Tree設定ダイアログ可逆テスト）"),
-                  ("OOPとIPの両レンジが空の場合のみ、両方へAA,AKs:0.4を一時確定。各AA/AKsの2セルと40%表示を確認後、Clear＋完了で元に戻します。片方でも空でなければ変更せず停止。Board/Pot/Stack/Rake・Tree・Solverは操作しません。",
-                   "OOP/IPレンジとBoard欄が空の場合のみ、AA,AKs:0.4とAs・Kd・7cを一時設定してBuild Treeダイアログを開きます。ダイアログを閉じた後、レンジ・Boardの完全復元を検証します。Pot/Stack/Rake変更・Tree確定・Solver実行はしません。"),
-                  ("未知局面Solve用のGTO+入力を可逆テスト中…（OOP/IP両方へAA+AKs:40%を一時確定して復元）",
-                   "未知局面Solve用のGTO+入力を可逆テスト中…（OOP/IPレンジ・Board一時設定とBuild Treeダイアログ検査）"),
-                  ("GTO+画面診断完了（OOP/IP両方のAA+AKs:40%・4セル合計反映・正規化・完全復元を確認。Tree/Solver未実行）",
-                   "GTO+画面診断完了（OOP/IP各2セル・Board反映・Build Tree設定ダイアログ検査・全項目復元を確認。Tree構築/Solver未実行）"),
-                  ("GTO+画面診断は安全停止しました。OOP/IP両方のAA+AKs:40%テストの反映・正規化・復元状態と手動対応フラグを確認してください。",
-                   "GTO+画面診断は安全停止しました。Build Tree設定ダイアログの状態とテスト設定の復元、手動対応フラグを確認してください。"),
-                  ("OOPまたはIPのAA+AKs:40%テストの復元に未達の可能性があります。診断JSONの両方の最終状態を確認してください。Tree/Solverは未実行です。",
-                   "Build Treeダイアログの閉鎖またはテスト設定の復元に未達です。診断JSONと画像を確認してください。Tree構築/Solver未実行です。"),
               ]
               for old_text,new_text in ui_replacements:
                   if old_text in main:
