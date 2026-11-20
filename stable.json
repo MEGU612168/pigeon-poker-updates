@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.92",
-  "published_at": "2026-11-20T16:21:08Z",
-  "release_notes": "独立機能のGTO+ ENGINEを通常利用経路から削除。サイドバーのENGINE画面、起動時のGTO+自動起動、通常キャッシュゲームのGTO+ HUノード必須判定を無効化し、ポストフロップはローカルCPUポリシーで継続。旧セッションに保存されたGTO+ Spot状態も破棄。プリフロップ75局面・12,675ハンドクラス、50局面のレイズ分岐、20局面のオールイン分岐、相手レンジ推定APIとCPUプリフロップ接続は維持。プリフロップ戦略モジュール自体は変更なし。",
+  "version": "1.3.93",
+  "published_at": "2026-11-20T16:40:19Z",
+  "release_notes": "Stable v1.3.92の変更（通常利用経路からGTO+ ENGINEを外した状態）を維持。プリフロップ75局面・12,675ハンドクラス、CPUのチャート判断と100BB・6人配札ガードを維持。相手レンジ推定APIでは、自分の2枚のカードと公開ボードのカードをブロッカーとして物理コンボ数を補正し、他プレイヤーの非公開カードは参照しない。写真由来の169クラス近似であり、ソルバー生コンボ頻度ではない。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.92/payload-updater.zip.b64?v=16df4d10e6528648d664c7fc862649012cf1f385bba2be52a8ff72b99bfb2f3b",
-  "payload_sha256": "16df4d10e6528648d664c7fc862649012cf1f385bba2be52a8ff72b99bfb2f3b",
-  "payload_size": 264812
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.93/payload-updater.zip.b64?v=c1cddfa516956a71d880893d91769ab23da6fdd2a456706af437d04b8d83e881",
+  "payload_sha256": "c1cddfa516956a71d880893d91769ab23da6fdd2a456706af437d04b8d83e881",
+  "payload_size": 266076
 }

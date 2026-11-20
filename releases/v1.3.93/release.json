@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.93",
+  "published_at": "2026-11-20T16:40:19Z",
+  "package_mode": "full",
+  "release_notes": "Stable v1.3.92の変更（通常利用経路からGTO+ ENGINEを外した状態）を維持。プリフロップ75局面・12,675ハンドクラス、CPUのチャート判断と100BB・6人配札ガードを維持。相手レンジ推定APIでは、自分の2枚のカードと公開ボードのカードをブロッカーとして物理コンボ数を補正し、他プレイヤーの非公開カードは参照しない。写真由来の169クラス近似であり、ソルバー生コンボ頻度ではない。",
+  "payload_sha256": "c1cddfa516956a71d880893d91769ab23da6fdd2a456706af437d04b8d83e881",
+  "payload_size": 266076,
+  "source_version": "1.3.92",
+  "preflop_node_count": 75,
+  "hand_classes_per_node": 169,
+  "preflop_hand_rows": 12675,
+  "nodes_with_raise_actions": 50,
+  "nodes_with_allin_actions": 20,
+  "preflop_module_changed": true,
+  "opponent_range_blocker_adjustment": true,
+  "gto_plus_engine_removed_from_runtime": true,
+  "gto_plus_solver_required_for_cash_cpu": false,
+  "regression_test_count": 19,
+  "regression_tests": "Passed in GitHub Actions",
+  "frequency_method": "screenshot-colour-area estimated hand-class frequencies calibrated to displayed action totals; not solver-exact combo frequencies",
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/preflop_screenshot_ranges.py",
+    "pigeon_updater.py"
+  ]
+}
