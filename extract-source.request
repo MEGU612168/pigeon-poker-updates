@@ -1,1 +1,1 @@
-Extract and verify stable v1.3.71 full source including automatic GTO+ startup/connect and owned-process shutdown changes.
+Re-extract and verify the final stable v1.3.71 package after rebuilding with GTO+ automatic lifecycle source writeback.
