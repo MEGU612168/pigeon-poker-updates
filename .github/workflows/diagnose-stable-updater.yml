@@ -54,7 +54,6 @@ jobs:
               updater_bytes = archive.read("pigeon_updater.py")
               version = archive.read("VERSION.txt").decode("utf-8").strip()
               assert version == "1.3.92", version
-          spec = importlib.util.spec_from_file_location("pigeon_updater_test", BytesIO(updater_bytes))
           # Load source using a temporary Python file so the actual updater implementation is exercised.
           with tempfile.TemporaryDirectory() as tmp:
               updater_path = pathlib.Path(tmp) / "pigeon_updater.py"
