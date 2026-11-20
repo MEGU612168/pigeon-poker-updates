@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.105",
-  "published_at": "2026-11-20T19:25:43Z",
-  "release_notes": "プリフロップのユーザー操作制限を撤廃。手番ではエンジン上合法なFOLD、CHECK/CALL、RAISE、ALL-INをチャート頻度に関係なく選択可能に変更。固定するのはプリフロップのRAISE金額だけで、対象チャートに金額がある場合はそのBBサイズを使い、チャート未対応時も操作を止めず合法な最小レイズ額を使用。アクションの頻度・選択自体はユーザーに強制しない。ポストフロップは従来どおり金額入力・スライダー・ポット割合プリセットを自由に使用可能。Settingsの効果音音量・%表示・試聴・自動保存も維持。プリフロップ75局面・12,675行・頻度・固定BBサイズ表は変更なし。配信前に実際の更新プログラムでZIP展開検証。",
+  "version": "1.3.106",
+  "published_at": "2026-11-20T19:40:55Z",
+  "release_notes": "ポストフロップの操作欄を全ストリート共通の合法アクションUIへ統一し、CHECK/CALL/FOLD、BET/RAISE、金額入力、スライダー、ポット割合プリセットを復旧。プリフロップではアクションもレイズ額も一切固定せず、局面に対応した75ノード表のレイズサイズを入力欄・スライダーの初期値として提案するだけに変更。初期値はユーザーが自由に上書き可能。ポット履歴の送信金額は上書きしない。共有ウォレットへ一度だけ10ドルを加算し、SQLite取引履歴と重複防止マーカーを同一トランザクションで記録。効果音音量の自動保存と試聴も維持。BOTは相手別アーキタイプ、アクション履歴によるレンジ更新、ブロッカーで除去されるバリュー/ブラフコンボ、コールオッズ、マルチウェイEV、薄いバリューベット、相手別コール傾向、ベットサイズのEV比較を改善。候補サイズ計算のシミュレーション予算を分離して処理負荷を抑制。プリフロップ75局面・12,675行・頻度・BBサイズ表は変更なし。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.105/payload-updater.zip.b64?v=3d33f6983726850e2a9c31278486111d373cf91c8e69bb862ac40222db210b61",
-  "payload_sha256": "3d33f6983726850e2a9c31278486111d373cf91c8e69bb862ac40222db210b61",
-  "payload_size": 145620
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.106/payload-updater.zip.b64?v=d7b4d379f83191cb571a4db504a9f8aa6486e7bcf27b8327c585016123097b34",
+  "payload_sha256": "d7b4d379f83191cb571a4db504a9f8aa6486e7bcf27b8327c585016123097b34",
+  "payload_size": 220364
 }
