@@ -271,7 +271,7 @@ jobs:
           assert "player2_range_validation_recovered" in ui_source
           assert "player2_validation_cleanup_restored_ip" in ui_source
           assert 'result["safe_to_cleanup"] = not retry_edits and not retry_popups' in ui_source
-          assert 'player2_validation_cleanup.get("range_restored")' in ui_source
+          assert 'player2_cleanup["range_restored"]' in ui_source
           assert 'report["player2_range_validation_seen"] = True' in ui_source
           assert 'label="player2_range_validation_done"' in ui_source
           assert 'label="clear_player2_prompt_test_range"' in ui_source
