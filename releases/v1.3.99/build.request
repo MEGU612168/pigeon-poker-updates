@@ -1,6 +1,0 @@
-Build Stable v1.3.99 from exact v1.3.98: preflop fixed BB only, restore legacy postflop controls, add withdrawable balance to the Cashier depositable amount and support atomic redeposit.
-Retry build after correcting YAML run-block indentation.
-Retry build with CPU watchdog check aligned to cash_cpu_timeout.
-Retry build after making hero action UI replacement indentation-aware.
-Retry with whole-line HERO branch selection and matching outer else indentation.
-Retry with preflop-only early action UI, preserve untouched postflop action controls.
