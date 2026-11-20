@@ -356,7 +356,7 @@ jobs:
           assert '"board_test_cards_reflection_verified"' in safety_block
           assert '"board_test_restored"' in safety_block
           assert '"board_test_may_remain_set"' in safety_block
-          assert "未知HU局面の自動Solve設定を診断（OOP/IP/Board/Build Tree/Player2検証）" in main
+          assert "未知HU局面の自動Solve設定を診断（OOP/IP/Board/Build Tree/Player2入力復旧）" in main
           assert "OOP/IPレンジとBoard欄が空の場合のみ" in main
           assert "oop_expected_matrix_cells_reflection_verified" in main
           assert "oop_restore_source_text_accepted" in main
