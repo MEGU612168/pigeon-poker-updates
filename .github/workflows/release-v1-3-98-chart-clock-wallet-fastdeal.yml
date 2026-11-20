@@ -636,7 +636,7 @@ jobs:
               if name.endswith((".py", ".pyw")):
                   ast.parse(content.decode("utf-8"), filename=name)
           required = [
-              "preflop_chart_options(table, hand, \\"hero\\")",
+              'preflop_chart_options(table, hand, "hero")',
               "PREFLOP CHART LINE NOT COVERED",
               "action_seconds_for_street(hand.street)",
               "cash_cpu_timeout",
