@@ -9,6 +9,7 @@ against the baseline screenshot before the next click is allowed.
 from __future__ import annotations
 
 # Build marker: OOP/IP matrix ROIs calibrated; None-safe stage summaries; schema v18.
+# Rebuild trigger: restore OOP/IP/Board cleanup helpers and test Player 2 dialog classification.
 # Rebuild trigger: align Source allowlist assertion with explicit Player 2 IP constant.
 # Rebuild trigger: align the final Player 2 validation assertion variable name.
 # Rebuild trigger: verify v1.3.68 final Player 2 cleanup assertions.
