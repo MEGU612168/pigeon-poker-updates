@@ -77,11 +77,15 @@ jobs:
                   raise SystemExit(f"{name} no longer matches the v1.3.69 range baseline.")
 
           main = files["PigeonPoker.pyw"].decode("utf-8")
-          old_start = '        self.show_page("lobby")'
-          new_start = '        self.show_page("gto")'
-          if main.count(old_start) != 1:
-              raise SystemExit("Could not uniquely locate the initial Pigeon startup page.")
-          main = main.replace(old_start, new_start, 1)
+          startup_block = (
+              "        self._build_pokercraft_page()" + chr(10)
+              + '        self.show_page("lobby")' + chr(10)
+              + '        self.protocol("WM_DELETE_WINDOW", self._on_close)'
+          )
+          startup_replacement = startup_block.replace('self.show_page("lobby")', 'self.show_page("gto")')
+          if main.count(startup_block) != 1:
+              raise SystemExit("Could not uniquely locate the Pigeon constructor startup block.")
+          main = main.replace(startup_block, startup_replacement, 1)
 
           # GTO+ startup is invoked by show_page("gto") after the page is
           # actually mapped, rather than by a timer while its parent is hidden.
@@ -100,10 +104,8 @@ jobs:
           for item in checks:
               if item not in main:
                   raise SystemExit("Missing startup/lifecycle source requirement: " + repr(item))
-          if '        self.show_page("gto")' not in main:
+          if startup_replacement not in main:
               raise SystemExit("Pigeon does not open on the GTO+ Engine page.")
-          if '        self.show_page("lobby")' in main:
-              raise SystemExit("The old Lobby-first startup remains.")
           if main.count('            self.after(300, self._auto_start_gto_plus)') != 1:
               raise SystemExit("GTO+ auto-start trigger must exist exactly once.")
           if 'def _reference_scale_for_size(' not in files["pigeon_gto_plus/auto_solve_ui.py"].decode("utf-8"):
