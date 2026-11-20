@@ -62,7 +62,76 @@ jobs:
                   z.extractall(root)
               main_path=root/"PigeonPoker.pyw"
               main=main_path.read_text(encoding="utf-8")
-              geometry_sync_method = "    def _sync_embedded_gto_geometry(self, reason: str = \"\") -> bool:\n        \"\"\"Align the docked GTO+ child to the live Tk host client area.\"\"\"\n        if not self.gto_embedded or not getattr(self.integration, \"embedder\", None):\n            return False\n        try:\n            self.update_idletasks()\n            host_width = int(self.gto_host.winfo_width())\n            host_height = int(self.gto_host.winfo_height())\n            if host_width < 2 or host_height < 2:\n                raise RuntimeError(\n                    f\"invalid GTO+ host client geometry: {host_width}x{host_height}\"\n                )\n            self.integration.resize_docked_window(host_width, host_height)\n            self.update_idletasks()\n            return True\n        except Exception as exc:\n            try:\n                suffix = f\" ({reason})\" if reason else \"\"\n                self.status_var.set(\n                    f\"GTO+表示位置・サイズの再同期に失敗{suffix}: {exc}\"\n                )\n            except Exception:\n                pass\n            return False\n\n    def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:\n        \"\"\"Sync now and again after Tk completes pending layout work.\"\"\"\n        if not self.gto_embedded:\n            return\n        self._sync_embedded_gto_geometry(reason)\n        try:\n            self.after_idle(\n                lambda r=reason: self._sync_embedded_gto_geometry(r + \"-idle\")\n            )\n            self.after(\n                250,\n                lambda r=reason: self._sync_embedded_gto_geometry(r + \"-settled\")\n            )\n        except tk.TclError:\n            pass\n\n"
+              geometry_sync_method = """    def _layout_embedded_gto_host(self) -> bool:
+                  try:
+                      self.update_idletasks()
+                      viewport_width = int(self.gto_viewport.winfo_width())
+                      viewport_height = int(self.gto_viewport.winfo_height())
+                      if viewport_width < 2 or viewport_height < 2:
+                          return False
+                      scale = min(viewport_width / 665.0, viewport_height / 570.0, 1.35)
+                      if scale <= 0:
+                          return False
+                      target_width = max(2, int(round(665 * scale)))
+                      target_height = max(2, int(round(570 * scale)))
+                      current_size = (int(self.gto_host.winfo_width()), int(self.gto_host.winfo_height()))
+                      if current_size != (target_width, target_height):
+                          self.gto_host.place_configure(width=target_width, height=target_height)
+                      self._gto_display_scale = scale
+                      return True
+                  except (tk.TclError, ZeroDivisionError, ValueError):
+                      return False
+
+              def _sync_embedded_gto_geometry(self, reason: str = "") -> bool:
+                  if not self.gto_embedded or not getattr(self.integration, "embedder", None):
+                      return False
+                  try:
+                      self.update_idletasks()
+                      if not self._layout_embedded_gto_host():
+                          raise RuntimeError("GTO+ viewport has no usable client area")
+                      host_width = int(self.gto_host.winfo_width())
+                      host_height = int(self.gto_host.winfo_height())
+                      if host_width < 2 or host_height < 2:
+                          raise RuntimeError(f"invalid GTO+ host client geometry: {host_width}x{host_height}")
+                      self.integration.resize_docked_window(host_width, host_height)
+                      self.update_idletasks()
+                      return True
+                  except Exception as exc:
+                      try:
+                          suffix = f" ({reason})" if reason else ""
+                          self.status_var.set(f"GTO+表示位置・サイズの再同期に失敗{suffix}: {exc}")
+                      except Exception:
+                          pass
+                      return False
+
+              def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:
+                  if not self.gto_embedded:
+                      return
+                  self._layout_embedded_gto_host()
+                  self._sync_embedded_gto_geometry(reason)
+                  try:
+                      self.after_idle(lambda r=reason: self._sync_embedded_gto_geometry(r + "-idle"))
+                      self.after(250, lambda r=reason: self._sync_embedded_gto_geometry(r + "-settled"))
+                  except tk.TclError:
+                      pass
+
+"""
+
+              workspace_old = (
+                  "        self.gto_host = tk.Frame(host_col, bg=\\"#080f18\\", height=570)" + chr(10)
+                  + "        self.gto_host.pack(fill=\\"both\\", expand=True, padx=8, pady=8)" + chr(10)
+                  + "        self.gto_host.bind(\\"<Configure>\\", self._resize_embedded)" + chr(10)
+              )
+              workspace_new = (
+                  "        self.gto_viewport = tk.Frame(host_col, bg=\\"#080f18\\")" + chr(10)
+                  + "        self.gto_viewport.pack(fill=\\"both\\", expand=True, padx=8, pady=8)" + chr(10)
+                  + "        self.gto_host = tk.Frame(self.gto_viewport, bg=\\"#080f18\\", width=665, height=570)" + chr(10)
+                  + "        self.gto_host.place(relx=.5, rely=.5, anchor=\\"center\\", width=665, height=570)" + chr(10)
+                  + "        self.gto_viewport.bind(\\"<Configure>\\", self._resize_embedded)" + chr(10)
+              )
+              if main.count(workspace_old) != 1:
+                  raise SystemExit("Could not uniquely locate the GTO+ workspace host block")
+              main = main.replace(workspace_old, workspace_new, 1)
               launch_anchor = "    def _launch_gto(self):" + chr(10)
               if main.count(launch_anchor) != 1:
                   raise SystemExit("Could not uniquely locate _launch_gto for geometry-sync patch")
@@ -88,7 +157,9 @@ jobs:
                   + "            except Exception:" + chr(10)
                   + "                pass" + chr(10)
               )
-              resize_new = "    def _resize_embedded(self, _event=None):" + chr(10) + '        self._sync_embedded_gto_geometry("host-configure")' + chr(10)
+              resize_new = ("    def _resize_embedded(self, _event=None):" + chr(10)
+                  + "        self._layout_embedded_gto_host()" + chr(10)
+                  + '        self._sync_embedded_gto_geometry("viewport-configure")' + chr(10))
               if main.count(resize_old) != 1:
                   raise SystemExit("Could not uniquely locate the old embedded GTO+ resize callback")
               main = main.replace(resize_old, resize_new, 1)
@@ -230,9 +301,11 @@ jobs:
           ast.parse(main,filename="PigeonPoker.pyw")
           method_sources = {}
           for node in ast.walk(ast.parse(main,filename="PigeonPoker.pyw")):
-              if isinstance(node, ast.FunctionDef) and node.name in {"_launch_gto", "_attach_existing_gto", "_resize_embedded"}:
+              if isinstance(node, ast.FunctionDef) and node.name in {"_launch_gto", "_attach_existing_gto", "_resize_embedded", "_layout_embedded_gto_host"}:
                   method_sources[node.name] = ast.get_source_segment(main, node) or ""
-          assert set(method_sources) == {"_launch_gto", "_attach_existing_gto", "_resize_embedded"}
+          assert set(method_sources) == {"_launch_gto", "_attach_existing_gto", "_resize_embedded", "_layout_embedded_gto_host"}
+          assert "self._layout_embedded_gto_host()" in method_sources["_resize_embedded"]
+          assert "place_configure(width=target_width, height=target_height)" in method_sources["_layout_embedded_gto_host"]
           assert method_sources["_launch_gto"].count('_schedule_embedded_gto_geometry_sync("launch")') == 1
           assert '_schedule_embedded_gto_geometry_sync("attach")' not in method_sources["_launch_gto"]
           assert method_sources["_attach_existing_gto"].count('_schedule_embedded_gto_geometry_sync("attach")') == 1
@@ -244,6 +317,11 @@ jobs:
           assert 'self._schedule_embedded_gto_geometry_sync("attach")' in main
           assert 'self._sync_embedded_gto_geometry("host-configure")' in main
           assert "resize_docked_window(host_width, host_height)" in main
+          assert "def _layout_embedded_gto_host" in main
+          assert "self.gto_viewport" in main
+          assert 'self.gto_viewport.bind("<Configure>", self._resize_embedded)' in main
+          assert "viewport_width / 665.0, viewport_height / 570.0" in main
+          assert "place_configure(width=target_width, height=target_height)" in main
           assert "self.after_idle(" in main and "self.after(" in main
           with open("staging/auto_hu_solve_candidate/live_range_builder.py",encoding="utf-8") as f: ast.parse(f.read())
           ui_source=pathlib.Path("staging/auto_hu_solve_candidate/auto_solve_ui.py").read_text(encoding="utf-8")
