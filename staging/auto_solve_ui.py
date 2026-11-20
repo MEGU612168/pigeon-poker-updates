@@ -9,6 +9,7 @@ against the baseline screenshot before the next click is allowed.
 from __future__ import annotations
 
 # Build marker: OOP/IP matrix ROIs calibrated; None-safe stage summaries; schema v18.
+# Rebuild trigger: rerun v1.3.68 after aligning Player 2 cleanup assertion.
 # Rebuild trigger: v1.3.68 exact Player 2 validation popup handling and guarded IP cleanup.
 # Rebuild trigger: move Board checks to generated JSON safety report validation.
 # Rebuild trigger: rerun v1.3.67 after aligning Build Tree close static assertion.
