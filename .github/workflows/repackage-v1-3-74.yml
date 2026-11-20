@@ -72,15 +72,13 @@ jobs:
           }
           for name, expected_blob in expected_v69_blobs.items():
               data = files[name]
-              git_blob = hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\\0" + data).hexdigest()
+              git_blob = hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + bytes([0]) + data).hexdigest()
               if git_blob != expected_blob:
                   raise SystemExit(f"{name} no longer matches the v1.3.69 range baseline.")
-          if any(blob not in expected_v69_blobs.values() for blob in []):
-              raise SystemExit("Unexpected range baseline.")
 
           main = files["PigeonPoker.pyw"].decode("utf-8")
-          old_start = '        self.show_page("lobby")\\n'
-          new_start = '        self.show_page("gto")\\n'
+          old_start = '        self.show_page("lobby")'
+          new_start = '        self.show_page("gto")'
           if main.count(old_start) != 1:
               raise SystemExit("Could not uniquely locate the initial Pigeon startup page.")
           main = main.replace(old_start, new_start, 1)
@@ -116,7 +114,7 @@ jobs:
                   ast.parse(data.decode("utf-8"), filename=name)
 
           files["PigeonPoker.pyw"] = main.encode("utf-8")
-          files["VERSION.txt"] = (target_version + "\\n").encode("ascii")
+          files["VERSION.txt"] = (target_version + chr(10)).encode("ascii")
 
           out = io.BytesIO()
           with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
@@ -142,7 +140,7 @@ jobs:
               (release_dir / name).write_text(final_b64[offset:offset + chunk_size], encoding="ascii")
               chunks.append(name)
           (release_dir / "payload.parts.json").write_text(
-              json.dumps({"parts": chunks}, indent=2) + "\\n", encoding="utf-8"
+              json.dumps({"parts": chunks}, indent=2) + chr(10), encoding="utf-8"
           )
 
           now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -169,9 +167,9 @@ jobs:
               "files": sorted(files),
           }
           (release_dir / "release.json").write_text(
-              json.dumps(release, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8"
+              json.dumps(release, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8"
           )
-          (release_dir / "payload.ready").write_text("verified " + target_version + "\\n", encoding="ascii")
+          (release_dir / "payload.ready").write_text("verified " + target_version + chr(10), encoding="ascii")
           stable = {
               "schema_version": 1,
               "product": "pigeon-poker",
@@ -189,7 +187,7 @@ jobs:
               "payload_size": len(final_payload),
           }
           (root / "stable.json").write_text(
-              json.dumps(stable, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8"
+              json.dumps(stable, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8"
           )
           (release_dir / "build.request").unlink(missing_ok=True)
           print(json.dumps({
