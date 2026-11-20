@@ -1,4 +1,4 @@
-name: Repackage verified Pigeon Poker v1.3.69 as v1.3.71
+name: Update Pigeon Poker v1.3.71 automatic GTO+ lifecycle
 
 on:
   push:
@@ -30,20 +30,20 @@ jobs:
           from io import BytesIO
 
           root = pathlib.Path(".")
-          source_version = "1.3.69"
+          source_version = "1.3.71"
           target_version = "1.3.71"
           release_dir = root / "releases" / ("v" + target_version)
 
           stable_path = root / "stable.json"
           stable = json.loads(stable_path.read_text(encoding="utf-8"))
           if stable.get("version") != source_version:
-              raise SystemExit("Stable channel must be v1.3.69 before creating this repackage.")
+              raise SystemExit("Stable channel must be v1.3.71 before rebuilding this update.")
 
           with urllib.request.urlopen(stable["payload_url"], timeout=90) as response:
               encoded_source = response.read().decode("ascii").strip()
           source_payload = base64.b64decode(encoded_source, validate=True)
           if len(source_payload) != int(stable["payload_size"]):
-              raise SystemExit("Source v1.3.69 package size mismatch.")
+              raise SystemExit("Source v1.3.71 package size mismatch.")
           if hashlib.sha256(source_payload).hexdigest() != stable["payload_sha256"]:
               raise SystemExit("Source v1.3.69 package SHA-256 mismatch.")
 
@@ -79,9 +79,174 @@ jobs:
           if not required.issubset(files):
               raise SystemExit("Source package is missing required full-app files.")
           if files["VERSION.txt"].decode("utf-8").strip() != source_version:
-              raise SystemExit("Source package VERSION.txt is not v1.3.69.")
+              raise SystemExit("Source package VERSION.txt is not v1.3.71.")
 
           main_text = files["PigeonPoker.pyw"].decode("utf-8")
+          # Automatically start GTO+ inside Pigeon and connect its local socket.
+          # Preserve process ownership so shutdown only closes the instance started
+          # or explicitly reattached by Pigeon.
+          old = "        self.gto_embedded = False\n        self.cpu_last_action ="
+          new = (
+              "        self.gto_embedded = False\n"
+              "        self.gto_owned_process_pid: int | None = None\n"
+              "        self._gto_attach_requested = False\n"
+              "        self._gto_auto_connect_requested = False\n"
+              "        self.cpu_last_action ="
+          )
+          if main_text.count(old) != 1:
+              raise SystemExit("Could not locate GTO ownership initialization.")
+          main_text = main_text.replace(old, new, 1)
+
+          startup_anchor = "        self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)\n"
+          if main_text.count(startup_anchor) != 1:
+              raise SystemExit("Could not locate Pigeon startup scheduling point.")
+          main_text = main_text.replace(
+              startup_anchor,
+              startup_anchor + "        self.after(1200, self._auto_start_gto_plus)\n",
+              1
+          )
+
+          helper_anchor = "    def _enable_socket(self):\n"
+          auto_helpers = (
+              "    def _auto_start_gto_plus(self):\n"
+              "        \\"\\"\\"Start the embedded GTO+ process and connect automatically on Pigeon startup.\\"\\"\\"\n"
+              "        if self._gto_attach_requested:\n"
+              "            return\n"
+              "        if self.gto_embedded:\n"
+              "            self.after(1000, self._auto_connect_gto_plus)\n"
+              "            return\n"
+              "        self.status_var.set(\\"GTO+ 自動起動中…\\")\n"
+              "        self._launch_gto()\n"
+              "        if self.gto_embedded:\n"
+              "            self.after(1500, self._auto_connect_gto_plus)\n"
+              "\n"
+              "    def _auto_connect_gto_plus(self):\n"
+              "        \\"\\"\\"Connect once after the embedded GTO+ window is ready.\\"\\"\\"\n"
+              "        if not self.gto_embedded or self._gto_auto_connect_requested:\n"
+              "            return\n"
+              "        client = getattr(self.integration, \\"_client\\", None)\n"
+              "        if client is not None and bool(getattr(client, \\"connected\\", False)):\n"
+              "            return\n"
+              "        self._gto_auto_connect_requested = True\n"
+              "        self._connect_gto()\n"
+              "\n"
+          )
+          if main_text.count(helper_anchor) != 1:
+              raise SystemExit("Could not locate GTO socket setup method.")
+          main_text = main_text.replace(helper_anchor, auto_helpers + helper_anchor, 1)
+
+          launch_anchor = (
+              "            hwnd = self.integration.launch_and_dock(host_hwnd, startup_timeout=25)\n"
+              "            self.gto_embedded = True\n"
+          )
+          launch_replacement = (
+              "            hwnd = self.integration.launch_and_dock(host_hwnd, startup_timeout=25)\n"
+              "            process = getattr(self.integration, \\"process\\", None)\n"
+              "            if process is not None:\n"
+              "                try:\n"
+              "                    self.gto_owned_process_pid = int(process.pid)\n"
+              "                except Exception:\n"
+              "                    self.gto_owned_process_pid = None\n"
+              "            self.gto_embedded = True\n"
+          )
+          if main_text.count(launch_anchor) != 1:
+              raise SystemExit("Could not locate GTO+ launch success block.")
+          main_text = main_text.replace(launch_anchor, launch_replacement, 1)
+
+          attach_anchor = (
+              "            hwnd = self.integration.attach_existing_and_dock(\n"
+              "                process_id, int(self.gto_host.winfo_id()), startup_timeout=15,\n"
+              "            )\n"
+              "            self.gto_embedded = True\n"
+          )
+          attach_replacement = (
+              "            hwnd = self.integration.attach_existing_and_dock(\n"
+              "                process_id, int(self.gto_host.winfo_id()), startup_timeout=15,\n"
+              "            )\n"
+              "            self.gto_owned_process_pid = int(process_id)\n"
+              "            self.gto_embedded = True\n"
+          )
+          if main_text.count(attach_anchor) != 1:
+              raise SystemExit("Could not locate existing GTO+ attach success block.")
+          main_text = main_text.replace(attach_anchor, attach_replacement, 1)
+
+          attach_sync_anchor = '            self._schedule_embedded_gto_geometry_sync("attach")\n'
+          if main_text.count(attach_sync_anchor) != 1:
+              raise SystemExit("Could not locate existing GTO+ attach completion block.")
+          main_text = main_text.replace(
+              attach_sync_anchor,
+              attach_sync_anchor + "            self.after(1200, self._auto_connect_gto_plus)\n",
+              1
+          )
+
+          close_anchor = (
+              "        try:\n"
+              "            self.integration.stop(detach=True, terminate=False)\n"
+              "        except Exception:\n"
+              "            pass\n"
+              "        self.destroy()\n"
+          )
+          close_replacement = (
+              "        # Detach the bridge first, then close only the exact GTO+ PID\n"
+              "        # owned by this Pigeon instance. Never kill GTO+ by image name.\n"
+              "        try:\n"
+              "            self.integration.stop(detach=True, terminate=False)\n"
+              "        except Exception:\n"
+              "            pass\n"
+              "        owned_pid = int(getattr(self, \\"gto_owned_process_pid\\", 0) or 0)\n"
+              "        if owned_pid > 0:\n"
+              "            try:\n"
+              "                if os.name == \\"nt\\":\n"
+              "                    subprocess.run(\n"
+              "                        [\\"taskkill\\", \\"/PID\\", str(owned_pid), \\"/T\\", \\"/F\\"],\n"
+              "                        check=False, stdout=subprocess.DEVNULL,\n"
+              "                        stderr=subprocess.DEVNULL, timeout=5,\n"
+              "                        creationflags=getattr(subprocess, \\"CREATE_NO_WINDOW\\", 0),\n"
+              "                    )\n"
+              "                else:\n"
+              "                    process = getattr(self.integration, \\"process\\", None)\n"
+              "                    if process is not None and process.poll() is None:\n"
+              "                        process.terminate()\n"
+              "            except Exception:\n"
+              "                try:\n"
+              "                    process = getattr(self.integration, \\"process\\", None)\n"
+              "                    if process is not None and process.poll() is None:\n"
+              "                        process.terminate()\n"
+              "                except Exception:\n"
+              "                    pass\n"
+              "        self.destroy()\n"
+          )
+          if main_text.count(close_anchor) != 1:
+              raise SystemExit("Could not locate Pigeon shutdown / GTO+ detach block.")
+          main_text = main_text.replace(close_anchor, close_replacement, 1)
+
+          main_anchor = (
+              "    app = PigeonPokerApp()\n"
+              "    if dock_pid is not None and dock_pid > 0:\n"
+              "        app.after(900, lambda pid=dock_pid: app._attach_existing_gto(pid))\n"
+          )
+          main_replacement = (
+              "    app = PigeonPokerApp()\n"
+              "    if dock_pid is not None and dock_pid > 0:\n"
+              "        app._gto_attach_requested = True\n"
+              "        app.gto_owned_process_pid = dock_pid\n"
+              "        app.after(900, lambda pid=dock_pid: app._attach_existing_gto(pid))\n"
+          )
+          if main_text.count(main_anchor) != 1:
+              raise SystemExit("Could not locate elevated relaunch attach dispatch.")
+          main_text = main_text.replace(main_anchor, main_replacement, 1)
+
+          for required_text in (
+              "def _auto_start_gto_plus(self):",
+              "def _auto_connect_gto_plus(self):",
+              "self.gto_owned_process_pid = int(process.pid)",
+              '["taskkill", "/PID", str(owned_pid), "/T", "/F"]',
+              "self.after(1200, self._auto_start_gto_plus)",
+          ):
+              if required_text not in main_text:
+                  raise SystemExit("Automatic GTO+ lifecycle patch is incomplete: " + required_text)
+          ast.parse(main_text, filename="PigeonPoker.pyw")
+
           ast.parse(main_text, filename="PigeonPoker.pyw")
           if 'version_label = "VERSION " + (ROOT / "VERSION.txt").read_text' not in main_text:
               raise SystemExit("App header no longer derives its displayed version from VERSION.txt.")
@@ -93,7 +258,7 @@ jobs:
                   ast.parse(content.decode("utf-8"), filename=name)
 
           # Only the version marker is changed. All functional application files
-          # are carried over byte-for-byte from the verified v1.3.69 package.
+          # are The original functional modules are retained; PigeonPoker.pyw receives the startup/shutdown lifecycle patch.
           files["VERSION.txt"] = (target_version + "\n").encode("utf-8")
 
           output_buffer = BytesIO()
@@ -146,7 +311,7 @@ jobs:
               "payload_size": len(payload),
               "files": sorted(files),
               "source_version": source_version,
-              "version_only_repackage": True
+              "automatic_gto_lifecycle": True
           }
           (release_dir / "release.json").write_text(
               json.dumps(release_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -186,5 +351,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+users.noreply.github.com"
           git add stable.json releases/v1.3.71/
-          git commit -m "Release Pigeon Poker v1.3.71 based on verified v1.3.69"
+          git commit -m "Update Pigeon Poker v1.3.71 automatic GTO+ startup and shutdown"
           git push
