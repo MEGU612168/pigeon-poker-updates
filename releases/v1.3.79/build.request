@@ -1,1 +1,1 @@
-Build v1.3.79 from full extracted v1.3.77 source, preserve auto GTO lifecycle methods and v1.3.69 range files; apply only 1320x676 native zoom fit to fixed Pigeon frame.
+Retry v1.3.79 after adding the missing base64 packager import; all application source, GTO lifecycle, range, geometry and syntax checks had passed.
