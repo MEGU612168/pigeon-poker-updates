@@ -422,6 +422,111 @@ def test_range_aware_policy_reports_caller_conditioned_ev_inputs():
     assert "multiway response model" in decision.note
 
 
+
+def _average_fallback_preflop_strength(rows):
+    total = sum(weight for _, weight in rows)
+    return sum(
+        weight * module._preflop_strength(module._cards_to_class(combo))
+        for combo, weight in rows
+    ) / max(1e-9, total)
+
+
+def test_uncovered_preflop_ranges_tighten_for_larger_raises_and_expensive_calls():
+    players = [FakePlayer("hero", ("As", "Ah")), FakePlayer("villain")]
+
+    def fallback(action, *, target=250, to_call=50, pot_before=1000):
+        hand = FakeHand(players, pot=pot_before, street="preflop", to_call=to_call)
+        hand.events = [{
+            "type": "action", "street": "preflop", "player": "villain",
+            "action": action, "target": target, "paid": to_call,
+            "pot_before": pot_before, "to_call_before": to_call,
+        }]
+        return module._fallback_preflop_range(hand, "villain", {"As", "Ah"})[0]
+
+    small_raise = fallback("raise", target=250)
+    oversized_raise = fallback("raise", target=1000)
+    cheap_call = fallback("call", to_call=50, pot_before=1000)
+    expensive_call = fallback("call", to_call=1000, pot_before=1000)
+    assert _average_fallback_preflop_strength(oversized_raise) > _average_fallback_preflop_strength(small_raise)
+    assert _average_fallback_preflop_strength(expensive_call) > _average_fallback_preflop_strength(cheap_call)
+
+
+def test_unacted_players_enter_less_often_after_a_large_open():
+    def participation_for(target):
+        players = [
+            FakePlayer("hero", ("As", "Ah")),
+            FakePlayer("UTG"),
+            FakePlayer("BTN"),
+        ]
+        hand = FakeHand(players, pot=400, street="preflop", to_call=target)
+        hand.events = [{
+            "type": "action", "street": "preflop", "player": "UTG",
+            "action": "raise", "target": target, "paid": target,
+            "pot_before": 75, "to_call_before": 0,
+        }]
+        ranges = module.infer_opponent_ranges(
+            FakeTable(), hand, "hero", sample_estimator
+        )
+        return ranges["BTN"].participation_probability
+
+    standard_open = participation_for(250)
+    large_open = participation_for(1000)
+    assert large_open < standard_open
+
+
+def test_co_aces_continue_against_utg_open_and_hj_three_bet():
+    players = [
+        FakePlayer("UTG", ("2c", "3d")),
+        FakePlayer("HJ", ("4c", "5d")),
+        FakePlayer("CO", ("As", "Ah")),
+        FakePlayer("BTN", ("6c", "7d")),
+        FakePlayer("SB", ("8c", "9d")),
+        FakePlayer("BB", ("Tc", "Jd")),
+    ]
+    hand = FakeHand(players, pot=1200, to_call=800,
+                    actions=("fold", "call", "raise"), min_target=1000)
+    hand.events = [
+        {"type": "action", "street": "preflop", "player": "UTG", "action": "raise",
+         "target": 250, "paid": 250, "pot_before": 75, "to_call_before": 0},
+        {"type": "action", "street": "preflop", "player": "HJ", "action": "raise",
+         "target": 800, "paid": 550, "pot_before": 325, "to_call_before": 250},
+    ]
+    decision = module.choose_range_aware_action(
+        FakeTable(), hand, "CO", FakeCPU(5), range_estimator=sample_estimator
+    )
+    assert decision.source == "range-aware-policy"
+    assert decision.action in {"call", "raise"}
+
+
+def test_all_cpu_levels_choose_a_legal_action_in_the_same_multiway_spot():
+    for level in range(1, 6):
+        players = [
+            FakePlayer("hero", ("As", "Ah")),
+            FakePlayer("UTG", ("2c", "3d")),
+            FakePlayer("HJ", ("4c", "5d")),
+            FakePlayer("BTN", ("8c", "9d")),
+        ]
+        hand = FakeHand(
+            players, board=("Jh", "7d", "2c"), pot=1600, street="flop",
+            to_call=500, actions=("fold", "call", "raise"), min_target=1000,
+        )
+        hand.events = [
+            {"type": "action", "street": "preflop", "player": "UTG", "action": "raise",
+             "target": 250, "paid": 250, "pot_before": 75, "to_call_before": 0},
+            {"type": "action", "street": "preflop", "player": "HJ", "action": "call",
+             "target": 250, "paid": 250, "pot_before": 325, "to_call_before": 250},
+            {"type": "street", "street": "flop", "board": ["Jh", "7d", "2c"]},
+            {"type": "action", "street": "flop", "player": "UTG", "action": "check",
+             "target": 0, "paid": 0, "pot_before": 800, "to_call_before": 0},
+        ]
+        decision = module.choose_range_aware_action(
+            FakeTable(), hand, "hero", FakeCPU(level),
+            range_estimator=sample_estimator,
+        )
+        assert decision.source == "range-aware-policy"
+        assert decision.action in {"fold", "call", "raise"}
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
