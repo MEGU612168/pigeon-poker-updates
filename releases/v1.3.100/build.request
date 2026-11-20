@@ -1,1 +1,1 @@
-Retry Stable v1.3.100 build after correcting updater method indentation.
+Retry v1.3.100 after fixing YAML heredoc indentation; retain the immutable 75-node chart.
