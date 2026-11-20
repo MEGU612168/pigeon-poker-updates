@@ -87,7 +87,7 @@ jobs:
           base_indent = ""
           search_pos = refresh_start
           while search_pos < len(main):
-              line_end = main.find("\\n", search_pos)
+              line_end = main.find("\n", search_pos)
               if line_end < 0:
                   line_end = len(main)
               line = main[search_pos:line_end]
@@ -101,11 +101,11 @@ jobs:
           hero_condition_pos = hero_start + len(base_indent)
           actor_marker = 'actor = hand.player(hand.next_to_act).name if hand.next_to_act else "CPU"'
           actor_pos = main.index(actor_marker, hero_condition_pos)
-          actor_line_start = main.rfind("\\n", hero_condition_pos, actor_pos) + 1
+          actor_line_start = main.rfind("\n", hero_condition_pos, actor_pos) + 1
           hero_end = None
           search_pos = hero_start
           while search_pos < actor_line_start:
-              line_end = main.find("\\n", search_pos)
+              line_end = main.find("\n", search_pos)
               if line_end < 0 or line_end > actor_line_start:
                   line_end = actor_line_start
               line = main[search_pos:line_end]
