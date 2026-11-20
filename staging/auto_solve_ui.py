@@ -13,6 +13,7 @@ from __future__ import annotations
 # Rebuild trigger: remove second post-success report check, keep one OOP multi-hand gate.
 # Rebuild trigger: normalize final multi-hand exception label.
 # Rebuild trigger: remove exact legacy AA-only report validation block.
+# v1.3.59 trigger: publish unique version for the corrected single multi-hand completion gate.
 # PigeonPoker completion gate: exactly one OOP multi-hand validator, v1.3.58.
 
 import argparse
