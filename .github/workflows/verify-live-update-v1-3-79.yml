@@ -26,6 +26,7 @@ jobs:
           import json
           import pathlib
           import sys
+          import tempfile
           import zipfile
 
           source = pathlib.Path("staging/source_1_3_77/pigeon_updater.py")
