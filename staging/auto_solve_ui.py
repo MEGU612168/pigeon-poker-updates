@@ -446,7 +446,8 @@ def _dismiss_exact_gto_message_with_ok(user32, target_pid: int,
 
 
 def _commit_verified_player2_editor_after_prompt(
-    user32, RECT, POINT, target_hwnd: int, target_pid: int,
+    user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+    target_hwnd: int, target_pid: int,
     before_path: str, output_dir: Path, stem: str,
     actions: list[dict[str, Any]], all_captures: list[dict[str, Any]],
     label: str,
@@ -514,6 +515,28 @@ def _commit_verified_player2_editor_after_prompt(
     result["editor_closed_verified"] = not remaining
     result["remaining_source_edits"] = len(remaining)
     result["test_range_preserved"] = True
+    if not remaining:
+        closed_windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, label + "_verified_main"
+        )
+        all_captures.extend(w["capture"] for w in closed_windows)
+        closed_path = _root_capture_path(closed_windows, label + "_verified_main")
+        before_ip = _bmp_matrix_center_signature(before_path, _IP_MATRIX_RECT)
+        after_ip = _bmp_matrix_center_signature(closed_path, _IP_MATRIX_RECT)
+        result["post_done_screenshot"] = closed_path
+        result["post_done_ip_matrix_signature"] = after_ip
+        result["ip_matrix_matches_pre_build_tree"] = (
+            after_ip["samples"] == before_ip["samples"]
+        )
+        result["post_done_editor_difference"] = _bmp_region_difference_ratio(
+            before_path, closed_path, _RANGE_EDITOR_VERIFY_ROI
+        )
+        result["editor_closed_verified"] = bool(
+            not probe._batch_visible_source_edits(user32, RECT, target_hwnd)
+            and result["ip_matrix_matches_pre_build_tree"]
+            and result["post_done_editor_difference"]["ratio"] <= 0.01
+        )
     result["status"] = (
         "player2_test_range_done_committed"
         if result["editor_closed_verified"]
@@ -648,7 +671,8 @@ def _run_build_tree_dialog_probe(
             after_ok_windows, after_ok_path = capture("player2_validation_after_ok")
             result["player2_validation_after_ok_screenshot"] = after_ok_path
             recovery = _commit_verified_player2_editor_after_prompt(
-                user32, RECT, POINT, target_hwnd, target_pid,
+                user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                target_hwnd, target_pid,
                 before_path, output_dir, stem, actions, all_captures,
                 "player2_validation_after_done",
             )
@@ -1398,7 +1422,11 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             if build_tree_sequence["dialog_opened"]
             and build_tree_sequence["dialog_closed_verified"]
             and build_tree_sequence["all_test_inputs_restored"]
-            else "build_tree_dialog_not_detected_but_test_inputs_restored"
+            else "player2_range_validation_failed_but_test_inputs_restored"
+            if build_tree_dialog_probe
+            and build_tree_dialog_probe.get("player2_range_validation_seen")
+            and build_tree_sequence["all_test_inputs_restored"]
+            else "build_tree_dialog_not_identified_but_test_inputs_restored"
             if not build_tree_sequence["dialog_opened"]
             and build_tree_sequence["all_test_inputs_restored"]
             else "build_tree_probe_incomplete_or_cleanup_not_verified"
