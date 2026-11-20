@@ -115,19 +115,19 @@ jobs:
                   except tk.TclError:
                       pass
 
-"""
+              """
 
               workspace_old = (
-                  "        self.gto_host = tk.Frame(host_col, bg=\\"#080f18\\", height=570)" + chr(10)
-                  + "        self.gto_host.pack(fill=\\"both\\", expand=True, padx=8, pady=8)" + chr(10)
-                  + "        self.gto_host.bind(\\"<Configure>\\", self._resize_embedded)" + chr(10)
+                  "        self.gto_host = tk.Frame(host_col, bg=\"#080f18\", height=570)" + chr(10)
+                  + "        self.gto_host.pack(fill=\"both\", expand=True, padx=8, pady=8)" + chr(10)
+                  + "        self.gto_host.bind(\"<Configure>\", self._resize_embedded)" + chr(10)
               )
               workspace_new = (
-                  "        self.gto_viewport = tk.Frame(host_col, bg=\\"#080f18\\")" + chr(10)
-                  + "        self.gto_viewport.pack(fill=\\"both\\", expand=True, padx=8, pady=8)" + chr(10)
-                  + "        self.gto_host = tk.Frame(self.gto_viewport, bg=\\"#080f18\\", width=665, height=570)" + chr(10)
-                  + "        self.gto_host.place(relx=.5, rely=.5, anchor=\\"center\\", width=665, height=570)" + chr(10)
-                  + "        self.gto_viewport.bind(\\"<Configure>\\", self._resize_embedded)" + chr(10)
+                  "        self.gto_viewport = tk.Frame(host_col, bg=\"#080f18\")" + chr(10)
+                  + "        self.gto_viewport.pack(fill=\"both\", expand=True, padx=8, pady=8)" + chr(10)
+                  + "        self.gto_host = tk.Frame(self.gto_viewport, bg=\"#080f18\", width=665, height=570)" + chr(10)
+                  + "        self.gto_host.place(relx=.5, rely=.5, anchor=\"center\", width=665, height=570)" + chr(10)
+                  + "        self.gto_viewport.bind(\"<Configure>\", self._resize_embedded)" + chr(10)
               )
               if main.count(workspace_old) != 1:
                   raise SystemExit("Could not uniquely locate the GTO+ workspace host block")
