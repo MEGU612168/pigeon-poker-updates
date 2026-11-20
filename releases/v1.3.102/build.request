@@ -1,1 +1,1 @@
-Build only if the v1.3.101 pinned package passes chart regression, multiway reasoning, postflop range update, no-stop guardrail, AST and ZIP integrity checks.
+Build Stable v1.3.102 from source_1_3_101 with restored postflop action controls. Run UI, preflop and range tests, then publish the minimal updater payload.
