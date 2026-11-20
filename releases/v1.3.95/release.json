@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.95",
+  "published_at": "2026-11-20T16:44:09Z",
+  "package_mode": "full",
+  "release_notes": "プリフロップは全CPUレベル共通で、スクリーンショット由来の75局面・12,675ハンドクラスを機械的に実行。プリフロップでは旧CPUの判断・レベル別逸脱を一切使用せず、対応局面が見つからない場合も未学習の行動を実行せず停止。CPUレベルの差はポストフロップのみ。50局面のレイズ先額、20局面のオールイン分岐、100BB・6人配札ガード、ブロッカー補正付き相手レンジ推定、GTO+ ENGINEを通常利用経路から外した状態を維持。スクリーンショットの頻度は169ハンドクラスの近似であり、ソルバー生コンボ頻度ではない。",
+  "payload_sha256": "931f5d2a7ae6065a93ae15d1d579a405d8b14fb1ebae29cc0cfa0f2f5e8499b5",
+  "payload_size": 265842,
+  "source_version": "1.3.94",
+  "preflop_node_count": 75,
+  "hand_classes_per_node": 169,
+  "preflop_hand_rows": 12675,
+  "nodes_with_raise_actions": 50,
+  "nodes_with_allin_actions": 20,
+  "preflop_mechanical_all_cpu_levels": true,
+  "legacy_cpu_preflop_fallback": false,
+  "preflop_uncovered_spot_behavior": "stop_without_executing_an_untrained_action",
+  "cpu_level_differences_apply_to": [
+    "postflop"
+  ],
+  "opponent_range_blocker_adjustment": true,
+  "gto_plus_engine_removed_from_runtime": true,
+  "regression_test_count": 21,
+  "regression_tests": "Passed in GitHub Actions; package AST/CRC and live runtime patch checks",
+  "frequency_method": "screenshot-colour-area estimated hand-class frequencies calibrated to displayed action totals; not solver-exact combo frequencies",
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/preflop_screenshot_ranges.py",
+    "pigeon_updater.py"
+  ]
+}
