@@ -150,6 +150,7 @@ jobs:
                   raise SystemExit("Expected one or two multi-hand validators before deduplication; found "+str(gate_count))
               if main.count(final_gate) != 1:
                   raise SystemExit("Exactly one multi-hand success gate must remain")
+              main = main.replace("[AA可逆テスト]", "[OOP複数ハンド可逆テスト]")
               if "oop_aa_only_matrix_reflection_verified" in main or "[AA可逆テスト]" in main:
                   raise SystemExit("Legacy AA-only success criteria or messages remain")
               target=root/"pigeon_gto_plus"/"live_range_builder.py"
