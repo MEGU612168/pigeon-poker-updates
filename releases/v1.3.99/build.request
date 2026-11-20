@@ -1,2 +1,3 @@
 Build Stable v1.3.99 from exact v1.3.98: preflop fixed BB only, restore legacy postflop controls, add withdrawable balance to the Cashier depositable amount and support atomic redeposit.
 Retry build after correcting YAML run-block indentation.
+Retry build with CPU watchdog check aligned to cash_cpu_timeout.
