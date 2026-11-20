@@ -153,56 +153,51 @@ jobs:
           schedule_start = main.find("    def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:\n", sync_start)
           if sync_start < 0 or schedule_start < 0:
               raise SystemExit("Could not locate embedded GTO+ geometry methods.")
-          geometry_methods = '''    def _layout_embedded_gto_host(self) -> bool:
-              """Uniformly fit the complete 665x570 GTO+ surface inside the unchanged frame."""
-              try:
-                  self.update_idletasks()
-                  viewport_width = int(self.gto_viewport.winfo_width())
-                  viewport_height = int(self.gto_viewport.winfo_height())
-                  if viewport_width < 2 or viewport_height < 2:
-                      return False
-                  scale = min(viewport_width / 665.0, viewport_height / 570.0, 1.0)
-                  if scale <= 0:
-                      return False
-                  target_width = max(2, int(round(665 * scale)))
-                  target_height = max(2, int(round(570 * scale)))
-                  current_size = (
-                      int(self.gto_host.winfo_width()),
-                      int(self.gto_host.winfo_height()),
-                  )
-                  if current_size != (target_width, target_height):
-                      self.gto_host.place_configure(
-                          width=target_width, height=target_height,
-                      )
-                  self._gto_display_scale = scale
-                  return True
-              except (tk.TclError, ZeroDivisionError, ValueError):
-                  return False
-
-          def _sync_embedded_gto_geometry(self, reason: str = "") -> bool:
-              """Resize GTO+ to the fitted inner viewport without resizing the Pigeon frame."""
-              if not self.gto_embedded or not getattr(self.integration, "embedder", None):
-                  return False
-              try:
-                  self.update_idletasks()
-                  if not self._layout_embedded_gto_host():
-                      raise RuntimeError("GTO+ viewport has no usable client area")
-                  host_width = int(self.gto_host.winfo_width())
-                  host_height = int(self.gto_host.winfo_height())
-                  if host_width < 2 or host_height < 2:
-                      raise RuntimeError(f"invalid GTO+ host client geometry: {host_width}x{host_height}")
-                  self.integration.resize_docked_window(host_width, host_height)
-                  self.update_idletasks()
-                  return True
-              except Exception as exc:
-                  try:
-                      suffix = f" ({reason})" if reason else ""
-                      self.status_var.set(f"GTO+表示位置・サイズの再同期に失敗{suffix}: {exc}")
-                  except Exception:
-                      pass
-                  return False
-
-          '''
+          geometry_methods = "\n".join([
+              "    def _layout_embedded_gto_host(self) -> bool:",
+              "        \"\"\"Uniformly fit the complete 665x570 GTO+ surface inside the unchanged frame.\"\"\"",
+              "        try:",
+              "            self.update_idletasks()",
+              "            viewport_width = int(self.gto_viewport.winfo_width())",
+              "            viewport_height = int(self.gto_viewport.winfo_height())",
+              "            if viewport_width < 2 or viewport_height < 2:",
+              "                return False",
+              "            scale = min(viewport_width / 665.0, viewport_height / 570.0, 1.0)",
+              "            if scale <= 0:",
+              "                return False",
+              "            target_width = max(2, int(round(665 * scale)))",
+              "            target_height = max(2, int(round(570 * scale)))",
+              "            current_size = (int(self.gto_host.winfo_width()), int(self.gto_host.winfo_height()))",
+              "            if current_size != (target_width, target_height):",
+              "                self.gto_host.place_configure(width=target_width, height=target_height)",
+              "            self._gto_display_scale = scale",
+              "            return True",
+              "        except (tk.TclError, ZeroDivisionError, ValueError):",
+              "            return False",
+              "",
+              "    def _sync_embedded_gto_geometry(self, reason: str = \"\") -> bool:",
+              "        \"\"\"Resize GTO+ to the fitted inner viewport without resizing the Pigeon frame.\"\"\"",
+              "        if not self.gto_embedded or not getattr(self.integration, \"embedder\", None):",
+              "            return False",
+              "        try:",
+              "            self.update_idletasks()",
+              "            if not self._layout_embedded_gto_host():",
+              "                raise RuntimeError(\"GTO+ viewport has no usable client area\")",
+              "            host_width = int(self.gto_host.winfo_width())",
+              "            host_height = int(self.gto_host.winfo_height())",
+              "            if host_width < 2 or host_height < 2:",
+              "                raise RuntimeError(f\"invalid GTO+ host client geometry: {host_width}x{host_height}\")",
+              "            self.integration.resize_docked_window(host_width, host_height)",
+              "            self.update_idletasks()",
+              "            return True",
+              "        except Exception as exc:",
+              "            try:",
+              "                suffix = f\" ({reason})\" if reason else \"\"",
+              "                self.status_var.set(f\"GTO+表示位置・サイズの再同期に失敗{suffix}: {exc}\")",
+              "            except Exception:",
+              "                pass",
+              "            return False"
+          ]) + "\n"
           main = main[:sync_start] + geometry_methods + main[schedule_start:]
 
           schedule_old = '''    def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:
@@ -270,53 +265,41 @@ jobs:
           main = replace_once(main, startup_anchor, startup_insert, "startup update availability check")
 
           update_method_anchor = "    def _begin_app_update(self):\n"
-          update_method = '''    def _refresh_update_button_state(self):
-              """Check only the stable manifest; do not download when no update exists."""
-              if getattr(self, "_update_check_active", False) or getattr(self, "_update_in_progress", False):
-                  return
-              self._update_check_active = True
-              try:
-                  self.update_button.configure(
-                      state="disabled", style="MutedUpdate.TButton", text="CHECKING…",
-                  )
-              except tk.TclError:
-                  return
-
-              def on_result(available: bool, current: str, candidate: str):
-                  def apply_result():
-                      self._update_check_active = False
-                      if available:
-                          self.update_button.configure(
-                              state="normal", style="Accent.TButton", text="UPDATE NOW",
-                              command=self._begin_app_update,
-                          )
-                          self.update_status_var.set(f"Update {candidate} available (current {current}).")
-                      else:
-                          self.update_button.configure(
-                              state="disabled", style="MutedUpdate.TButton", text="UP TO DATE",
-                          )
-                          self.update_status_var.set(f"Pigeon Poker is up to date ({current}).")
-                  try:
-                      self.after(0, apply_result)
-                  except tk.TclError:
-                      pass
-
-              def on_error(error: str):
-                  def apply_error():
-                      self._update_check_active = False
-                      self.update_button.configure(
-                          state="normal", style="RetryUpdate.TButton", text="RETRY CHECK",
-                          command=self._refresh_update_button_state,
-                      )
-                      self.update_status_var.set(f"Update check failed: {error}")
-                  try:
-                      self.after(0, apply_error)
-                  except tk.TclError:
-                      pass
-
-              start_update_availability_check(ROOT, on_result, on_error)
-
-          '''
+          update_method = "\n".join([
+              "    def _refresh_update_button_state(self):",
+              "        \"\"\"Check only the stable manifest; do not download when no update exists.\"\"\"",
+              "        if getattr(self, \"_update_check_active\", False) or getattr(self, \"_update_in_progress\", False):",
+              "            return",
+              "        self._update_check_active = True",
+              "        try:",
+              "            self.update_button.configure(state=\"disabled\", style=\"MutedUpdate.TButton\", text=\"CHECKING…\")",
+              "        except tk.TclError:",
+              "            self._update_check_active = False",
+              "            return",
+              "        def on_result(available: bool, current: str, candidate: str):",
+              "            def apply_result():",
+              "                self._update_check_active = False",
+              "                if available:",
+              "                    self.update_button.configure(state=\"normal\", style=\"Accent.TButton\", text=\"UPDATE NOW\", command=self._begin_app_update)",
+              "                    self.update_status_var.set(f\"Update {candidate} available (current {current}).\")",
+              "                else:",
+              "                    self.update_button.configure(state=\"disabled\", style=\"MutedUpdate.TButton\", text=\"UP TO DATE\")",
+              "                    self.update_status_var.set(f\"Pigeon Poker is up to date ({current}).\")",
+              "            try:",
+              "                self.after(0, apply_result)",
+              "            except tk.TclError:",
+              "                pass",
+              "        def on_error(error: str):",
+              "            def apply_error():",
+              "                self._update_check_active = False",
+              "                self.update_button.configure(state=\"normal\", style=\"RetryUpdate.TButton\", text=\"RETRY CHECK\", command=self._refresh_update_button_state)",
+              "                self.update_status_var.set(f\"Update check failed: {error}\")",
+              "            try:",
+              "                self.after(0, apply_error)",
+              "            except tk.TclError:",
+              "                pass",
+              "        start_update_availability_check(ROOT, on_result, on_error)"
+          ]) + "\n"
           if main.count(update_method_anchor) != 1:
               raise SystemExit("Could not uniquely locate the app update handler.")
           main = main.replace(update_method_anchor, update_method + update_method_anchor, 1)
