@@ -9,6 +9,7 @@ against the baseline screenshot before the next click is allowed.
 from __future__ import annotations
 
 # Build marker: OOP/IP matrix ROIs calibrated; None-safe stage summaries; schema v18.
+# Rebuild trigger: align v1.3.69 main UI button assertion.
 # Rebuild trigger: align Player 2 safe-cleanup assertions with current code.
 # Rebuild trigger: click Player 2 Source before native Edit discovery; preserve manual-close state.
 # Rebuild trigger: align dialog detection tests to require a Build Tree signature.
