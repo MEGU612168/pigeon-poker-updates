@@ -9,6 +9,7 @@ against the baseline screenshot before the next click is allowed.
 from __future__ import annotations
 
 # Build marker: OOP/IP matrix ROIs calibrated; None-safe stage summaries; schema v18.
+# Rebuild trigger: include Board roundtrip result fields in the top-level safety report.
 # Rebuild trigger: rerun v1.3.65 Board selector CI after updating stale assertions.
 # Rebuild trigger: validate actual GTO+ Board card selection As/Kd/7c and Clear/Done restoration.
 # Rebuild trigger: split launch/attach GTO+ geometry sync hooks and validate method ownership.
