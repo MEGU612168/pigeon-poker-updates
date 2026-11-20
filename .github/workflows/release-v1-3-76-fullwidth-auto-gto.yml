@@ -149,26 +149,22 @@ jobs:
 
           # Record explicit ownership so Pigeon can close the exact GTO+ process
           # it started, including the one left behind by the previous 1.3.75 app.
-          old_gto_state = (
-              '        self.tree_file: Path | None = (\\n'
-              '            preferred_tree if preferred_tree.is_file() else (self.tree_files[-1] if self.tree_files else None)\\n'
-              '        )\\n'
-              '        self.gto_embedded = False\\n'
-              '        self.cpu_last_action = tk.StringVar(value="CPUはまだGTO+の戦略を使っていません")\\n'
+          init_anchor = '        self.tree_file: Path | None = (\n'
+          if main.count(init_anchor) != 1:
+              raise SystemExit("Could not uniquely locate constructor tree-file state.")
+          init_start = main.index(init_anchor)
+          gto_state_anchor = '        self.gto_embedded = False\n'
+          state_index = main.find(gto_state_anchor, init_start)
+          if state_index < 0:
+              raise SystemExit("Could not locate GTO+ initialization state in constructor.")
+          insert_at = state_index + len(gto_state_anchor)
+          added_state = (
+              '        self.gto_launched_by_pigeon = False\n'
+              '        self.gto_owned_pid: int | None = None\n'
+              '        self._gto_auto_start_finished = False\n'
+              '        self._gto_auto_connect_inflight = False\n'
           )
-          new_gto_state = (
-              '        self.tree_file: Path | None = (\\n'
-              '            preferred_tree if preferred_tree.is_file() else (self.tree_files[-1] if self.tree_files else None)\\n'
-              '        )\\n'
-              '        self.gto_embedded = False\\n'
-              '        self.gto_launched_by_pigeon = False\\n'
-              '        self.gto_owned_pid: int | None = None\\n'
-              '        self._gto_auto_start_finished = False\\n'
-              '        self._gto_auto_connect_inflight = False\\n'
-              '        self.cpu_last_action = tk.StringVar(value="CPUはまだGTO+の戦略を使っていません")\\n'
-          )
-          main = replace_once(main, old_gto_state, new_gto_state, "GTO+ ownership state")
-
+          main = main[:insert_at] + added_state + main[insert_at:]
           startup_old = (
               '        self._build_pokercraft_page()\n'
               '        self.show_page("lobby")\n'
