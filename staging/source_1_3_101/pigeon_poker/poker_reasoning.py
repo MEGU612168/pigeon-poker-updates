@@ -138,20 +138,41 @@ def _fallback_preflop_range(hand: Any, player_id: str,
         1 for event in all_preflop[:max(0, latest_pos)]
         if _event_action(event) in {"raise", "allin"}
     )
+    big_blind = max(1, int(getattr(hand, "big_blind", 1) or 1))
+    raise_size_anchors = (2.3, 7.5, 17.0, 28.0)
     if action == "unacted":
         # Model an unacted seat's conditional continue-range rather than
-        # pretending every unseen hand always calls. More raises in front
-        # tighten that hypothetical continue-range substantially.
+        # pretending every unseen hand always calls. More raises and larger
+        # sizing in front reduce both range width and entry probability.
         cutoff = {0: 0.34, 1: 0.55, 2: 0.73, 3: 0.84}.get(min(3, prior_raises), 0.88)
         unacted_source = True
+        previous_raise = next(
+            (event for event in reversed(all_preflop)
+             if _event_action(event) in {"raise", "allin"}),
+            None,
+        )
+        if previous_raise is not None:
+            target_bb = max(0.0, float(previous_raise.get("target", previous_raise.get("paid", 0)) or 0) / big_blind)
+            anchor = raise_size_anchors[min(3, max(0, prior_raises - 1))]
+            if target_bb > anchor:
+                cutoff += min(0.08, (target_bb / max(1.0, anchor) - 1.0) * 0.08)
     elif action in {"raise", "allin"}:
         cutoff = {0: 0.57, 1: 0.72, 2: 0.83, 3: 0.90}.get(min(3, prior_raises), 0.92)
         unacted_source = False
+        target_bb = max(0.0, float(latest.get("target", latest.get("paid", 0)) or 0) / big_blind)
+        anchor = raise_size_anchors[min(3, prior_raises)]
+        size_ratio = target_bb / max(1.0, anchor)
+        cutoff += max(-0.06, min(0.16, (size_ratio - 1.0) * 0.12))
     elif action == "call":
         cutoff = {0: 0.28, 1: 0.46, 2: 0.60, 3: 0.72}.get(min(3, prior_raises), 0.78)
         unacted_source = False
+        call_cost = max(0.0, float(latest.get("to_call_before", 0) or 0))
+        pot_before = max(1.0, float(latest.get("pot_before", 1) or 1))
+        price_ratio = call_cost / pot_before
+        cutoff += min(0.08, max(0.0, price_ratio - 0.20) * 0.10)
     else:
         return _uniform_combos(blockers), "unsupported-action-uniform", 0.10
+    cutoff = max(0.05, min(0.97, cutoff))
 
     classes: list[str] = []
     for high_index in range(len(RANKS) - 1, 0, -1):
@@ -263,8 +284,11 @@ def _action_likelihood(action: str, made: float, draw: float,
         likelihood = 0.90 - 0.58 * made + 0.10 * draw
         return max(0.12, min(1.0, likelihood))
     if value in {"call", "allin_call", "all_in_call"}:
-        likelihood = 0.05 + 0.82 * made + 0.34 * draw
-        return max(0.025, min(1.0, likelihood))
+        support = max(0.025, min(1.0, 0.05 + 0.82 * made + 0.34 * draw))
+        # An expensive call is more selective: marginal combos lose weight
+        # faster than top-pair, set and draw-heavy combos.
+        likelihood = support ** (1.0 + 0.30 * min(2.0, size))
+        return max(0.015, min(1.0, likelihood))
     if value in {"raise", "bet", "allin", "all_in", "jam", "shove"}:
         if size <= 0.33:
             likelihood = 0.16 + 0.48 * made + 0.26 * draw
