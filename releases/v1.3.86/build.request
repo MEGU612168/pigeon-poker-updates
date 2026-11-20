@@ -1,1 +1,0 @@
-Build Pigeon Poker v1.3.86 from verified stable v1.3.85; align embedded GTO+ visible origin to left=14px/top=38px relative to its viewport, preserve aspect ratio and prevent bottom clipping; keep v1.3.85 live updater and range baseline.
