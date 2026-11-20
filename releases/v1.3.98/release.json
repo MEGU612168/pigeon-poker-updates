@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.98",
+  "published_at": "2026-11-20T17:23:19Z",
+  "package_mode": "full",
+  "release_notes": "プリフロップを人間・CPU共通の75局面チャートに固定。人間側はFOLD / CALL（CHECK）/ チャート指定BBのRAISEのみ表示し、任意のレイズ額は受け付けない。CPUにもプレイヤーと同じストリート別持ち時間を適用し、時間切れ時は可能ならCHECK、それ以外はFOLDして手を進行。出金操作はウォレット残高から出金可能額への振替に変更し、過去のSimulated wallet debitも初回移行で出金可能額に復元。初回配札は飛行アニメーションを2フレーム化し、カード間待機と公開待機も短縮。離席ボタンの同位置再開切替、固定フォールドボタン、ポストフロップのみCPUレベル差は維持。",
+  "payload_sha256": "ddd66141b88c37cc25f5e9564b62ca786a22dde80a02b4a13a45b1291c8b7591",
+  "payload_size": 1075468,
+  "source_version": "1.3.97",
+  "preflop_human_and_cpu_use_same_75_node_chart": true,
+  "preflop_human_actions": [
+    "fold",
+    "call_or_check",
+    "chart_fixed_raise_bb"
+  ],
+  "preflop_freeform_raise_sizes_disabled": true,
+  "cpu_action_clock_matches_hero_by_street": true,
+  "cpu_timeout_action": "check_if_legal_else_fold",
+  "withdrawals_transfer_to_withdrawable_balance": true,
+  "legacy_simulated_withdrawals_restored_once": true,
+  "initial_hole_card_animation_frames": 2,
+  "deal_between_card_delay_ms": 1,
+  "sitout_resume_uses_existing_utility_button": true,
+  "persistent_fold_widget_across_cpu_and_hero_states": true,
+  "fold_button_position_stable": true,
+  "preflop_mechanical_all_cpu_levels": true,
+  "cpu_level_differences_apply_to": [
+    "postflop"
+  ],
+  "package_ast_and_zip_crc": "passed",
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/preflop_screenshot_ranges.py",
+    "pigeon_updater.py"
+  ]
+}
