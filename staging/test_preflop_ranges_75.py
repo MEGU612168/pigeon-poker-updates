@@ -212,6 +212,63 @@ def test_all_12675_rows_and_every_positive_action_choice():
     assert active_rows>0 and tested_choices>active_rows
 
 
+
+def test_unsupported_preflop_fallback_call_is_blocked():
+    from types import SimpleNamespace
+    node = module._data()['nodes'][0]
+    hand = FakeHand(node, 'AKo')
+    # A prior limp/call makes the history unsupported by the heads-up chart.
+    hand.events.append({
+        'type': 'action', 'street': 'preflop', 'player_id': 'p4', 'action': 'call'
+    })
+    hand.legal_actions = lambda _pid: {
+        'actions': ['fold', 'call', 'raise'], 'min_target': 200, 'max_target': 10000
+    }
+    legacy = SimpleNamespace(action='call', amount=None, equity_estimate=0.42, source='legacy')
+    decision = module.choose_preflop_action(
+        FakeTable(), hand, hand.actor_id, FakeCPU(), legacy
+    )
+    assert decision is not legacy
+    assert decision.action == 'fold'
+    assert decision.source == 'preflop-no-range-call-blocked'
+
+
+def test_unmodelled_call_becomes_check_when_check_is_legal():
+    from types import SimpleNamespace
+    node = module._data()['nodes'][0]
+    hand = FakeHand(node, 'AKo')
+    hand.events.append({
+        'type': 'action', 'street': 'preflop', 'player_id': 'p4', 'action': 'call'
+    })
+    hand.legal_actions = lambda _pid: {
+        'actions': ['check', 'call'], 'min_target': 0, 'max_target': 10000
+    }
+    legacy = SimpleNamespace(action='call', amount=None, equity_estimate=0.0, source='legacy')
+    decision = module.choose_preflop_action(
+        FakeTable(), hand, hand.actor_id, FakeCPU(), legacy
+    )
+    assert decision.action == 'check'
+    assert decision.source == 'preflop-no-range-call-blocked'
+
+
+def test_chart_authorized_heads_up_call_is_preserved():
+    data = module._data()
+    for node in data['nodes']:
+        for combo, actions in node['hands'].items():
+            if not any(a['action'] == 'call' and a['frequency'] > 0 for a in actions):
+                continue
+            hand = FakeHand(node, combo)
+            value = choose_rng_for_action(node, combo, 'call')
+            decision = module.choose_preflop_action(
+                FakeTable(), hand, hand.actor_id, FakeCPU(value),
+                fallback_decision=None,
+            )
+            assert decision is not None
+            assert decision.action == 'call'
+            assert decision.source == 'screenshot-range'
+            return
+    raise AssertionError("No chart-authorized CALL was found to test")
+
 def test_100bb_stack_gate_and_folded_short_stack():
     node=module._data()['nodes'][0]
     hand=FakeHand(node,'AA')
