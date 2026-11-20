@@ -1,1 +1,1 @@
-Extract verified stable v1.3.72 source for the GTO+ docking timing fix; retain the exact published stable payload digest.
+Extract current stable v1.3.73 and verify GTO+ docking waits for a mapped GTO Engine host, exact-path existing-process reattach, and inherited responsive workspace.
