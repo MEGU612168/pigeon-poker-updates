@@ -215,6 +215,11 @@ class PigeonPokerApp(tk.Tk):
         # tree-training page; exact HU postflop matches can use GTO+ directly.
         self.cash_table: CashTable | None = None
         self.cash_cpus: dict[str, CashGameCPU] = {}
+        self.cash_preflop_policy_penalties: dict[str, int] = {
+            str(key): max(0, int(value))
+            for key, value in self.config_data.get("cash_preflop_policy_penalties", {}).items()
+            if str(key)
+        } if isinstance(self.config_data.get("cash_preflop_policy_penalties", {}), dict) else {}
         self.cash_gto_session: GTOPlusLiveSession | None = None
         self.cash_gto_spot_mode = False
         self.cash_spot_side = "OOP"
@@ -2615,16 +2620,52 @@ class PigeonPokerApp(tk.Tk):
                         # Preflop is a mechanical chart lookup. CPU level is not consulted.
                         # Never fall back to an untrained legacy action such as a limp.
                         try:
-                            range_decision = choose_preflop_action(table, hand, pid, cpu, None)
-                        except Exception as range_exc:
-                            raise RuntimeError(
-                                "Preflop chart failed; legacy CPU fallback is disabled: " + str(range_exc)
-                            ) from range_exc
-                        if range_decision is None:
-                            raise RuntimeError(
-                                f"Preflop chart coverage missing for {actor_name} ({pid}); "
-                                "refusing to invent a non-chart action."
+                            setattr(
+                                cpu, "_preflop_policy_penalty",
+                                int(self.cash_preflop_policy_penalties.get(str(pid), 0))
                             )
+                        except Exception:
+                            pass
+                        # A chart miss is not a fatal table error. The preflop
+                        # policy module returns only CHECK/FOLD/CALL under a
+                        # cumulative guardrail penalty; legacy random actions
+                        # and off-chart raises are never used.
+                        range_decision = choose_preflop_action(table, hand, pid, cpu, None)
+                        if range_decision is None:
+                            legal_now = hand.legal_actions(pid)
+                            legal_names = {
+                                str(value).lower().replace("-", "_")
+                                for value in legal_now.get("actions", ())
+                            }
+                            safe_action = next(
+                                (candidate for candidate in ("check", "fold", "call")
+                                 if candidate in legal_names), None
+                            )
+                            if safe_action is None:
+                                raise RuntimeError(
+                                    f"No passive legal preflop action exists for {actor_name} ({pid}); "
+                                    "the hand engine returned no CHECK/FOLD/CALL option."
+                                )
+                            from types import SimpleNamespace
+                            range_decision = SimpleNamespace(
+                                action=safe_action, amount=None, equity_estimate=0.0,
+                                source="preflop-guardrail", node_id="", hand_class="",
+                                action_frequency=0.0, policy_penalty=(
+                                    int(self.cash_preflop_policy_penalties.get(str(pid), 0)) + 100
+                                ), guardrail_reason="last_resort_runtime_guardrail",
+                            )
+                        if getattr(range_decision, "source", "") == "preflop-guardrail":
+                            penalty = max(
+                                100, int(getattr(range_decision, "policy_penalty", 100) or 100)
+                            )
+                            self.cash_preflop_policy_penalties[str(pid)] = penalty
+                            self.config_data["cash_preflop_policy_penalties"] = dict(
+                                self.cash_preflop_policy_penalties
+                            )
+                            try:
+                                save_config(self.config_data)
+                            except Exception:
+                                pass
                         fallback_decision = range_decision
                     elif not (session is not None and session.hand_token == id(hand) and session.context is not None):
                         # Postflop retains the CPU-level policy.
@@ -2734,6 +2775,7 @@ class PigeonPokerApp(tk.Tk):
                         event_action = str(decision.action)
                         event_amount = decision.amount
                         chart_used = getattr(decision, "source", "") == "screenshot-range"
+                        guardrail_used = getattr(decision, "source", "") == "preflop-guardrail"
                         if chart_used:
                             line = (
                                 f"{actor_name}: {decision.action.upper()}"
@@ -2741,6 +2783,16 @@ class PigeonPokerApp(tk.Tk):
                                 + f" [image range {decision.node_id}/{decision.hand_class} • {decision.action_frequency*100:.1f}%]"
                             )
                             source_status = f"Screenshot-derived preflop range • {decision.node_id}"
+                        elif guardrail_used:
+                            line = (
+                                f"{actor_name}: {decision.action.upper()}"
+                                + (" $" + f"{decision.amount/100:.2f}" if decision.amount is not None else "")
+                                + f" [PRE-FLOP GUARDRAIL • penalty {getattr(decision, 'policy_penalty', 100)}]"
+                            )
+                            source_status = (
+                                "Preflop history outside fixed chart • safe action only • "
+                                f"cumulative penalty {getattr(decision, 'policy_penalty', 100)}"
+                            )
                         else:
                             line = (
                                 f"{actor_name}: {decision.action.upper()}"
@@ -2762,14 +2814,20 @@ class PigeonPokerApp(tk.Tk):
                                 "pot": hand.pot, "actor": pid,
                                 "action_history": [e for e in hand.events if e.get("type") == "action"]})
                             self.store.record_cpu_decision(
-                                fallback_key, "preflop_screenshot_range" if chart_used else "fallback_unsupported", event_action,
+                                fallback_key,
+                                "preflop_screenshot_range" if chart_used else (
+                                    "preflop_guardrail_penalty" if guardrail_used else "fallback_unsupported"
+                                ),
+                                event_action,
                                 table_id=str(table_id or ""),
                                 hand_number=int(getattr(table, "hand_number", 0) or 0),
                                 actor_id=str(pid), details={"street": hand.street,
                                     "board": list(hand.board), "reason": source_status,
                                     "range_node": getattr(decision, "node_id", ""),
                                     "range_hand": getattr(decision, "hand_class", ""),
-                                    "range_frequency": getattr(decision, "action_frequency", None)})
+                                    "range_frequency": getattr(decision, "action_frequency", None),
+                                    "preflop_policy_penalty": getattr(decision, "policy_penalty", None),
+                                    "guardrail_reason": getattr(decision, "guardrail_reason", "")})
                         except Exception:
                             pass
 
@@ -2777,7 +2835,11 @@ class PigeonPokerApp(tk.Tk):
                         "table_id": table_id, "player_id": pid, "name": actor_name,
                         "line": action_label, "action": event_action, "amount": event_amount,
                         "gto_used": gto_used,
-                        "strategy_source": "screenshot-preflop-range" if chart_used else ("gtoplus" if gto_used else "local-fallback"),
+                        "strategy_source": (
+                            "screenshot-preflop-range" if chart_used else
+                            "preflop-guardrail-penalty" if getattr(fallback_decision, "source", "") == "preflop-guardrail"
+                            else ("gtoplus" if gto_used else "local-fallback")
+                        ),
                         "street": hand.street, "pot": hand.pot,
                         "board_changed": len(hand.board) > len(old_board),
                     }))
