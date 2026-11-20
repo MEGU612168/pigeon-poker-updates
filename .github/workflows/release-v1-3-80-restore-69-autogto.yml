@@ -471,17 +471,18 @@ jobs:
               'self.update_button.configure(state="disabled", style="MutedUpdate.TButton", text="CHECKING…")',
               "update checking button state",
           )
-          update_method = replace_once(
-              update_method,
-              'self.update_button.configure(state="normal")',
+          normal_state = 'self.update_button.configure(state="normal")'
+          if update_method.count(normal_state) != 2:
+              raise SystemExit("Expected exactly two original UPDATE NOW re-enable states in the v1.3.69 update method.")
+          update_method = update_method.replace(
+              normal_state,
               'self.update_button.configure(state="disabled", style="MutedUpdate.TButton", text="UP TO DATE")',
-              "update no-new-version button state",
+              1,
           )
-          update_method = replace_once(
-              update_method,
-              'self.update_button.configure(state="normal")',
+          update_method = update_method.replace(
+              normal_state,
               'self.update_button.configure(state="normal", style="RetryUpdate.TButton", text="RETRY CHECK", command=self._refresh_update_button_state)',
-              "update failure retry button state",
+              1,
           )
           main = main[:update_start] + update_method + main[update_end:]
 
