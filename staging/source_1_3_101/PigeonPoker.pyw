@@ -283,6 +283,9 @@ class PigeonPokerApp(tk.Tk):
             self.wallet_store.mark_test_reset_complete()
         self.cashier_ledger = CashierLedger(self.wallet_store.db_path)
         self._ensure_withdrawable_wallet_schema()
+        # One-time $10 promotional balance credit. The SQLite marker and ledger
+        # row are committed atomically so startup/relaunch cannot double-credit.
+        self._apply_one_time_10_dollar_bonus()
         self.cash_balance_cents = self.wallet_store.get_balance(self.cash_balance_cents)
         self.balance_var.set(f"${self.cash_balance_cents / 100:,.2f}")
         self.config_data["balance"] = self.cash_balance_cents / 100
@@ -1300,6 +1303,50 @@ class PigeonPokerApp(tk.Tk):
         except Exception as exc:
             messagebox.showerror("Study Wallet", str(exc), parent=self)
 
+
+    def _apply_one_time_10_dollar_bonus(self) -> bool:
+        """Atomically credit $10.00 to this local wallet once, with an audit row."""
+        import sqlite3
+        amount_cents = 1000
+        marker_key = "pigeon_poker_v1_3_106_bonus_10_usd"
+        transaction_id = "pigeon-poker-v1.3.106-bonus-10-usd"
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with sqlite3.connect(str(self.wallet_store.db_path), timeout=20) as con:
+            con.row_factory = sqlite3.Row
+            con.execute("PRAGMA busy_timeout=20000")
+            con.execute("BEGIN IMMEDIATE")
+            already = con.execute(
+                "SELECT value FROM wallet_meta WHERE key=?", (marker_key,)
+            ).fetchone()
+            if already is not None:
+                con.execute("ROLLBACK")
+                return False
+            row = con.execute(
+                "SELECT balance_cents FROM wallet_account WHERE account_id=1"
+            ).fetchone()
+            if row is None:
+                con.execute("ROLLBACK")
+                raise RuntimeError("Wallet account was not initialized; $10 bonus not applied.")
+            new_balance = int(row["balance_cents"]) + amount_cents
+            con.execute(
+                "UPDATE wallet_account SET balance_cents=?,updated_at=? WHERE account_id=1",
+                (new_balance, now),
+            )
+            con.execute(
+                "INSERT INTO cashier_transactions "
+                "(transaction_id,played_at,kind,delta_cents,balance_after_cents,recipient,note) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (transaction_id, now, "bonus-credit", amount_cents, new_balance, "",
+                 "One-time +$10.00 Pigeon Poker balance bonus (v1.3.106)"),
+            )
+            con.execute(
+                "INSERT INTO wallet_meta(key,value) VALUES(?,?)",
+                (marker_key, now),
+            )
+            con.execute("COMMIT")
+        self.cash_balance_cents = new_balance
+        self.config_data["balance"] = new_balance / 100
+        return True
 
     def _ensure_withdrawable_wallet_schema(self):
         import sqlite3
