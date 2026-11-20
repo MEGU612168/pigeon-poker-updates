@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import itertools
 import math
 import random
@@ -218,6 +219,14 @@ def _rank_strength(rank: tuple[Any, ...]) -> float:
 
 
 def _board_metrics(cards: tuple[str, str], board: list[str]) -> tuple[float, float]:
+    """Cached board metrics; repeated bet sizes reuse identical combo evaluations."""
+    return _board_metrics_cached(tuple(cards), tuple(str(card) for card in board))
+
+
+@lru_cache(maxsize=65536)
+def _board_metrics_cached(
+    cards: tuple[str, str], board: tuple[str, ...]
+) -> tuple[float, float]:
     """Estimate made-hand class, kicker quality and live draw potential."""
     if len(board) < 3:
         return _preflop_strength(_cards_to_class(cards)), 0.0
