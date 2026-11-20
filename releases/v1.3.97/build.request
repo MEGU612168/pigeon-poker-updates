@@ -1,1 +1,0 @@
-Build Pigeon Poker v1.3.97: keep Sit Out button and convert it to Resume in place; reuse one fixed-position Fold widget before and during the player's turn; reserve sizing row height; retain faster initial deal and strict chart-only preflop.
