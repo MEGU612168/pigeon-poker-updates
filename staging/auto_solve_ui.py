@@ -9,6 +9,7 @@ against the baseline screenshot before the next click is allowed.
 from __future__ import annotations
 
 # Build marker: OOP/IP matrix ROIs calibrated; None-safe stage summaries; schema v18.
+# Rebuild trigger: move Board checks to generated JSON safety report validation.
 # Rebuild trigger: rerun v1.3.67 after aligning Build Tree close static assertion.
 # Rebuild trigger: validate partial-commit cleanup and v1.3.67 UI text replacements.
 # Rebuild trigger: corrected v1.3.67 workflow newline after UI replacement array.
