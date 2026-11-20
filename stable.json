@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.81",
-  "published_at": "2026-11-20T09:56:06Z",
-  "release_notes": "v1.3.80の69ベースWORKSPACE・右320px/Canvas302px・自動起動・自動接続・終了管理を維持。1.3.69に存在したWindowPermissionError時の復旧を復元。GTO+が昇格済みでWindowsがSetParentを拒否した場合、Pigeon側のYes/No確認を出さず、既存GTO+ PIDを保持してPigeonをrunas再起動し、同じPIDへ再ドッキング。Windows UAC確認はOSの仕様により表示され得る。昇格引き継ぎ中は旧PigeonがGTO+ PIDを終了しない。--dock-gto-pid起動時は通常自動起動を抑止し、既存GTO+だけに接続するため二重起動を防止。再接続後はソケットへの自動接続を再試行。更新後の通常再起動でも自動起動を維持。v1.3.69のプリフロップ/HUレンジ本体とv1.3.80のワークスペース配置を維持。",
+  "version": "1.3.82",
+  "published_at": "2026-11-20T11:18:24Z",
+  "release_notes": "GTO+の全表示内容をPigeon側の実際の表示領域に収めるコンテンツフィットを実装。GTO+の内容比率1320:676に合わせて内側のGTO+ HWNDのみを拡大・縮小し、領域内中央に配置。Pigeonの右側操作パネル・スクロール・既存機能は維持。更新確認は起動時と30分ごとに自動実行。最新版でもCHECK AGAINを有効にし、更新確認ボタンが押せない状態を解消。v1.3.81のGTO+権限復旧・PID引継ぎ・自動起動/接続とv1.3.69のレンジ本体を維持。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.81/payload-updater.zip.b64?v=8e5204aee683ecdd70c1b69af8c9ab7b02c70112d11f8b76e87e03a6000672f9",
-  "payload_sha256": "8e5204aee683ecdd70c1b69af8c9ab7b02c70112d11f8b76e87e03a6000672f9",
-  "payload_size": 222891
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.82/payload-updater.zip.b64?v=0d73cc8ce1a1168f1032ef8ae54875f3bb8554a037dce074a932676cc07c385f",
+  "payload_sha256": "0d73cc8ce1a1168f1032ef8ae54875f3bb8554a037dce074a932676cc07c385f",
+  "payload_size": 223547
 }

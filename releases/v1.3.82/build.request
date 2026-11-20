@@ -1,2 +1,0 @@
-Build Pigeon Poker v1.3.82 from verified v1.3.81. Fit the complete GTO+ interface into the live Pigeon viewport using the full-content aspect ratio, preserving every panel; keep CHECK AGAIN enabled and check updates at startup plus every 30 minutes.
-Retry build after separating the GTO content-fit helper from the geometry sync method.
