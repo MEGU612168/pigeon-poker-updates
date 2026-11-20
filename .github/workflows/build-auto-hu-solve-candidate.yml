@@ -156,8 +156,14 @@ jobs:
                   main = main.replace(legacy_aa_validation, "", 1)
               elif "oop_aa_only_matrix_reflection_verified" in main:
                   raise SystemExit("Found a stale AA-only gate in an unexpected form")
-              if "oop_aa_only_matrix_reflection_verified" in main:
-                  raise SystemExit("Stale AA-only gate remains after cleanup")
+              old_aa_failure = "[AA可逆テスト] OOPのAA反映・復元確認に未達です。診断JSONと画像を確認してください。"
+              new_multi_failure = "[OOP複数ハンド可逆テスト] AA+AKsの2セル反映・40%正規化・Source読戻し・完全復元に未達です。"
+              old_aa_json_error = "[AA可逆テスト] 診断JSONの確認に失敗: "
+              new_multi_json_error = "[OOP複数ハンド可逆テスト] 診断JSONの確認に失敗: "
+              main = main.replace(old_aa_failure, new_multi_failure)
+              main = main.replace(old_aa_json_error, new_multi_json_error)
+              if old_aa_failure in main or old_aa_json_error in main:
+                  raise SystemExit("Legacy AA-only diagnostic messages remain")
               final_gate = 'success = bool(report_safety.get("oop_expected_matrix_cells_reflection_verified") and report_safety.get("oop_restore_source_text_accepted") and report_safety.get("oop_test_range_restored") and report_safety.get("oop_weight_display_capture_saved") and not report_safety.get("manual_close_required"))'
               if main.count(final_gate) != 1:
                   raise SystemExit("Expected exactly one OOP multi-hand success gate")
@@ -205,7 +211,8 @@ jobs:
           assert "oop_restore_source_text_accepted" in main
           assert "oop_weight_display_capture_saved" in main
           assert "oop_aa_only_matrix_reflection_verified" not in main
-          assert "AA可逆テスト" not in main
+          assert "[AA可逆テスト] OOPのAA反映・復元確認に未達です。" not in main
+          assert "[AA可逆テスト] 診断JSONの確認に失敗:" not in main
           assert main.count('success = bool(report_safety.get("oop_expected_matrix_cells_reflection_verified") and report_safety.get("oop_restore_source_text_accepted") and report_safety.get("oop_test_range_restored") and report_safety.get("oop_weight_display_capture_saved") and not report_safety.get("manual_close_required"))') == 1
           assert '"test_range": "AA,AKs:0.4"' in ui_source
           assert '"test_range_partial_weight": 0.4' in ui_source
