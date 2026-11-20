@@ -1,0 +1,1 @@
+Verify published stable v1.3.80 with the shipped v1.3.79 updater; check download, hash, extraction, Python syntax, v1.3.69 range hashes, embedded host, width changes, auto GTO lifecycle and update restart.
