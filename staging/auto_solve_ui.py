@@ -9,6 +9,7 @@ against the baseline screenshot before the next click is allowed.
 from __future__ import annotations
 
 # Build marker: OOP/IP matrix ROIs calibrated; None-safe stage summaries; schema v18.
+# Rebuild trigger: update IP source constant occurrence test for validation recovery reuse.
 # Rebuild trigger: include restored OOP/IP range functions and exact-definition CI checks.
 # Rebuild trigger: align range report assertions to current OOP safety field names.
 # Rebuild trigger: remove redundant escaped closed-key assertion from CI.
