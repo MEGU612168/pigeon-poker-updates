@@ -71,10 +71,15 @@ jobs:
               success_anchor = '            self.gto_embedded = True' + chr(10) + '            self.status_var.set(f"GTO+をPigeon内に表示中 (HWND {hwnd})")'
               if main.count(success_anchor) != 2:
                   raise SystemExit("Expected exactly two GTO+ dock success blocks (launch and attach)")
+              success_positions = [i for i in range(len(main)) if main.startswith(success_anchor, i)]
+              if len(success_positions) != 2:
+                  raise SystemExit("Could not identify the distinct launch and attach success blocks")
               launch_success = success_anchor + chr(10) + '            self._schedule_embedded_gto_geometry_sync("launch")'
               attach_success = success_anchor + chr(10) + '            self._schedule_embedded_gto_geometry_sync("attach")'
-              main = main.replace(success_anchor, launch_success, 1)
-              main = main.replace(success_anchor, attach_success, 1)
+              second = success_positions[1]
+              main = main[:second] + attach_success + main[second + len(success_anchor):]
+              first = success_positions[0]
+              main = main[:first] + launch_success + main[first + len(success_anchor):]
               resize_old = (
                   "    def _resize_embedded(self, _event=None):" + chr(10)
                   + "        if self.gto_embedded and self.integration.embedder:" + chr(10)
@@ -212,7 +217,7 @@ jobs:
               shutil.copy2(ui_target,out/"auto_solve_ui.py")
               shutil.copy2(probe_target,out/"ui_probe.py")
               shutil.copy2(preflop_target,out/"preflop_screenshot_ranges.py")
-              (out/"VERSION.txt").write_text("1.3.63\n",encoding="ascii")
+              (out/"VERSION.txt").write_text("1.3.64\n",encoding="ascii")
               print("Patched app queue: range reconstruction result will be attached to every unknown HU request.")
           PY
       - name: Test source and actual embedded chart compatibility
@@ -223,6 +228,16 @@ jobs:
           from types import SimpleNamespace
           main=pathlib.Path("staging/auto_hu_solve_candidate/PigeonPoker.pyw").read_text(encoding="utf-8")
           ast.parse(main,filename="PigeonPoker.pyw")
+          method_sources = {}
+          for node in ast.walk(ast.parse(main,filename="PigeonPoker.pyw")):
+              if isinstance(node, ast.FunctionDef) and node.name in {"_launch_gto", "_attach_existing_gto", "_resize_embedded"}:
+                  method_sources[node.name] = ast.get_source_segment(main, node) or ""
+          assert set(method_sources) == {"_launch_gto", "_attach_existing_gto", "_resize_embedded"}
+          assert method_sources["_launch_gto"].count('_schedule_embedded_gto_geometry_sync("launch")') == 1
+          assert '_schedule_embedded_gto_geometry_sync("attach")' not in method_sources["_launch_gto"]
+          assert method_sources["_attach_existing_gto"].count('_schedule_embedded_gto_geometry_sync("attach")') == 1
+          assert '_schedule_embedded_gto_geometry_sync("launch")' not in method_sources["_attach_existing_gto"]
+          assert '_sync_embedded_gto_geometry("host-configure")' in method_sources["_resize_embedded"]
           assert "def _sync_embedded_gto_geometry" in main
           assert "def _schedule_embedded_gto_geometry_sync" in main
           assert 'self._schedule_embedded_gto_geometry_sync("launch")' in main
@@ -477,7 +492,7 @@ jobs:
           python - <<'PY'
           import pathlib,zipfile,hashlib
           root=pathlib.Path("staging/auto_hu_solve_candidate")
-          out=pathlib.Path("staging/auto_hu_solve_v1.3.63.zip")
+          out=pathlib.Path("staging/auto_hu_solve_v1.3.64.zip")
           with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED,compresslevel=9) as z:
               z.write(root/"PigeonPoker.pyw","PigeonPoker.pyw")
               z.write(root/"pigeon_updater.py","pigeon_updater.py")
@@ -490,30 +505,30 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: auto-hu-solve-v1.3.63
-          path: staging/auto_hu_solve_v1.3.63.zip
+          name: auto-hu-solve-v1.3.64
+          path: staging/auto_hu_solve_v1.3.64.zip
 
-      - name: Queue the verified v1.3.63 stable release (main branch only)
+      - name: Queue the verified v1.3.64 stable release (main branch only)
         if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import base64, datetime, hashlib, io, json, pathlib, zipfile
-          payload_path = pathlib.Path("staging/auto_hu_solve_v1.3.63.zip")
+          payload_path = pathlib.Path("staging/auto_hu_solve_v1.3.64.zip")
           payload = payload_path.read_bytes()
           with zipfile.ZipFile(io.BytesIO(payload)) as z:
               if z.testzip() is not None:
-                  raise SystemExit("v1.3.63 update ZIP integrity failed")
+                  raise SystemExit("v1.3.64 update ZIP integrity failed")
               required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
                           "pigeon_gto_plus/live_range_builder.py",
                           "pigeon_gto_plus/auto_solve_ui.py",
                           "pigeon_gto_plus/ui_probe.py",
                           "pigeon_poker/preflop_screenshot_ranges.py"}
               if not required.issubset(set(z.namelist())):
-                  raise SystemExit("v1.3.63 update ZIP is missing required files")
-              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.63":
-                  raise SystemExit("v1.3.63 VERSION.txt mismatch")
+                  raise SystemExit("v1.3.64 update ZIP is missing required files")
+              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.64":
+                  raise SystemExit("v1.3.64 VERSION.txt mismatch")
               import ast
               ast.parse(z.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
               ast.parse(z.read("pigeon_gto_plus/live_range_builder.py").decode("utf-8"),
@@ -524,7 +539,7 @@ jobs:
                         filename="pigeon_gto_plus/ui_probe.py")
               ast.parse(z.read("pigeon_poker/preflop_screenshot_ranges.py").decode("utf-8"),
                         filename="pigeon_poker/preflop_screenshot_ranges.py")
-          release = pathlib.Path("releases/v1.3.63")
+          release = pathlib.Path("releases/v1.3.64")
           release.mkdir(parents=True, exist_ok=True)
           for old in release.glob("payload.part-*"):
               old.unlink()
@@ -539,17 +554,17 @@ jobs:
               "schema_version": 1,
               "product": "pigeon-poker",
               "channel": "stable",
-              "version": "1.3.63",
+              "version": "1.3.64",
               "published_at": datetime.datetime.now(datetime.timezone.utc).isoformat(
                   timespec="seconds").replace("+00:00", "Z"),
-              "release_notes": "IPマトリクスの実座標を(27,160,79,212)へ補正し、169セルの空判定を実画面に一致。IP工程のスキップ時にNone差分値でTXT生成が落ちる不具合も修正。OOP/IP双方のAA+AKs:40%確定・正規化・完全復元を個別検証。Build Tree・Solver実行なし。",
+              "release_notes": "埋込GTO+を起動・再接続した直後にPigeonのホスト領域寸法で位置・サイズを再同期し、Tkレイアウト確定後にも再同期。ホスト領域のサイズ・位置変更時にも同じ同期処理を実行。OOP/IPの40%重み可逆診断を維持。Build Tree・Solver実行なし。",
               "package_mode": "full"
           }
           (release/"release.json").write_text(
               json.dumps(metadata, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
           (release/"payload.parts.json").write_text(
               json.dumps({"parts": names}, indent=2) + chr(10), encoding="utf-8")
-          (release/"payload.ready").write_text("verified v1.3.63" + chr(10), encoding="ascii")
+          (release/"payload.ready").write_text("verified v1.3.64" + chr(10), encoding="ascii")
           # Publish stable.json here; GITHUB_TOKEN pushes do not trigger a second workflow.
           with zipfile.ZipFile(io.BytesIO(payload)) as z:
               zip_names = set(z.namelist())
@@ -563,7 +578,7 @@ jobs:
                       raise SystemExit("Non-allow-listed update file: " + name)
               if not allowed_roots.issubset(zip_names):
                   raise SystemExit("Missing required root update files")
-              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.63":
+              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.64":
                   raise SystemExit("Update VERSION mismatch")
           (release/"payload-updater.zip.b64").write_text(
               base64.b64encode(payload).decode("ascii"), encoding="ascii")
@@ -571,25 +586,25 @@ jobs:
               "schema_version": 1,
               "product": "pigeon-poker",
               "channel": "stable",
-              "version": "1.3.63",
+              "version": "1.3.64",
               "published_at": metadata["published_at"],
               "release_notes": metadata["release_notes"],
               "package_mode": "full",
               "payload_encoding": "base64",
-              "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.63/payload-updater.zip.b64",
+              "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.64/payload-updater.zip.b64",
               "payload_sha256": hashlib.sha256(payload).hexdigest(),
               "payload_size": len(payload),
           }
           pathlib.Path("stable.json").write_text(
               json.dumps(manifest, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
           print(json.dumps({
-              "version": "1.3.63", "payload_size": len(payload),
+              "version": "1.3.64", "payload_size": len(payload),
               "payload_sha256": manifest["payload_sha256"],
               "part_count": len(names), "zip_files": sorted(zip_names)
           }, ensure_ascii=False))
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stable.json releases/v1.3.63/
-          git commit -m "Queue verified Pigeon Poker v1.3.63 release"
+          git add stable.json releases/v1.3.64/
+          git commit -m "Queue verified Pigeon Poker v1.3.64 release"
           git push
