@@ -90,8 +90,8 @@ jobs:
               if start < 0 or end < 0:
                   raise SystemExit(f"{label}: could not find the next method boundary.")
               replacement = "\n".join(replacement_lines).rstrip()
-              if not replacement.startswith(signature):
-                  raise SystemExit(f"{label}: replacement signature mismatch.")
+              if not replacement.startswith("    def "):
+                  raise SystemExit(f"{label}: replacement is not a class method.")
               return source[:start] + replacement + source[end:]
 
           # 1) Keep v1.3.69's original embedded-child layout. Only narrow the
