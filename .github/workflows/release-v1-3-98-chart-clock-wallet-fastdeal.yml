@@ -602,7 +602,7 @@ jobs:
                           self._refresh_table_windows()
           '''
           timeout_handler = "\\n".join(
-              line[2:] if line.startswith("  ") else line
+              ("        " + line) if line else ""
               for line in timeout_handler.split("\\n")
           )
           main = rep(
