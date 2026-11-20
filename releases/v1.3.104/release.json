@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.104",
+  "published_at": "2026-11-20T19:13:34Z",
+  "package_mode": "full",
+  "release_notes": "更新失敗の原因だった不完全な2ファイル構成を修正。現在インストール済みのアップデーターが要求するPigeonPoker.pyw・pigeon_updater.py・VERSION.txtの3ファイルを含む完全な更新ZIPに変更。配信前に実際のpigeon_updater.pyの_validate_and_extractでサイズ・SHA-256・ZIP CRC・必須ファイル・Python構文・バージョンを検証。ポストフロップ操作ボタンと金額入力・スライダー・プリセット、Settingsの効果音音量スライダー・%表示・試聴・自動保存を維持。プリフロップ75局面・12,675行・頻度・固定BBサイズは不変。",
+  "payload_sha256": "3a5c94d0f5303f23e9f7e21b31414c0011fe759e5e2db39b2efb56b8b656461a",
+  "payload_size": 145426,
+  "source_version": "1.3.103",
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_updater.py"
+  ],
+  "updater_contract_validated_with_installed_code": true,
+  "updater_required_root_files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_updater.py"
+  ],
+  "updater_actual_extract_validation": "passed",
+  "postflop_controls_restored": true,
+  "sound_master_volume_slider": true,
+  "sound_master_volume_percent_display": true,
+  "sound_master_volume_preview": true,
+  "sound_master_and_group_volumes_auto_saved": true,
+  "preflop_75_node_policy_immutable": true,
+  "preflop_12675_hand_rows_immutable": true,
+  "preflop_chart_frequencies_immutable": true,
+  "preflop_chart_bb_sizes_immutable": true,
+  "sound_volume_ui_regression_tests": "passed",
+  "postflop_ui_regression_tests": "passed",
+  "preflop_regression_tests": "passed",
+  "range_reasoning_regression_tests": "passed",
+  "package_ast_sha_crc": "passed"
+}
