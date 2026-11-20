@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.92",
+  "published_at": "2026-11-20T16:21:08Z",
+  "package_mode": "full",
+  "release_notes": "独立機能のGTO+ ENGINEを通常利用経路から削除。サイドバーのENGINE画面、起動時のGTO+自動起動、通常キャッシュゲームのGTO+ HUノード必須判定を無効化し、ポストフロップはローカルCPUポリシーで継続。旧セッションに保存されたGTO+ Spot状態も破棄。プリフロップ75局面・12,675ハンドクラス、50局面のレイズ分岐、20局面のオールイン分岐、相手レンジ推定APIとCPUプリフロップ接続は維持。プリフロップ戦略モジュール自体は変更なし。",
+  "payload_sha256": "16df4d10e6528648d664c7fc862649012cf1f385bba2be52a8ff72b99bfb2f3b",
+  "payload_size": 264812,
+  "source_version": "1.3.91",
+  "preflop_node_count": 75,
+  "hand_classes_per_node": 169,
+  "preflop_hand_rows": 12675,
+  "nodes_with_raise_actions": 50,
+  "nodes_with_allin_actions": 20,
+  "preflop_module_changed": false,
+  "gto_plus_engine_removed_from_runtime": true,
+  "gto_plus_solver_required_for_cash_cpu": false,
+  "frequency_method": "screenshot-colour-area estimated hand-class frequencies calibrated to displayed action totals; not solver-exact combo frequencies"
+}
