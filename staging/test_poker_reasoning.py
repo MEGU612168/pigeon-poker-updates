@@ -306,6 +306,122 @@ def test_unacted_opponent_remains_in_multiway_equity():
     assert "ranges 3" in decision.note
 
 
+
+def test_board_strength_preserves_exact_showdown_rank_order_over_random_samples():
+    rng = random.Random(20261121)
+    deck = make_deck()
+    for _ in range(1000):
+        sample = rng.sample(deck, 9)
+        board = sample[:5]
+        hand_a = (sample[5], sample[6])
+        hand_b = (sample[7], sample[8])
+        rank_a = evaluate_seven(list(hand_a) + board)
+        rank_b = evaluate_seven(list(hand_b) + board)
+        strength_a, _ = module._board_metrics(hand_a, board)
+        strength_b, _ = module._board_metrics(hand_b, board)
+        if rank_a == rank_b:
+            assert abs(strength_a - strength_b) < 1e-9
+        else:
+            assert (strength_a > strength_b) == (rank_a > rank_b)
+
+
+def test_flush_and_straight_draw_detection_distinguishes_real_outs():
+    flush_draw = module._board_metrics(
+        ("Jh", "Tc"), ["6h", "7h", "2h"]
+    )[1]
+    backdoor_only = module._board_metrics(
+        ("Js", "Tc"), ["6h", "7h", "2h"]
+    )[1]
+    open_ended = module._board_metrics(
+        ("5h", "Kc"), ["6s", "7d", "8c"]
+    )[1]
+    gutshot = module._board_metrics(
+        ("5h", "Kc"), ["6s", "7d", "9c"]
+    )[1]
+    assert flush_draw > backdoor_only
+    assert open_ended > gutshot
+    assert gutshot > 0
+
+
+def test_bet_response_probabilities_react_to_strength_draws_and_size():
+    weak = module._response_continue_probability(0.04, 0.0, 0.75, "flop")
+    top_pair = module._response_continue_probability(0.22, 0.0, 0.75, "flop")
+    strong_draw = module._response_continue_probability(0.20, 0.80, 0.75, "flop")
+    large_bet = module._response_continue_probability(0.22, 0.0, 1.50, "flop")
+    assert top_pair > weak
+    assert strong_draw > top_pair
+    assert large_bet < top_pair
+
+
+def test_multiway_response_model_counts_callers_and_tightens_all_fold_probability():
+    board = ["Jh", "7d", "2c"]
+    players = [
+        FakePlayer("hero", ("As", "Ah")),
+        FakePlayer("UTG", ("3s", "4d")),
+        FakePlayer("HJ", ("5s", "6d")),
+        FakePlayer("BTN", ("8s", "9d")),
+    ]
+    hand = FakeHand(
+        players, board=board, pot=1600, street="flop",
+        to_call=500, actions=("fold", "call", "raise"), min_target=1000,
+    )
+    ranges = {
+        "UTG": module.OpponentRange(
+            "UTG", ((("Kc", "Kd"), 0.55), (("Qc", "Qd"), 0.45)),
+            "test-range", 0.8, 1.0),
+        "HJ": module.OpponentRange(
+            "HJ", ((("8c", "8d"), 0.50), (("9c", "9d"), 0.50)),
+            "test-range", 0.8, 1.0),
+        "BTN": module.OpponentRange(
+            "BTN", ((("6c", "6d"), 0.50), (("5c", "5d"), 0.50)),
+            "test-range", 0.8, 1.0),
+    }
+    cpu = FakeCPU(1)
+    one_fold, one_callers, one_equity, one_samples = module._bet_response_metrics(
+        hand, "hero", {"UTG": ranges["UTG"]}, board, 0.75, cpu
+    )
+    three_fold, three_callers, three_equity, three_samples = module._bet_response_metrics(
+        hand, "hero", ranges, board, 0.75, cpu
+    )
+    assert 0.0 <= three_fold <= one_fold <= 1.0
+    assert 0.0 <= one_callers < three_callers <= 3.0
+    assert 0.0 <= one_equity <= 1.0
+    assert 0.0 <= three_equity <= 1.0
+    assert one_samples > 0 and three_samples > 0
+
+
+def test_range_aware_policy_reports_caller_conditioned_ev_inputs():
+    players = [
+        FakePlayer("hero", ("As", "Ah")),
+        FakePlayer("UTG", ("2c", "3d")),
+        FakePlayer("HJ", ("4c", "5d")),
+        FakePlayer("BTN", ("8c", "9d")),
+    ]
+    hand = FakeHand(
+        players, board=("Jh", "7d", "2c"), pot=1600, street="flop",
+        to_call=500, actions=("fold", "call", "raise"), min_target=1000,
+    )
+    hand.events = [
+        {"type": "action", "street": "preflop", "player": "UTG", "action": "raise",
+         "target": 250, "paid": 250, "pot_before": 75, "to_call_before": 0},
+        {"type": "action", "street": "preflop", "player": "HJ", "action": "raise",
+         "target": 800, "paid": 550, "pot_before": 325, "to_call_before": 250},
+        {"type": "action", "street": "preflop", "player": "BTN", "action": "call",
+         "target": 800, "paid": 800, "pot_before": 1125, "to_call_before": 800},
+        {"type": "street", "street": "flop", "board": ["Jh", "7d", "2c"]},
+        {"type": "action", "street": "flop", "player": "UTG", "action": "check",
+         "target": 0, "paid": 0, "pot_before": 2400, "to_call_before": 0},
+    ]
+    decision = module.choose_range_aware_action(
+        FakeTable(), hand, "hero", FakeCPU(3), range_estimator=sample_estimator
+    )
+    assert decision.source == "range-aware-policy"
+    assert decision.action in {"fold", "call", "raise"}
+    assert "expected callers" in decision.note
+    assert "equity when called" in decision.note
+    assert "multiway response model" in decision.note
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
