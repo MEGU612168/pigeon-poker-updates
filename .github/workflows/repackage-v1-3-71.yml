@@ -30,24 +30,24 @@ jobs:
           from io import BytesIO
 
           root = pathlib.Path(".")
-          source_version = "1.3.71"
+          source_version = "1.3.69"
           target_version = "1.3.71"
           release_dir = root / "releases" / ("v" + target_version)
 
+          source_url = (
+              "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/"
+              "releases/v1.3.69/payload-updater.zip.b64"
+              "?v=670186e8afe48c1e583db216c6ed36e44d724de0d920875113ebe15bdb0f1e89"
+          )
+          source_payload_sha256 = "670186e8afe48c1e583db216c6ed36e44d724de0d920875113ebe15bdb0f1e89"
+          source_payload_size = 221684
           stable_path = root / "stable.json"
-          stable = json.loads(stable_path.read_text(encoding="utf-8"))
-          if stable.get("version") != source_version:
-              raise SystemExit("Stable channel must be v1.3.71 before rebuilding this update.")
-
-          source_url = str(stable["payload_url"])
-          separator = "&" if "?" in source_url else "?"
-          source_url = source_url + separator + "v=" + str(stable["payload_sha256"])
           with urllib.request.urlopen(source_url, timeout=90) as response:
               encoded_source = response.read().decode("ascii").strip()
           source_payload = base64.b64decode(encoded_source, validate=True)
-          if len(source_payload) != int(stable["payload_size"]):
-              raise SystemExit("Source v1.3.71 package size mismatch.")
-          if hashlib.sha256(source_payload).hexdigest() != stable["payload_sha256"]:
+          if len(source_payload) != source_payload_size:
+              raise SystemExit("Source v1.3.69 package size mismatch.")
+          if hashlib.sha256(source_payload).hexdigest() != source_payload_sha256:
               raise SystemExit("Source v1.3.69 package SHA-256 mismatch.")
 
           with zipfile.ZipFile(BytesIO(source_payload), "r") as source_zip:
