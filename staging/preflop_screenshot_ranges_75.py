@@ -154,6 +154,16 @@ def _supports_100bb_effective_stack(hand: Any) -> bool:
     participants = [player for player in players if _player_id(player)]
     if len(participants) != 6:
         return False
+    # A six-seat table object is not necessarily a six-handed deal: players
+    # sitting out can still occupy player objects. The screenshots are for
+    # six dealt-in positions, so require two hole cards at every seat. Folded
+    # players retain their dealt cards and remain part of the preflop history.
+    for player in participants:
+        try:
+            if len(list(getattr(player, "hole_cards", ()) or ())) != 2:
+                return False
+        except TypeError:
+            return False
     for player in participants:
         stack = getattr(player, "stack", None)
         contribution = getattr(player, "total_contribution", None)
