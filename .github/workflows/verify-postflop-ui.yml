@@ -1,0 +1,30 @@
+name: Verify Pigeon Poker postflop action controls
+
+on:
+  push:
+    paths:
+      - "staging/source_1_3_101/PigeonPoker.pyw"
+      - "staging/test_postflop_controls.py"
+      - ".github/workflows/verify-postflop-ui.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check Python syntax
+        run: python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
+      - name: Check postflop controls and immutable preflop gate
+        run: python staging/test_postflop_controls.py
+      - name: Run preflop 75-node regression suite
+        run: |
+          cp staging/source_1_3_101/pigeon_poker/preflop_screenshot_ranges.py staging/preflop_screenshot_ranges_75.py
+          python staging/test_preflop_ranges_75.py
+      - name: Run multiway and postflop range reasoning tests
+        run: python staging/test_poker_reasoning.py
