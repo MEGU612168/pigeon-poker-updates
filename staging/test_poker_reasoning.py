@@ -259,6 +259,28 @@ def test_postflop_action_updates_each_opponents_range_without_hidden_cards():
     assert decision.equity_estimate is not None
 
 
+def test_range_policy_guardrail_keeps_hand_moving_and_penalizes_repeat_failures():
+    players = [
+        FakePlayer("hero", ()),
+        FakePlayer("UTG", ("2c", "3d")),
+    ]
+    hand = FakeHand(players, pot=500, street="flop", to_call=200,
+                    actions=("fold", "call"), min_target=200)
+    hand.board = ["Jh", "7d", "2c"]
+    cpu = FakeCPU(4)
+    first = module.choose_range_aware_action(
+        FakeTable(), hand, "hero", cpu, range_estimator=sample_estimator
+    )
+    assert first.source == "range-aware-guardrail"
+    assert first.action == "fold"
+    assert "policy penalty=100" in first.note
+    assert cpu._range_guardrail_penalty == 100
+    second = module.choose_range_aware_action(
+        FakeTable(), hand, "hero", cpu, range_estimator=sample_estimator
+    )
+    assert second.source == "range-aware-guardrail"
+    assert cpu._range_guardrail_penalty == 200
+
 def test_unacted_opponent_remains_in_multiway_equity():
     players = [
         FakePlayer("hero", ("As", "Ah")),
