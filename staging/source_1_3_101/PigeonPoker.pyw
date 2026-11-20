@@ -6349,155 +6349,116 @@ class PigeonPokerApp(tk.Tk):
                         pass
                     continue
 
+            # The fixed screenshot chart applies only before the flop. The
+            # normal legal-action controls below must remain available on every
+            # postflop street; never place them inside this preflop-only branch.
             if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):
-                chart_controls = preflop_chart_options(table, hand, "hero")
-                fold_button = record["fold_button"]
-                rush = is_rush_mode(state.get("cash_game_mode", RUSH_MODE))
-                fold_command = (
-                    (lambda tid=slot.table_id: self._handle_table_fold(tid))
-                    if rush else
-                    (lambda tid=slot.table_id: self._floating_table_action(tid, "fold"))
-                )
-                fold_button.configure(
-                    text="FOLD", command=fold_command,
-                    state="normal" if chart_controls and chart_controls.get("fold") else "disabled"
-                )
-                fold_button.pack(side="left", padx=2)
-                call_action = chart_controls.get("call_action") if chart_controls else None
-                call_label = "CHECK" if call_action == "check" else "CALL"
-                call_button = self._compact_action_button(
-                    actions_frame, call_label,
-                    (lambda tid=slot.table_id, act=call_action:
-                        self._floating_table_action(tid, act)) if call_action else (lambda: None),
-                    "accent"
-                )
-                call_button.configure(state="normal" if call_action else "disabled")
-                call_button.pack(side="left", padx=2)
-                raise_action = chart_controls.get("raise_action") if chart_controls else None
-                raise_amount = chart_controls.get("raise_amount") if chart_controls else None
-                if raise_amount is not None and int(hand.big_blind) > 0:
-                    raise_bb = int(raise_amount) / int(hand.big_blind)
-                    raise_label = f"RAISE {raise_bb:.2f} BB"
-                    if raise_action == "all-in":
-                        raise_label += " (ALL-IN)"
-                    raise_button = self._compact_action_button(
-                        actions_frame, raise_label,
-                        lambda tid=slot.table_id, act=raise_action, amt=raise_amount:
-                            self._floating_table_action(tid, act, None if act == "all-in" else amt),
-                        "accent"
-                    )
-                    raise_button.configure(state="normal")
-                else:
-                    raise_button = self._compact_action_button(
-                        actions_frame, "RAISE — BB", lambda: None, "accent"
-                    )
-                    raise_button.configure(state="disabled")
-                raise_button.pack(side="left", padx=2)
-                record["status"].set(
-                    f"YOUR TURN • CHART {chart_controls['node_id']} / {chart_controls['hand_class']}"
-                    if chart_controls else "PREFLOP CHART LINE NOT COVERED • NO OFF-CHART ACTION"
-                )
-                try:
-                    record["window"].deiconify()
-                except tk.TclError:
-                    pass
+                if hand.next_to_act != "hero":
+                    actor = hand.player(hand.next_to_act).name if hand.next_to_act else "CPU"
+                    record["status"].set(f"{actor} TO ACT")
+                    if is_rush_mode(state.get("cash_game_mode", RUSH_MODE)):
+                        queued = bool(state.get("cash_rush_fold_pending", False))
+                        self._compact_action_button(
+                            actions_frame, "FOLD" if not queued else "FOLD ✓",
+                            lambda tid=slot.table_id: self._handle_table_fold(tid),
+                            "danger").pack(side="left", padx=2)
+                    continue
+                # The hero-turn chart branch above already rendered the exact
+                # chart-approved actions and returned. Do not create generic
+                # off-chart preflop sizing controls here.
+                record["status"].set("PREFLOP CHART ACTIONS ONLY")
                 continue
 
-                try:
-                    legal = hand.legal_actions("hero")
-                    action_names = set(legal.get("actions", []))
-                    # Rush & Cash always exposes fast-fold preflop, including
-                    # the BB/check option where the engine may omit ordinary fold
-                    # from its in-turn legal-action list. VIP remains a regular ring.
-                    rush_preflop = (hand.street == "preflop"
-                                    and is_rush_mode(state.get("cash_game_mode", RUSH_MODE)))
-                    fold_button = record["fold_button"]
-                    if rush_preflop or "fold" in action_names:
-                        fold_command = ((lambda tid=slot.table_id: self._handle_table_fold(tid))
-                                        if rush_preflop or hand.street != "preflop" else
-                                        (lambda tid=slot.table_id: self._floating_table_action(tid, "fold")))
-                        fold_button.configure(text="FOLD", command=fold_command, state="normal")
-                        fold_button.pack(side="left", padx=2)
-                    else:
-                        fold_button.pack_forget()
-                    if "check" in action_names:
-                        self._compact_action_button(actions_frame, "CHECK",
-                            lambda tid=slot.table_id: self._floating_table_action(tid, "check"), "accent").pack(side="left", padx=2)
-                    elif "call" in action_names:
-                        self._compact_action_button(actions_frame, f"CALL {format_chip_amount(legal['to_call'], bb, self.chip_display_unit)}",
-                            lambda tid=slot.table_id: self._floating_table_action(tid, "call"), "accent").pack(side="left", padx=2)
-
-                    if "bet" in action_names or "raise" in action_names:
-                        verb = "bet" if "bet" in action_names else "raise"
-                        hero_state = hand.player("hero")
-                        minimum = int(legal["min_target"])
-                        maximum = int(legal["max_target"])
-                        minimum = min(minimum, maximum)  # short all-in is a valid target too
-                        record["bet_min"], record["bet_max"] = minimum, maximum
-                        record["bet_verb"], record["bet_bb"] = verb, bb
-                        target = int(record["bet_target_cents"].get())
-                        if target <= 0 or target < minimum or target > maximum:
-                            target = minimum
-                        # Keep the sizing model initialized but leave the editable amount box blank.
-                        record["bet_target_cents"].set(target)
-                        record["bet_slider"].set(target)
-                        record["bet_target"].set("")
-                        self._update_bet_submit_label(slot.table_id)
-
-                        # A small amount field makes the slider precise; presets only select.
-                        tk.Label(sizes_frame, text="BET TO" if verb == "bet" else "RAISE TO", bg=COLORS["panel"],
-                                 fg=COLORS["muted"], font=("Segoe UI", 7, "bold")).pack(side="left", padx=(2, 4))
-                        scale = tk.Scale(
-                            sizes_frame, from_=minimum, to=maximum, orient="horizontal",
-                            resolution=1, showvalue=False, variable=record["bet_slider"],
-                            command=lambda value, tid=slot.table_id: self._on_table_bet_slider(tid, value),
-                            length=190, width=10, sliderlength=15, bd=0,
-                            bg=COLORS["panel"], fg=COLORS["text"], troughcolor="#344d68",
-                            activebackground=COLORS["green"], highlightthickness=0,
-                            relief="flat", takefocus=True,
-                        )
-                        scale.pack(side="left", padx=(0, 4))
-                        entry = ttk.Entry(sizes_frame, textvariable=record["bet_target"], width=7,
-                                          font=("Segoe UI", 8), justify="right")
-                        entry.pack(side="left", padx=(0, 2))
-                        entry.bind("<KeyRelease>", lambda _e, tid=slot.table_id: self._on_table_bet_entry_change(tid))
-                        entry.bind("<Return>", lambda _e, tid=slot.table_id: self._submit_table_bet_enter(tid), add="+")
-                        entry.bind("<KP_Enter>", lambda _e, tid=slot.table_id: self._submit_table_bet_enter(tid), add="+")
-                        unit_text = "BB" if self.chip_display_unit == "BB" else "USD"
-                        tk.Label(sizes_frame, text=unit_text, bg=COLORS["panel"],
-                                 fg=COLORS["muted"], font=("Segoe UI", 7)).pack(side="left", padx=(0, 7))
-                        for pct in self.bet_pot_percentages:
-                            self._compact_action_button(
-                                sizes_frame, f"{pct}%",
-                                lambda tid=slot.table_id, p=pct: self._set_table_pot_preset(tid, p),
-                                "normal").pack(side="left", padx=1)
-
-                        submit = self._compact_action_button(
-                            actions_frame, "BET" if verb == "bet" else "RAISE",
-                            lambda tid=slot.table_id, var=record["bet_target"]:
-                                self._floating_table_bet_action(tid, var), "accent")
-                        submit.pack(side="left", padx=(7, 2))
-                        record["bet_action_button"] = submit
-                        self._update_bet_submit_label(slot.table_id)
-
-                    tk.Label(actions_frame, text=f"TO CALL {format_chip_amount(legal['to_call'], bb, self.chip_display_unit)}",
-                             bg=COLORS["panel"], fg=COLORS["muted"],
-                             font=("Segoe UI", 7, "bold")).pack(side="right", padx=6)
-                except Exception as exc:
-                    record["status"].set(f"ACTION ERROR: {exc}")
-                try:
-                    record["window"].deiconify()
-                except tk.TclError:
-                    pass
-            else:
+            if hand.next_to_act != "hero":
                 actor = hand.player(hand.next_to_act).name if hand.next_to_act else "CPU"
                 record["status"].set(f"{actor} TO ACT")
-                if hand.street == "preflop" and is_rush_mode(state.get("cash_game_mode", RUSH_MODE)):
-                    queued = bool(state.get("cash_rush_fold_pending", False))
-                    self._compact_action_button(
-                        actions_frame, "FOLD" if not queued else "FOLD ✓",
-                        lambda tid=slot.table_id: self._handle_table_fold(tid),
-                        "danger").pack(side="left", padx=2)
+                continue
+            try:
+                legal = hand.legal_actions("hero")
+                action_names = set(legal.get("actions", []))
+                # Rush & Cash always exposes fast-fold preflop, including
+                # the BB/check option where the engine may omit ordinary fold
+                # from its in-turn legal-action list. VIP remains a regular ring.
+                rush_preflop = (hand.street == "preflop"
+                                and is_rush_mode(state.get("cash_game_mode", RUSH_MODE)))
+                fold_button = record["fold_button"]
+                if rush_preflop or "fold" in action_names:
+                    fold_command = ((lambda tid=slot.table_id: self._handle_table_fold(tid))
+                                    if rush_preflop or hand.street != "preflop" else
+                                    (lambda tid=slot.table_id: self._floating_table_action(tid, "fold")))
+                    fold_button.configure(text="FOLD", command=fold_command, state="normal")
+                    fold_button.pack(side="left", padx=2)
+                else:
+                    fold_button.pack_forget()
+                if "check" in action_names:
+                    self._compact_action_button(actions_frame, "CHECK",
+                        lambda tid=slot.table_id: self._floating_table_action(tid, "check"), "accent").pack(side="left", padx=2)
+                elif "call" in action_names:
+                    self._compact_action_button(actions_frame, f"CALL {format_chip_amount(legal['to_call'], bb, self.chip_display_unit)}",
+                        lambda tid=slot.table_id: self._floating_table_action(tid, "call"), "accent").pack(side="left", padx=2)
+
+                if "bet" in action_names or "raise" in action_names:
+                    verb = "bet" if "bet" in action_names else "raise"
+                    hero_state = hand.player("hero")
+                    minimum = int(legal["min_target"])
+                    maximum = int(legal["max_target"])
+                    minimum = min(minimum, maximum)  # short all-in is a valid target too
+                    record["bet_min"], record["bet_max"] = minimum, maximum
+                    record["bet_verb"], record["bet_bb"] = verb, bb
+                    target = int(record["bet_target_cents"].get())
+                    if target <= 0 or target < minimum or target > maximum:
+                        target = minimum
+                    # Keep the sizing model initialized but leave the editable amount box blank.
+                    record["bet_target_cents"].set(target)
+                    record["bet_slider"].set(target)
+                    record["bet_target"].set("")
+                    self._update_bet_submit_label(slot.table_id)
+
+                    # A small amount field makes the slider precise; presets only select.
+                    tk.Label(sizes_frame, text="BET TO" if verb == "bet" else "RAISE TO", bg=COLORS["panel"],
+                             fg=COLORS["muted"], font=("Segoe UI", 7, "bold")).pack(side="left", padx=(2, 4))
+                    scale = tk.Scale(
+                        sizes_frame, from_=minimum, to=maximum, orient="horizontal",
+                        resolution=1, showvalue=False, variable=record["bet_slider"],
+                        command=lambda value, tid=slot.table_id: self._on_table_bet_slider(tid, value),
+                        length=190, width=10, sliderlength=15, bd=0,
+                        bg=COLORS["panel"], fg=COLORS["text"], troughcolor="#344d68",
+                        activebackground=COLORS["green"], highlightthickness=0,
+                        relief="flat", takefocus=True,
+                    )
+                    scale.pack(side="left", padx=(0, 4))
+                    entry = ttk.Entry(sizes_frame, textvariable=record["bet_target"], width=7,
+                                      font=("Segoe UI", 8), justify="right")
+                    entry.pack(side="left", padx=(0, 2))
+                    entry.bind("<KeyRelease>", lambda _e, tid=slot.table_id: self._on_table_bet_entry_change(tid))
+                    entry.bind("<Return>", lambda _e, tid=slot.table_id: self._submit_table_bet_enter(tid), add="+")
+                    entry.bind("<KP_Enter>", lambda _e, tid=slot.table_id: self._submit_table_bet_enter(tid), add="+")
+                    unit_text = "BB" if self.chip_display_unit == "BB" else "USD"
+                    tk.Label(sizes_frame, text=unit_text, bg=COLORS["panel"],
+                             fg=COLORS["muted"], font=("Segoe UI", 7)).pack(side="left", padx=(0, 7))
+                    for pct in self.bet_pot_percentages:
+                        self._compact_action_button(
+                            sizes_frame, f"{pct}%",
+                            lambda tid=slot.table_id, p=pct: self._set_table_pot_preset(tid, p),
+                            "normal").pack(side="left", padx=1)
+
+                    submit = self._compact_action_button(
+                        actions_frame, "BET" if verb == "bet" else "RAISE",
+                        lambda tid=slot.table_id, var=record["bet_target"]:
+                            self._floating_table_bet_action(tid, var), "accent")
+                    submit.pack(side="left", padx=(7, 2))
+                    record["bet_action_button"] = submit
+                    self._update_bet_submit_label(slot.table_id)
+
+                tk.Label(actions_frame, text=f"TO CALL {format_chip_amount(legal['to_call'], bb, self.chip_display_unit)}",
+                         bg=COLORS["panel"], fg=COLORS["muted"],
+                         font=("Segoe UI", 7, "bold")).pack(side="right", padx=6)
+            except Exception as exc:
+                record["status"].set(f"ACTION ERROR: {exc}")
+            try:
+                record["window"].deiconify()
+            except tk.TclError:
+                pass
 
     def _floating_table_rebuy(self, table_id: str):
         if table_id != self.active_cash_table_id:
