@@ -1047,9 +1047,9 @@ def _append_stage_summary_lines(lines: list[str], stages: list[dict[str, Any]]) 
 def _run_oop_multi_range_commit_roundtrip(
     user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
     output_dir: Path, stem: str, target_hwnd: int, target_pid: int,
-    host_hwnd: int, baseline_path: str
+    host_hwnd: int, baseline_path: str, *, restore_after_commit: bool = True
 ) -> dict[str, Any]:
-    """Commit OOP=AA plus AKs:40% once, verify two cells and GTO+ normalization, then restore.
+    """Commit OOP=AA plus AKs:40%, verify it, and optionally retain it for a Build Tree dialog probe.
 
     Runs only when all 169 OOP mini-matrix sample points are black and Source is blank.
     Clear is allowed only after Source text matches one of the exact normalized
@@ -1279,6 +1279,21 @@ def _run_oop_multi_range_commit_roundtrip(
         report["restore_source_text_readback"] = current_text
         expected_test_source_texts = set(report["expected_gto_plus_source_texts"])
         report["restore_source_text_accepted"] = current_text in expected_test_source_texts
+        if not restore_after_commit:
+            if not report["restore_source_text_accepted"]:
+                raise RuntimeError("OOP normalized Source text did not match the exact known test form; Build Tree was not opened")
+            retained_closed, retained_windows, retained_done = close_editor_via_done("oop_build_tree_probe")
+            report["build_tree_probe_done"] = retained_done
+            editor_open = not retained_closed
+            report["editor_closed_after_commit"] = bool(retained_closed)
+            report["test_range_may_remain_committed"] = True
+            report["manual_close_required"] = not retained_closed
+            report["status"] = (
+                "weighted_range_committed_for_build_tree_probe"
+                if retained_closed and expected_cells_visible else "build_tree_probe_range_commit_not_verified"
+            )
+            report["note"] = "The exact AA+AKs:40% test range is intentionally retained for the Build Tree dialog inspection; a later guarded cleanup stage must clear it."
+            return report
         if report["restore_source_text_accepted"]:
             probe._write_native_edit_text(user32, restore_edit, "")
             if probe._read_native_edit_text(user32, restore_edit) != "":
@@ -1369,9 +1384,9 @@ def _run_oop_multi_range_commit_roundtrip(
 def _run_ip_multi_range_commit_roundtrip(
     user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
     output_dir: Path, stem: str, target_hwnd: int, target_pid: int,
-    host_hwnd: int, baseline_path: str
+    host_hwnd: int, baseline_path: str, *, restore_after_commit: bool = True
 ) -> dict[str, Any]:
-    """Commit IP=AA plus AKs:40% once, verify two cells and GTO+ normalization, then restore.
+    """Commit IP=AA plus AKs:40%, verify it, and optionally retain it for a Build Tree dialog probe.
 
     Runs only when all 169 IP mini-matrix sample points are black and Source is blank.
     Clear is allowed only after Source text matches one of the exact normalized
@@ -1601,6 +1616,21 @@ def _run_ip_multi_range_commit_roundtrip(
         report["restore_source_text_readback"] = current_text
         expected_test_source_texts = set(report["expected_gto_plus_source_texts"])
         report["restore_source_text_accepted"] = current_text in expected_test_source_texts
+        if not restore_after_commit:
+            if not report["restore_source_text_accepted"]:
+                raise RuntimeError("IP normalized Source text did not match the exact known test form; Build Tree was not opened")
+            retained_closed, retained_windows, retained_done = close_editor_via_done("ip_build_tree_probe")
+            report["build_tree_probe_done"] = retained_done
+            editor_open = not retained_closed
+            report["editor_closed_after_commit"] = bool(retained_closed)
+            report["test_range_may_remain_committed"] = True
+            report["manual_close_required"] = not retained_closed
+            report["status"] = (
+                "weighted_range_committed_for_build_tree_probe"
+                if retained_closed and expected_cells_visible else "build_tree_probe_range_commit_not_verified"
+            )
+            report["note"] = "The exact AA+AKs:40% test range is intentionally retained for the Build Tree dialog inspection; a later guarded cleanup stage must clear it."
+            return report
         if report["restore_source_text_accepted"]:
             probe._write_native_edit_text(user32, restore_edit, "")
             if probe._read_native_edit_text(user32, restore_edit) != "":
@@ -1762,8 +1792,8 @@ def _click_board_selector_target(user32, root_hwnd: int, root_pid: int, RECT, PO
     return _click_verified_gto_hit_target(user32, root_hwnd, root_pid, RECT, POINT, (x, y), label=label)
 
 
-def _run_board_selection_roundtrip(user32, EnumWindowsProc, EnumChildProc, RECT, POINT, target_hwnd: int, target_pid: int, output_dir: Path, stem: str, baseline_path: str, actions: list[dict[str, Any]], all_captures: list[dict[str, Any]]) -> dict[str, Any]:
-    """Select a known flop through the GTO+ card grid, then Clear and verify exact restoration."""
+def _run_board_selection_roundtrip(user32, EnumWindowsProc, EnumChildProc, RECT, POINT, target_hwnd: int, target_pid: int, output_dir: Path, stem: str, baseline_path: str, actions: list[dict[str, Any]], all_captures: list[dict[str, Any]], *, restore_after_commit: bool = True) -> dict[str, Any]:
+    """Select a known flop; optionally retain it briefly for a Build Tree dialog inspection."""
     result: dict[str, Any] = {
         "stage": "board_selector_roundtrip",
         "test_cards": list(_BOARD_TEST_CARDS),
@@ -1853,6 +1883,13 @@ def _run_board_selection_roundtrip(user32, EnumWindowsProc, EnumChildProc, RECT,
         if not result["board_cards_reflection_verified"]:
             raise RuntimeError("The selected flop was not visibly reflected in the main Board field")
 
+        if not restore_after_commit:
+            result["board_test_may_remain_set"] = True
+            result["status"] = "three_card_flop_committed_for_build_tree_probe"
+            result["manual_close_required"] = False
+            result["note"] = "As/Kd/7c is intentionally retained only until the Build Tree dialog is inspected, then the guarded Board Clear stage must restore the original empty field."
+            return result
+
         reopen_click = _click_exact_client(user32, target_hwnd, target_pid, RECT, POINT, _BOARD_INPUT_CENTER, label="focus_board_input")
         actions.append(reopen_click)
         time.sleep(0.40)
@@ -1904,6 +1941,357 @@ def _run_board_selection_roundtrip(user32, EnumWindowsProc, EnumChildProc, RECT,
             else "board_test_failed_and_restoration_unverified"
             if committed else "board_test_not_committed"
         )
+        return result
+
+
+
+
+
+def _clear_committed_test_range(
+    user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+    target_hwnd: int, target_pid: int, host_hwnd: int,
+    output_dir: Path, stem: str, baseline_path: str,
+    role: str, actions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Clear only the known AA+AKs:40% probe range, after exact text and matrix checks."""
+    if role not in {"OOP", "IP"}:
+        raise ValueError("role must be OOP or IP")
+    center = _OOP_MATRIX_CENTER if role == "OOP" else _IP_MATRIX_CENTER
+    matrix_rect = _OOP_MATRIX_RECT if role == "OOP" else _IP_MATRIX_RECT
+    allowed_texts = set(_GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS)
+    report: dict[str, Any] = {
+        "stage": f"{role.lower()}_build_tree_probe_cleanup",
+        "status": "not_started",
+        "range_clear_sent": False,
+        "range_restored": False,
+        "manual_close_required": False,
+        "source_text_readback": None,
+        "source_text_accepted": False,
+    }
+    baseline_sig = _bmp_matrix_center_signature(baseline_path, matrix_rect)
+    current_windows = _capture_related_windows(
+        user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+        target_hwnd, target_pid, output_dir, stem, f"{role.lower()}_build_tree_cleanup_before"
+    )
+    current_path = _root_capture_path(current_windows, f"{role.lower()}_build_tree_cleanup_before")
+    current_sig = _bmp_matrix_center_signature(current_path, matrix_rect)
+    report["before_matrix_matches_exact_test"] = _matrix_signature_matches_selected_cells(
+        current_sig, baseline_sig, [0, 1]
+    )
+    if not report["before_matrix_matches_exact_test"]:
+        report["status"] = "stopped_unexpected_matrix_state_preserved"
+        report["note"] = "The matrix did not match exactly the known AA+AKs test signature; no Clear action was sent."
+        return report
+
+    moved = {"moved": False, "status": "not_attempted"}
+    editor_open = False
+    try:
+        opened = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT, center,
+            label="open_oop_range_editor" if role == "OOP" else "open_ip_range_editor"
+        )
+        actions.append(opened)
+        time.sleep(0.55)
+        open_windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, f"{role.lower()}_build_tree_cleanup_editor_open"
+        )
+        open_path = _root_capture_path(open_windows, f"{role.lower()}_build_tree_cleanup_editor_open")
+        open_diff = _bmp_region_difference_ratio(baseline_path, open_path)
+        report["editor_open_difference"] = open_diff
+        if open_diff["ratio"] < 0.05:
+            raise RuntimeError(f"{role} editor did not open for guarded cleanup")
+        editor_open = True
+
+        moved = _temporary_source_field_window_adjustment(user32, target_hwnd, RECT, POINT)
+        report["temporary_window_adjustment"] = moved
+        source_probe = _probe_source_field_readback_restore_at_current_position(
+            user32, target_hwnd, EnumWindowsProc, EnumChildProc,
+            RECT, POINT, output_dir, stem, role
+        )
+        report["source_field_probe"] = source_probe
+        edit_hwnd = int(source_probe.get("edit_hwnd") or 0)
+        if (
+            not edit_hwnd
+            or not user32.IsWindow(probe.wintypes.HWND(edit_hwnd))
+            or probe._window_pid(user32, edit_hwnd) != int(target_pid)
+            or probe._class_name(user32, edit_hwnd) != "Edit"
+            or int(user32.GetDlgCtrlID(probe.wintypes.HWND(edit_hwnd))) != 5458
+            or not probe._window_is_related_to_embedded_target(user32, edit_hwnd, target_hwnd, host_hwnd)
+        ):
+            raise RuntimeError(f"{role} Source Edit identity was not uniquely verified; preserved the range")
+        current_text = probe._read_native_edit_text(user32, edit_hwnd)
+        report["source_text_readback"] = current_text
+        report["source_text_accepted"] = current_text in allowed_texts
+        if not report["source_text_accepted"]:
+            raise RuntimeError(f"{role} Source text is not the exact AA+AKs:40% probe form; preserved it and sent no Clear")
+        probe._write_native_edit_text(user32, edit_hwnd, "")
+        if probe._read_native_edit_text(user32, edit_hwnd) != "":
+            raise RuntimeError(f"{role} Source text could not be cleared and read back")
+
+        clear = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _RANGE_EDITOR_CLEAR_CENTER, label="clear_range_editor"
+        )
+        actions.append(clear)
+        report["range_clear_sent"] = True
+        time.sleep(0.25)
+        report["clear_capture"] = probe._batch_capture(
+            user32, target_hwnd, RECT, POINT, output_dir, stem,
+            f"{role.lower()}_build_tree_cleanup_after_clear"
+        )
+        done = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _RANGE_EDITOR_DONE_CENTER, label="commit_range_editor_done"
+        )
+        actions.append(done)
+        time.sleep(0.45)
+        remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
+        retry = None
+        if remaining:
+            retry = _click_verified_gto_hit_target(
+                user32, target_hwnd, target_pid, RECT, POINT,
+                _RANGE_EDITOR_DONE_CENTER, label=f"{role.lower()}_build_tree_cleanup_done_retry"
+            )
+            actions.append(retry)
+            time.sleep(0.45)
+            remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
+        closed_windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, f"{role.lower()}_build_tree_cleanup_after_done"
+        )
+        closed_path = _root_capture_path(closed_windows, f"{role.lower()}_build_tree_cleanup_after_done")
+        final_sig = _bmp_matrix_center_signature(closed_path, matrix_rect)
+        final_diff = _bmp_region_difference_ratio(baseline_path, closed_path, matrix_rect)
+        editor_diff = _bmp_region_difference_ratio(baseline_path, closed_path, _RANGE_EDITOR_VERIFY_ROI)
+        report.update({
+            "done_click": done,
+            "done_native_retry": retry,
+            "visible_source_edits_remaining": len(remaining),
+            "final_matrix_signature": final_sig,
+            "final_matrix_difference": final_diff,
+            "final_editor_difference": editor_diff,
+            "range_restored": (
+                not remaining
+                and final_sig["samples"] == baseline_sig["samples"]
+                and editor_diff["ratio"] <= 0.01
+            ),
+        })
+        editor_open = bool(remaining)
+        report["status"] = "known_test_range_cleared_and_baseline_verified" if report["range_restored"] else "cleanup_not_verified"
+        report["manual_close_required"] = not report["range_restored"]
+        return report
+    except Exception as exc:
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        report["status"] = "safe_stop_preserving_unrecognized_range" if not report["range_clear_sent"] else "cleanup_attempted_not_verified"
+        report["manual_close_required"] = bool(editor_open)
+        return report
+    finally:
+        if moved.get("moved"):
+            restore = _restore_source_field_window_position(user32, target_hwnd, RECT, moved)
+            report["temporary_window_restore"] = restore
+            report["window_position_restore_verified"] = bool(restore.get("verified"))
+            if not restore.get("verified"):
+                report["manual_close_required"] = True
+
+
+def _clear_committed_test_board(
+    user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+    target_hwnd: int, target_pid: int, output_dir: Path, stem: str,
+    baseline_path: str, committed_path: str,
+    actions: list[dict[str, Any]], all_captures: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Clear As/Kd/7c only when the live Board field still matches the known test image."""
+    report: dict[str, Any] = {
+        "stage": "board_build_tree_probe_cleanup",
+        "status": "not_started",
+        "board_clear_sent": False,
+        "board_restored": False,
+        "manual_close_required": False,
+    }
+    try:
+        before_windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, "board_build_tree_cleanup_before"
+        )
+        all_captures.extend(w["capture"] for w in before_windows)
+        before_path = _root_capture_path(before_windows, "board_build_tree_cleanup_before")
+        still_expected = _bmp_region_difference_ratio(
+            committed_path, before_path, _BOARD_ENTRY_DIFF_ROI
+        )
+        report["current_board_matches_test_image"] = still_expected
+        if still_expected["ratio"] > 0.01:
+            report["status"] = "stopped_board_differs_from_known_test_preserved"
+            report["note"] = "Board field changed after the test commit; Clear was not sent."
+            return report
+
+        opened = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _BOARD_INPUT_CENTER, label="focus_board_input"
+        )
+        actions.append(opened)
+        time.sleep(0.40)
+        selector_windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, "board_build_tree_cleanup_selector_open"
+        )
+        all_captures.extend(w["capture"] for w in selector_windows)
+        selector_path = _root_capture_path(selector_windows, "board_build_tree_cleanup_selector_open")
+        open_difference = _bmp_region_difference_ratio(
+            before_path, selector_path, _BOARD_SELECTOR_ROI
+        )
+        report["selector_open_difference"] = open_difference
+        if open_difference["ratio"] < 0.05:
+            raise RuntimeError("Board selector did not open for guarded Clear")
+        clear = _click_board_selector_target(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _BOARD_CLEAR_CENTER, label="clear_board_selector"
+        )
+        actions.append(clear)
+        report["board_clear_sent"] = True
+        time.sleep(0.20)
+        done = _click_board_selector_target(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _BOARD_DONE_CENTER, label="commit_board_selector_done"
+        )
+        actions.append(done)
+        time.sleep(0.45)
+        final_windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, "board_build_tree_cleanup_restored_main"
+        )
+        all_captures.extend(w["capture"] for w in final_windows)
+        final_path = _root_capture_path(final_windows, "board_build_tree_cleanup_restored_main")
+        diff = _bmp_region_difference_ratio(baseline_path, final_path, _BOARD_ENTRY_DIFF_ROI)
+        dark = _bmp_region_dark_pixel_ratio(final_path, _BOARD_ENTRY_FIELD_ROI)
+        report.update({
+            "done_click": done,
+            "baseline_field_difference": diff,
+            "entry_field_dark_pixel_ratio": dark,
+            "board_restored": diff["ratio"] <= 0.002 and dark <= 0.002,
+            "screenshot": final_path,
+        })
+        report["status"] = "known_test_board_cleared_and_baseline_verified" if report["board_restored"] else "board_cleanup_not_verified"
+        report["manual_close_required"] = not report["board_restored"]
+        return report
+    except Exception as exc:
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        report["manual_close_required"] = bool(report.get("board_clear_sent"))
+        report["status"] = "board_cleanup_attempted_not_verified" if report.get("board_clear_sent") else "safe_stop_preserving_board"
+        return report
+
+
+def _run_build_tree_dialog_probe(
+    user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+    target_hwnd: int, target_pid: int, output_dir: Path, stem: str,
+    actions: list[dict[str, Any]], all_captures: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Open Build Tree once with known temporary ranges/Board, inspect the dialog, and close without building."""
+    result: dict[str, Any] = {
+        "stage": "build_tree_dialog_probe",
+        "status": "not_started",
+        "build_tree_clicked": False,
+        "dialog_opened": False,
+        "dialog_closed_verified": False,
+        "tree_built": False,
+        "solver_run": False,
+        "manual_close_required": False,
+        "popup_windows": [],
+    }
+    try:
+        before_windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, "build_tree_before_click"
+        )
+        all_captures.extend(w["capture"] for w in before_windows)
+        before_path = _root_capture_path(before_windows, "build_tree_before_click")
+        click = _click_exact_client(
+            user32, target_hwnd, target_pid, RECT, POINT,
+            _BUILD_TREE_CENTER, label="open_build_tree_setup"
+        )
+        actions.append(click)
+        result["build_tree_click"] = click
+        result["build_tree_clicked"] = True
+        time.sleep(0.70)
+        opened_windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, "build_tree_dialog_open"
+        )
+        all_captures.extend(w["capture"] for w in opened_windows)
+        opened_path = _root_capture_path(opened_windows, "build_tree_dialog_open")
+        appearance = _bmp_region_difference_ratio(before_path, opened_path, _DIALOG_ROI)
+        result["dialog_pixel_difference"] = appearance
+        popups = [w for w in opened_windows if not w.get("is_embedded_root", False)]
+        result["popup_windows"] = [
+            {k: w.get(k) for k in ("hwnd", "pid", "title", "class_name", "rect_screen", "controls")}
+            for w in popups
+        ]
+        result["dialog_opened"] = _build_tree_dialog_is_visible(appearance, opened_windows)
+        result["dialog_screenshot"] = opened_path
+        result["dialog_controls_main"] = next(
+            (w.get("controls", []) for w in opened_windows if w.get("is_embedded_root")), []
+        )
+        if not result["dialog_opened"]:
+            result["status"] = "build_tree_click_sent_but_no_dialog_detected"
+            result["dialog_closed_verified"] = True
+            return result
+
+        close_method = "none"
+        close_result = None
+        if len(popups) == 1:
+            popup = popups[0]
+            popup_hwnd = int(popup.get("hwnd") or 0)
+            related = (
+                popup_hwnd
+                and probe._window_pid(user32, popup_hwnd) == int(target_pid)
+                and probe._window_is_related_to_embedded_target(
+                    user32, popup_hwnd, target_hwnd,
+                    probe._top_level_ancestor(user32, target_hwnd)
+                )
+                and user32.IsWindowVisible(probe.wintypes.HWND(popup_hwnd))
+            )
+            if related:
+                send = user32.SendMessageW
+                send.argtypes = [probe.wintypes.HWND, probe.wintypes.UINT,
+                                 probe.wintypes.WPARAM, probe.wintypes.LPARAM]
+                send.restype = probe.wintypes.LRESULT
+                close_result = int(send(probe.wintypes.HWND(popup_hwnd), 0x0010, 0, 0))  # WM_CLOSE
+                close_method = "wm_close_to_unique_verified_gto_popup"
+                time.sleep(0.55)
+        if close_method == "none":
+            escape = _send_escape_only_to_gto_focused_thread(
+                user32, RECT, POINT, target_hwnd, target_pid
+            )
+            result["escape_close"] = escape
+            if escape.get("escape_sent"):
+                close_method = "escape_to_verified_gto_focus"
+                time.sleep(0.45)
+        after_windows = _capture_related_windows(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            target_hwnd, target_pid, output_dir, stem, "build_tree_dialog_after_close"
+        )
+        all_captures.extend(w["capture"] for w in after_windows)
+        after_path = _root_capture_path(after_windows, "build_tree_dialog_after_close")
+        after_diff = _bmp_region_difference_ratio(before_path, after_path, _DIALOG_ROI)
+        still_popups = [w for w in after_windows if not w.get("is_embedded_root", False)]
+        result["close_method"] = close_method
+        result["close_result"] = close_result
+        result["after_close_pixel_difference"] = after_diff
+        result["after_close_popup_windows"] = [
+            {k: w.get(k) for k in ("hwnd", "pid", "title", "class_name", "rect_screen")}
+            for w in still_popups
+        ]
+        result["dialog_closed_verified"] = not still_popups and after_diff["ratio"] <= 0.01
+        result["status"] = (
+            "build_tree_dialog_opened_inspected_and_closed"
+            if result["dialog_closed_verified"] else "build_tree_dialog_opened_but_close_not_verified"
+        )
+        result["manual_close_required"] = not result["dialog_closed_verified"]
+        return result
+    except Exception as exc:
+        result["status"] = "build_tree_dialog_probe_safe_stop"
+        result["error"] = f"{type(exc).__name__}: {exc}"
+        result["manual_close_required"] = bool(result.get("dialog_opened"))
         return result
 
 
