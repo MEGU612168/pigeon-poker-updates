@@ -10,3 +10,4 @@ Retry after correcting debug output escaping.
 Retry with correctly aligned CPU timeout event handler indentation.
 Retry after fixing literal newline splitting for timeout handler indentation.
 Retry with source scan for Tencent credential material before release.
+Retry with uncompressed ZIP container while keeping the exact same source files and hash validation.
