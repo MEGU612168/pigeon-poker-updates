@@ -2753,7 +2753,10 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
 
         # Never edit setup values while an unclosed Build Tree/modal dialog is visible.
         if build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_closed_verified"):
-            if board_ready:
+            if (
+                board_build_tree_setup
+                and board_build_tree_setup.get("board_test_temporarily_committed")
+            ):
                 committed_board_path = str(board_build_tree_setup.get("committed_screenshot") or "")
                 if committed_board_path:
                     board_build_tree_cleanup = _clear_committed_test_board(
@@ -2762,14 +2765,22 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                         committed_board_path, actions, all_captures,
                     )
                     stages.append(board_build_tree_cleanup)
-            if ip_ready:
+            if (
+                ip_build_tree_range
+                and ip_build_tree_range.get("range_committed_temporarily")
+                and ip_build_tree_range.get("editor_closed_after_commit")
+            ):
                 ip_build_tree_cleanup = _clear_committed_test_range(
                     user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
                     target_hwnd, target_pid, host, output_dir, stem,
                     baseline_path, "IP", actions,
                 )
                 stages.append(ip_build_tree_cleanup)
-            if oop_ready:
+            if (
+                oop_build_tree_range
+                and oop_build_tree_range.get("range_committed_temporarily")
+                and oop_build_tree_range.get("editor_closed_after_commit")
+            ):
                 oop_build_tree_cleanup = _clear_committed_test_range(
                     user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
                     target_hwnd, target_pid, host, output_dir, stem,
