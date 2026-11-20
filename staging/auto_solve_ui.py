@@ -11,6 +11,7 @@ from __future__ import annotations
 # Build marker: 2x2 interior RGB aggregation detects partial-weight matrix markers; schema v16.
 # PigeonPoker completion gate: exactly one OOP multi-hand validator, v1.3.58.
 # Rebuild trigger: remove second post-success report check, keep one OOP multi-hand gate.
+# Rebuild trigger: normalize final multi-hand exception label.
 # PigeonPoker completion gate: exactly one OOP multi-hand validator, v1.3.58.
 
 import argparse
