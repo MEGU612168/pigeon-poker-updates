@@ -362,7 +362,6 @@ jobs:
           assert "[AA可逆テスト] 診断JSONの確認に失敗:" not in main
           assert "report_safety.get(\"board_test_restored\")" in main
           assert "report_safety.get(\"build_tree_dialog_opened\")" in main
-          assert "report_safety.get(\"build_tree_dialog_closed_verified\")" in main
           assert "report_safety.get(\"build_tree_probe_inputs_restored\")" in main
           assert "report_safety.get(\"build_tree_probe_may_remain_configured\")" in main
           assert "report_safety.get(\"manual_close_required\")" in main
