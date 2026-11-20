@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.69",
+  "published_at": "2026-11-20T06:28:43Z",
+  "release_notes": "Build Tree押下後のGTO+「プレイヤー2のレンジを入力してください」Program messageを識別。OK後に表示されたPlayer2レンジ編集画面でSource欄をクリックし、ネイティブEditを生成・特定してからSource文字列を読み取るよう修正。PID/クラス/ID/所有関係と既知のAA+AKs:40%テスト値を再確認できた場合のみDoneで再試行。再度拒否された場合も同じフォーカス・特定手順を経て既知テスト値だけClearし、IP/OOP/Boardを復元。Source欄を特定できない場合は手動対応フラグを立て、後続のClearを止める。Tree確定・Solver実行なし。",
+  "package_mode": "full"
+}
