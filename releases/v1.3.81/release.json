@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.81",
+  "published_at": "2026-11-20T09:56:06Z",
+  "package_mode": "full",
+  "release_notes": "v1.3.80の69ベースWORKSPACE・右320px/Canvas302px・自動起動・自動接続・終了管理を維持。1.3.69に存在したWindowPermissionError時の復旧を復元。GTO+が昇格済みでWindowsがSetParentを拒否した場合、Pigeon側のYes/No確認を出さず、既存GTO+ PIDを保持してPigeonをrunas再起動し、同じPIDへ再ドッキング。Windows UAC確認はOSの仕様により表示され得る。昇格引き継ぎ中は旧PigeonがGTO+ PIDを終了しない。--dock-gto-pid起動時は通常自動起動を抑止し、既存GTO+だけに接続するため二重起動を防止。再接続後はソケットへの自動接続を再試行。更新後の通常再起動でも自動起動を維持。v1.3.69のプリフロップ/HUレンジ本体とv1.3.80のワークスペース配置を維持。",
+  "payload_sha256": "8e5204aee683ecdd70c1b69af8c9ab7b02c70112d11f8b76e87e03a6000672f9",
+  "payload_size": 222891,
+  "source_version": "1.3.80",
+  "workspace_baseline": "1.3.69",
+  "gto_permission_recovery": "restored from 1.3.69",
+  "automatic_elevation_handoff": true,
+  "uac_may_be_required": true,
+  "existing_pid_reattach": true,
+  "duplicate_autostart_prevented": true,
+  "automatic_connect_after_reattach": true,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/preflop_screenshot_ranges.py",
+    "pigeon_updater.py"
+  ]
+}
