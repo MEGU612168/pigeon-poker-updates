@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.96",
+  "published_at": "2026-11-20T16:48:10Z",
+  "package_mode": "full",
+  "release_notes": "最初のホールカード配札を従来の約50%の時間に短縮（初回待機、カード飛行、カード間隔、ホールカード公開前の待機を短縮）。一時離席中はテーブル上部に常時見える「再開」ボタンを追加し、下部の一時離席ボタンも「再開」に切り替え。画面更新の早期終了経路より前に離席状態と両ボタンを同期。再開すると保持中のテーブル・スタックから次のハンドを開始。プリフロップは全CPU共通の機械的75局面チャート、CPUレベル差はポストフロップのみのv1.3.95仕様を維持。",
+  "payload_sha256": "e221a021f81c8072c492e85112b1fda4802cdd67a64a34bb5cd44139335cd75d",
+  "payload_size": 265980,
+  "source_version": "1.3.95",
+  "initial_hole_card_deal_duration_multiplier": 0.5,
+  "deal_timing_changes": [
+    "initial_delay",
+    "card_flight",
+    "between_cards",
+    "initial_reveal_pause"
+  ],
+  "sitout_resume_header_button": true,
+  "sitout_resume_control_sync_before_ui_early_exit": true,
+  "preflop_mechanical_all_cpu_levels": true,
+  "cpu_level_differences_apply_to": [
+    "postflop"
+  ],
+  "gto_plus_engine_removed_from_runtime": true,
+  "package_ast_and_zip_crc": "passed",
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/preflop_screenshot_ranges.py",
+    "pigeon_updater.py"
+  ]
+}
