@@ -123,58 +123,56 @@ jobs:
           end = main.find("    def _auto_connect_gto_plus(self):\n", start)
           if start < 0 or end < 0 or main.count("    def _auto_start_gto_plus(self):\n") != 1:
               raise SystemExit("Could not uniquely locate _auto_start_gto_plus().")
-          auto_start = '''    def _auto_start_gto_plus(self):
-              """Dock GTO+ only after the GTO page and its native host are actually visible."""
-              if self._gto_attach_requested or self._active_page_key != "gto":
-                  return
-              if self.gto_embedded:
-                  self.after(500, self._auto_connect_gto_plus)
-                  return
-              try:
-                  self.update_idletasks()
-                  host_ready = bool(
-                      self.gto_viewport.winfo_ismapped()
-                      and self.gto_host.winfo_ismapped()
-                      and self.gto_viewport.winfo_width() >= 100
-                      and self.gto_viewport.winfo_height() >= 100
-                  )
-                  if not host_ready or not self._layout_embedded_gto_host():
-                      self._gto_auto_start_attempts += 1
-                      if self._gto_auto_start_attempts <= 20:
-                          self.after(200, self._auto_start_gto_plus)
-                      else:
-                          self.status_var.set("GTO+表示先の準備ができません。GTO+ Engine画面を開き直してください。")
-                      return
-              except (tk.TclError, AttributeError):
-                  self._gto_auto_start_attempts += 1
-                  if self._gto_auto_start_attempts <= 20:
-                      self.after(200, self._auto_start_gto_plus)
-                  else:
-                      self.status_var.set("GTO+表示先の準備を確認できません。")
-                  return
-
-              self.status_var.set("GTO+を表示領域へ接続中…")
-              process = getattr(self.integration, "process", None)
-              try:
-                  process_is_alive = process is not None and process.poll() is None
-              except Exception:
-                  process_is_alive = process is not None
-              if process_is_alive:
-                  # A previous docking attempt may have left GTO+ running outside
-                  # Pigeon. Reattach that exact process; never launch a duplicate.
-                  process_id = getattr(process, "pid", None)
-                  if process_id:
-                      self._attach_existing_gto(int(process_id))
-                  else:
-                      self.status_var.set("起動済みGTO+のPIDを確認できません。")
-                  return
-
-              self._launch_gto()
-              if self.gto_embedded:
-                  self.after(1500, self._auto_connect_gto_plus)
-
-          '''
-          main = main[:start] + auto_start + main[end:]
+          auto_start = "\n".join([
+              "    def _auto_start_gto_plus(self):",
+              "        \"\"\"Dock GTO+ only after the GTO page and its native host are actually visible.\"\"\"",
+              "        if self._gto_attach_requested or self._active_page_key != \"gto\":",
+              "            return",
+              "        if self.gto_embedded:",
+              "            self.after(500, self._auto_connect_gto_plus)",
+              "            return",
+              "        try:",
+              "            self.update_idletasks()",
+              "            host_ready = bool(",
+              "                self.gto_viewport.winfo_ismapped()",
+              "                and self.gto_host.winfo_ismapped()",
+              "                and self.gto_viewport.winfo_width() >= 100",
+              "                and self.gto_viewport.winfo_height() >= 100",
+              "            )",
+              "            if not host_ready or not self._layout_embedded_gto_host():",
+              "                self._gto_auto_start_attempts += 1",
+              "                if self._gto_auto_start_attempts <= 20:",
+              "                    self.after(200, self._auto_start_gto_plus)",
+              "                else:",
+              "                    self.status_var.set(\"GTO+表示先の準備ができません。GTO+ Engine画面を開き直してください。\")",
+              "                return",
+              "        except (tk.TclError, AttributeError):",
+              "            self._gto_auto_start_attempts += 1",
+              "            if self._gto_auto_start_attempts <= 20:",
+              "                self.after(200, self._auto_start_gto_plus)",
+              "            else:",
+              "                self.status_var.set(\"GTO+表示先の準備を確認できません。\")",
+              "            return",
+              "        self.status_var.set(\"GTO+を表示領域へ接続中…\")",
+              "        process = getattr(self.integration, \"process\", None)",
+              "        try:",
+              "            process_is_alive = process is not None and process.poll() is None",
+              "        except Exception:",
+              "            process_is_alive = process is not None",
+              "        if process_is_alive:",
+              "            # Reattach the exact process left by a previous failed docking attempt.",
+              "            process_id = getattr(process, \"pid\", None)",
+              "            if process_id:",
+              "                self._attach_existing_gto(int(process_id))",
+              "            else:",
+              "                self.status_var.set(\"起動済みGTO+のPIDを確認できません。\")",
+              "            return",
+              "        self._launch_gto()",
+              "        if self.gto_embedded:",
+              "            self.after(1500, self._auto_connect_gto_plus)",
+              ""
+          ]) + "\n"
+          main = main[:start] + auto_start + main[end:]          main = main[:start] + auto_start + main[end:]
 
           # Guard both launch and attach paths against a hidden/unmapped HWND.
           launch_anchor = (
@@ -227,18 +225,19 @@ jobs:
               raise SystemExit("Could not uniquely locate the GTO+ host placeholder label.")
           main = main.replace(placeholder_old, placeholder_new, 1)
 
-          placeholder_helper = '''    def _hide_gto_placeholder(self):
-              label = getattr(self, "gto_placeholder_label", None)
-              if label is not None:
-                  try:
-                      if label.winfo_exists():
-                          label.destroy()
-                  except tk.TclError:
-                      pass
-                  self.gto_placeholder_label = None
-
-          '''
-          helper_anchor = "    def _launch_gto(self):\n"
+          placeholder_helper = "\n".join([
+              "    def _hide_gto_placeholder(self):",
+              "        label = getattr(self, \"gto_placeholder_label\", None)",
+              "        if label is not None:",
+              "            try:",
+              "                if label.winfo_exists():",
+              "                    label.destroy()",
+              "            except tk.TclError:",
+              "                pass",
+              "            self.gto_placeholder_label = None",
+              ""
+          ]) + "\n"
+          helper_anchor = "    def _launch_gto(self):\n"          helper_anchor = "    def _launch_gto(self):\n"
           if main.count(helper_anchor) != 1:
               raise SystemExit("Could not locate _launch_gto() for placeholder helper.")
           main = main.replace(helper_anchor, placeholder_helper + helper_anchor, 1)
