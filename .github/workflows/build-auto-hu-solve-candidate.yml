@@ -291,7 +291,7 @@ jobs:
           assert '"build_tree_clicked": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("build_tree_clicked"))' in ui_source
           assert '"tree_built": False' in ui_source
           assert '"solver_run": False' in ui_source
-          assert 'current_text in allowed_texts' in ui_source
+          assert 'source_text in set(_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS)' in ui_source
           assert 'still_expected["ratio"] > 0.01' in ui_source
           assert 'result["dialog_closed_verified"] = not still_popups and after_diff["ratio"] <= 0.01' in ui_source
           assert 'send(probe.wintypes.HWND(popup_hwnd), 0x0010, 0, 0)' in ui_source
