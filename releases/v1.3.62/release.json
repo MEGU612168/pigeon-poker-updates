@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.62",
+  "published_at": "2026-11-20T04:15:39Z",
+  "release_notes": "IPマトリクスの実座標を(27,160,79,212)へ補正し、169セルの空判定を実画面に一致。IP工程のスキップ時にNone差分値でTXT生成が落ちる不具合も修正。OOP/IP双方のAA+AKs:40%確定・正規化・完全復元を個別検証。Build Tree・Solver実行なし。",
+  "package_mode": "full"
+}
