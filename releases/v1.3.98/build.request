@@ -8,3 +8,4 @@ Retry after aligning timeout event handler with the UI event dispatch chain.
 Retry with temporary CPU event handler indentation diagnostics.
 Retry after correcting debug output escaping.
 Retry with correctly aligned CPU timeout event handler indentation.
+Retry after fixing literal newline splitting for timeout handler indentation.
