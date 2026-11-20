@@ -34,7 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import ast, base64, hashlib, io, json, pathlib, re, subprocess, time, urllib.request, zipfile
+          import ast, base64, gzip, hashlib, io, json, pathlib, re, subprocess, time, urllib.request, zipfile
 
           REPO = "MEGU612168/pigeon-poker-updates"
           SOURCE_VERSION = "1.3.97"
@@ -69,8 +69,25 @@ jobs:
 
           # Add a human-facing chart reader; it reuses the exact same rows and
           # action-size conversion that the CPU uses.
+          # Inspect source files and the embedded range payload for Tencent SecretId-shaped data.
+          tencent_pattern = re.compile(rb"AKID[A-Za-z0-9]{20,40}")
+          def report_tencent_candidates(label, data):
+              found = list(tencent_pattern.finditer(data))
+              if found:
+                  print(json.dumps({
+                      "credential_scan": label,
+                      "candidate_count": len(found),
+                      "offsets": [m.start() for m in found],
+                      "masked_prefixes": [m.group()[:4].decode("ascii", "replace") + "***" for m in found],
+                  }))
+          for name, content in files.items():
+              report_tencent_candidates(name, content)
           chart_path = "pigeon_poker/preflop_screenshot_ranges.py"
           chart = files[chart_path].decode("utf-8")
+          chart_blob = re.search(r'_FULL_POLICY_B64\s*=\s*"([^"]+)"', chart)
+          if chart_blob:
+              chart_json = gzip.decompress(base64.b64decode(chart_blob.group(1), validate=True))
+              report_tencent_candidates(chart_path + " decoded policy JSON", chart_json)
           helper = r'''
           def preflop_chart_options(table: Any, hand: Any, actor_id: str) -> dict[str, Any] | None:
               """Return only chart-supported Fold, Call/Check and fixed-BB Raise choices."""
@@ -618,11 +635,6 @@ jobs:
           main = main.replace('self._cashier_withdraw, "SIMULATE WITHDRAWAL"',
                               'self._cashier_withdraw, "MOVE TO WITHDRAWABLE"')
 
-          for marker in ('elif kind == "cash_cpu_timeout":', 'elif kind == "cash_cpu_done":'):
-              pos = main.index(marker)
-              line_no = main.count("\n", 0, pos) + 1
-              print("DEBUG", marker, "line", line_no)
-              print("\n".join(main.splitlines()[line_no - 4:line_no + 10]))
           for name, content in files.items():
               if name.endswith((".py", ".pyw")):
                   ast.parse(content.decode("utf-8"), filename=name)
