@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.87",
-  "published_at": "2026-11-20T15:17:50Z",
-  "release_notes": "ユーザー提供のGTO Wizardスクリーンショット20局面から読み取ったオープン／3ベットのターゲットサイズを、既存の6-maxプリフロップCPUレンジ表へ明示的に反映。169ハンドクラス×20ノードの頻度表は維持し、全20ノードでCPUが写真由来サイズを返す自動テストを追加。既存のCPUレベル別頻度抽選と、未対応局面の既存CPUフォールバック、Stable自動更新機能を維持。",
+  "version": "1.3.88",
+  "published_at": "2026-11-20T15:52:59Z",
+  "release_notes": "ユーザー提供のGTOWizardスクリーンショットから構成した6-maxプリフロップ75局面をCPU判断へ統合。各局面169ハンドクラス、合計12,675行。全履歴を照合し、50局面のレイズ先額と20局面のオールイン分岐を実装。画像の色面積と画面表示アクション比率から推定した重みであり、ソルバーの生コンボ頻度そのものではない。既存のCPUレベル別フォールバックとアプリ内Stable更新を維持。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.87/payload-updater.zip.b64?v=b169c7be6f7c55c5ce0d74fc458848239b1b94716892be41145d10bd34cc7b1e",
-  "payload_sha256": "b169c7be6f7c55c5ce0d74fc458848239b1b94716892be41145d10bd34cc7b1e",
-  "payload_size": 224518
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.88/payload-updater.zip.b64?v=787604fe4de274d1834a73af282589f308d8d9463a1fdd5d42b5786728292741",
+  "payload_sha256": "787604fe4de274d1834a73af282589f308d8d9463a1fdd5d42b5786728292741",
+  "payload_size": 261112
 }
