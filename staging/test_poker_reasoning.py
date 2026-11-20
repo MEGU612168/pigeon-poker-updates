@@ -495,7 +495,7 @@ def test_co_aces_continue_against_utg_open_and_hj_three_bet():
         FakeTable(), hand, "CO", FakeCPU(5), range_estimator=sample_estimator
     )
     assert decision.source == "range-aware-policy"
-    assert decision.action in {"call", "raise"}
+    assert decision.action in {"call", "raise"}, decision.note
 
 
 def test_all_cpu_levels_choose_a_legal_action_in_the_same_multiway_spot():
