@@ -1,0 +1,1 @@
+Build v1.3.80 from the exact v1.3.69 Pigeon Poker source; keep original embedded GTO+ host, widen it by narrowing CONNECTION 350->320 and canvas 332->302; auto launch, reconnect, socket setup, auto-connect retries, close owned GTO PID, and auto-display after update restart.
