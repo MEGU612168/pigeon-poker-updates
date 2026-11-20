@@ -5,3 +5,4 @@ Retry after adjusting the v1.3.97 already-shortened reveal pause anchor.
 Retry with robust GTO CPU timer hook insertion.
 Retry after making the withdraw label rename tolerant.
 Retry after aligning timeout event handler with the UI event dispatch chain.
+Retry with temporary CPU event handler indentation diagnostics.
