@@ -1,1 +1,1 @@
-Extract stable v1.3.86 and verify SHA-256, size, ZIP CRC, GTO+ blue-line position patch (left 14px/top 38px), startup update check, 60-second automatic manifest polling, cache bypass, and all packaged source files for the next Pigeon Poker development baseline.
+Extract current Stable v1.3.99 package, verify manifest SHA-256, size, canonical base64, ZIP CRC, and stage every packaged Python source file as the development baseline.
