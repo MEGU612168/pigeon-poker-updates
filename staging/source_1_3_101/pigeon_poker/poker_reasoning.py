@@ -505,12 +505,19 @@ def _choose_range_aware_action_impl(
     aggression = {1: 0.16, 2: 0.25, 3: 0.36, 4: 0.50, 5: 0.64}[level]
     aggression += {"aggressive": 0.16, "calling_station": -0.18,
                    "overfolder": -0.10, "underbluffer": -0.08}.get(archetype, 0.0)
-    aggression = max(0.04, min(0.85, aggression))
+    guardrail_penalty = min(
+        1000, max(0, int(getattr(cpu, "_range_guardrail_penalty", 0) or 0))
+    )
+    aggression = max(
+        0.03, min(0.85, aggression * (1.0 - min(0.85, guardrail_penalty / 1000.0)))
+    )
     uncertainty = (
         sum(1.0 - opponent.confidence for opponent in ranges.values()) / max(1, len(ranges))
         if ranges else 0.0
     )
-    uncertainty_margin = min(0.10, uncertainty * 0.11)
+    uncertainty_margin = min(
+        0.20, uncertainty * 0.11 + guardrail_penalty / 1000.0 * 0.12
+    )
     rake_bps = max(0, int(getattr(hand, "rake_bps", 0) or 0))
     rake_cap = max(0, int(getattr(hand, "rake_cap", 0) or 0))
     call_pot = pot + to_call
@@ -643,7 +650,8 @@ def _choose_range_aware_action_impl(
         f"{decision_name}; equity {equity:.1%}; required call {required_call:.1%}; "
         f"pure-bluff required folds {required_bluff:.1%}; estimated all-fold {fold_probability:.1%}; "
         f"ranges {len(ranges)}; samples {samples}; uncertainty {uncertainty:.2f}; "
-        f"EV≈{best_ev:.1f}; source=range-aware estimate (not solver exact)"
+        f"policy penalty {guardrail_penalty}; EV≈{best_ev:.1f}; "
+        "source=range-aware estimate (not solver exact)"
     )
     return CPUAction(
         player_id=str(player_id),
