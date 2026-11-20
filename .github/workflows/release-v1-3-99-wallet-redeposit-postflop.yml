@@ -475,7 +475,7 @@ jobs:
           output = io.BytesIO()
           with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
               for name in sorted(files):
-                  archive.writestr(name, content=files[name])
+                  archive.writestr(name, files[name])
           final_payload = output.getvalue()
           with zipfile.ZipFile(io.BytesIO(final_payload), "r") as archive:
               bad = archive.testzip()
