@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.78",
-  "published_at": "2026-11-20T09:13:45Z",
-  "release_notes": "Pigeonの外側のGTO+ WORKSPACE枠・左右パネル配置は一切変更しない。元のGTO+画面スクリーンショット1320x676を正しい基準比率として使用し、GTO+のネイティブウィンドウだけを固定枠内に均等縮小。GTO+自身のWM_SIZEに応じた内部ズーム機能を利用し、レンジ一覧・マトリクス・操作UIを同じ倍率で縮小表示。サイズ変更後250ms/900msに再同期してネイティブズーム後の寸法を安定化。v1.3.77の自動起動・自動ソケット設定・自動接続・所有PID終了・更新なしボタン無効化を維持。v1.3.69のHU/プリフロップレンジ本体はバイト単位で維持。",
+  "version": "1.3.79",
+  "published_at": "2026-11-20T09:18:48Z",
+  "release_notes": "完全なv1.3.77ソースから再構築し、GTO+起動・既存プロセス再接続・自動ソケット設定・自動接続・終了処理を保持。Pigeonの外側のGTO+ WORKSPACE枠と左右パネル配置は変更しない。ユーザー提供の実画面1320x676を基準に、GTO+ネイティブウィンドウだけを枠内へ均等縮小。GTO+自身のWM_SIZEに伴う内部ズームを利用し、全UI・インポート済みレンジツリーを同一倍率で表示。UIサイズ変更後250ms/900msで再同期。更新なしボタン無効化も維持。HU/プリフロップレンジ関連3ファイルはv1.3.69とバイト単位で同一。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.78/payload-updater.zip.b64?v=44770652595288b0d1adfbeb45871a06676949094f4117376044e1596ce8b90f",
-  "payload_sha256": "44770652595288b0d1adfbeb45871a06676949094f4117376044e1596ce8b90f",
-  "payload_size": 215419
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.79/payload-updater.zip.b64?v=9cce75afa7a03227a44f8a69ea9e2fa747a13f125d64d41d6ec44f540baafacc",
+  "payload_sha256": "9cce75afa7a03227a44f8a69ea9e2fa747a13f125d64d41d6ec44f540baafacc",
+  "payload_size": 223251
 }

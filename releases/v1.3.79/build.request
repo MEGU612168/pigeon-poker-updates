@@ -1,1 +1,0 @@
-Retry v1.3.79 after adding the missing base64 packager import; all application source, GTO lifecycle, range, geometry and syntax checks had passed.
