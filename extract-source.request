@@ -1,1 +1,1 @@
-Extract stable v1.3.78 and verify native 1320x676 zoom fit, fixed Pigeon frame, 1.3.69 range blobs and preserved updater/GTO lifecycle.
+Extract stable v1.3.79; verify all GTO+ auto-start, launch, reattach, connect and shutdown methods survive; verify native 1320x676 zoom fit, fixed Pigeon frame and v1.3.69 range files.
