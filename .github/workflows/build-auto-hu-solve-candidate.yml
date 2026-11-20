@@ -73,19 +73,19 @@ jobs:
                   main=main.replace("import json\n","import json\nimport zipfile\n",1)
               ui_replacements = [
                   ("Run a reversible OOP=AA range commit/clear test and inspect the setup dialogs.",
-                   "Run a reversible OOP multi-hand weighted range commit/clear test and verify AA+AKs cells."),
+                   "Run reversible OOP and IP multi-hand weighted range commit/clear tests; verify AA+AKs cells in both."),
                   ("未知HU局面の自動Solve設定を診断（OOP AA可逆テスト）",
-                   "未知HU局面の自動Solve設定を診断（OOP複数ハンド重み可逆テスト）"),
+                   "未知HU局面の自動Solve設定を診断（OOP/IP複数ハンド重み可逆テスト）"),
                   ("OOPレンジが空の場合のみAAを一時確定してマトリクス反映を確認し、Clear＋完了で元に戻します。空でない場合は変更せず停止。Board/Pot/Stack/Rake・Tree・Solverは操作しません。",
-                   "OOPレンジが空の場合のみAA,AKs:0.4を一時確定し、AA/AKsの2セルと40%重み表示を確認後、Clear＋完了で元に戻します。空でない場合は変更せず停止。Board/Pot/Stack/Rake・Tree・Solverは操作しません。"),
+                   "OOPとIPの両レンジが空の場合のみ、両方へAA,AKs:0.4を一時確定。各AA/AKsの2セルと40%表示を確認後、Clear＋完了で元に戻します。片方でも空でなければ変更せず停止。Board/Pot/Stack/Rake・Tree・Solverは操作しません。"),
                   ("未知局面Solve用のGTO+入力を可逆テスト中…（OOP AAを一時確定して復元）",
-                   "未知局面Solve用のGTO+入力を可逆テスト中…（OOP AA+AKs:40%を一時確定して復元）"),
+                   "未知局面Solve用のGTO+入力を可逆テスト中…（OOP/IP両方へAA+AKs:40%を一時確定して復元）"),
                   ("GTO+画面診断完了（OOP AAの反映・復元を確認。Tree/Solver未実行）",
-                   "GTO+画面診断完了（OOP AA+AKs:40%の2セル反映・正規化・完全復元を確認。Tree/Solver未実行）"),
+                   "GTO+画面診断完了（OOP/IP両方のAA+AKs:40%・4セル合計反映・正規化・完全復元を確認。Tree/Solver未実行）"),
                   ("GTO+画面診断は安全停止しました。AAテストの反映・復元状態と手動対応フラグをログで確認してください。",
-                   "GTO+画面診断は安全停止しました。AA+AKs:40%テストの正規化・2セル反映・復元状態と手動対応フラグを確認してください。"),
+                   "GTO+画面診断は安全停止しました。OOP/IP両方のAA+AKs:40%テストの反映・正規化・復元状態と手動対応フラグを確認してください。"),
                   ("AAテストの復元に未達の可能性があります。診断ログを確認してください。Tree/Solverは未実行です。",
-                   "AA+AKs:40%テストの復元に未達の可能性があります。診断ログの最終OOP状態を確認してください。Tree/Solverは未実行です。"),
+                   "OOPまたはIPのAA+AKs:40%テストの復元に未達の可能性があります。診断JSONの両方の最終状態を確認してください。Tree/Solverは未実行です。"),
               ]
               for old_text,new_text in ui_replacements:
                   if old_text in main:
@@ -93,48 +93,47 @@ jobs:
                   elif new_text not in main:
                       raise SystemExit("Could not find old or already-patched Pigeon UI text: "+old_text)
               success_old = "success = completed.returncode == 0 and report is not None"
+              final_gate = "success = bool(report_safety.get(\"oop_expected_matrix_cells_reflection_verified\") and report_safety.get(\"oop_restore_source_text_accepted\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and report_safety.get(\"ip_expected_matrix_cells_reflection_verified\") and report_safety.get(\"ip_restore_source_text_accepted\") and report_safety.get(\"ip_test_range_restored\") and report_safety.get(\"ip_weight_display_capture_saved\") and not report_safety.get(\"manual_close_required\"))"
               success_new = (
-                  "success = completed.returncode == 0 and report is not None" + chr(10)
+                  success_old + chr(10)
                   + " " * 16 + "if success:" + chr(10)
                   + " " * 20 + "try:" + chr(10)
-                  + " " * 24 + "with zipfile.ZipFile(report, \"r\") as report_zip:" + chr(10)
-                  + " " * 28 + "report_json_name = next((name for name in report_zip.namelist() if name.endswith(\".json\")), None)" + chr(10)
+                  + " " * 24 + "with zipfile.ZipFile(report, " + chr(34) + "r" + chr(34) + ") as report_zip:" + chr(10)
+                  + " " * 28 + "report_json_name = next((name for name in report_zip.namelist() if name.endswith(" + chr(34) + ".json" + chr(34) + ")), None)" + chr(10)
                   + " " * 28 + "if report_json_name is None:" + chr(10)
                   + " " * 32 + "success = False" + chr(10)
                   + " " * 28 + "else:" + chr(10)
-                  + " " * 32 + "report_json = json.loads(report_zip.read(report_json_name).decode(\"utf-8\"))" + chr(10)
-                  + " " * 32 + "report_safety = report_json.get(\"safety\", {})" + chr(10)
-                  + " " * 32 + "success = bool(report_safety.get(\"oop_expected_matrix_cells_reflection_verified\") and report_safety.get(\"oop_restore_source_text_accepted\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and not report_safety.get(\"manual_close_required\"))" + chr(10)
+                  + " " * 32 + "report_json = json.loads(report_zip.read(report_json_name).decode(" + chr(34) + "utf-8" + chr(34) + "))" + chr(10)
+                  + " " * 32 + "report_safety = report_json.get(" + chr(34) + "safety" + chr(34) + ", {})" + chr(10)
+                  + " " * 32 + final_gate + chr(10)
                   + " " * 32 + "if not success:" + chr(10)
-                  + " " * 36 + "detail += \" [OOP複数ハンド可逆テスト] AA+AKsの2セル反映・40%正規化・Source読戻し・完全復元に未達です。\"" + chr(10)
+                  + " " * 36 + "detail += " + chr(34) + " [OOP/IP複数ハンド可逆テスト] OOPとIPの両方で2セル反映・40%正規化・Source読戻し・完全復元に未達です。" + chr(34) + chr(10)
                   + " " * 20 + "except Exception as exc:" + chr(10)
                   + " " * 24 + "success = False" + chr(10)
-                  + " " * 24 + "detail += \" [OOP複数ハンド可逆テスト] 診断JSONの確認に失敗: \"+str(exc)"
+                  + " " * 24 + "detail += " + chr(34) + " [OOP/IP複数ハンド可逆テスト] 診断JSONの確認に失敗: " + chr(34) + "+str(exc)"
               )
-              old_gates = ["success = bool(report_safety.get(\"oop_aa_only_matrix_reflection_verified\") and report_safety.get(\"oop_test_range_restored\") and not report_safety.get(\"manual_close_required\"))", "success = bool(report_safety.get(\"oop_aa_only_matrix_reflection_verified\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and not report_safety.get(\"manual_close_required\"))"]
-              new_gate = "success = bool(report_safety.get(\"oop_expected_matrix_cells_reflection_verified\") and report_safety.get(\"oop_restore_source_text_accepted\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and not report_safety.get(\"manual_close_required\"))"
-              gate_replaced = False
-              for candidate_gate in old_gates:
-                  if candidate_gate in main:
-                      main=main.replace(candidate_gate,new_gate,1)
-                      gate_replaced = True
-                      break
-              if not gate_replaced and new_gate not in main:
+              old_gate_variants = [
+                  "success = bool(report_safety.get(\"oop_aa_only_matrix_reflection_verified\") and report_safety.get(\"oop_test_range_restored\") and not report_safety.get(\"manual_close_required\"))",
+                  "success = bool(report_safety.get(\"oop_aa_only_matrix_reflection_verified\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and not report_safety.get(\"manual_close_required\"))",
+                  "success = bool(report_safety.get(\"oop_expected_matrix_cells_reflection_verified\") and report_safety.get(\"oop_restore_source_text_accepted\") and report_safety.get(\"oop_test_range_restored\") and report_safety.get(\"oop_weight_display_capture_saved\") and not report_safety.get(\"manual_close_required\"))",
+              ]
+              for old_gate in old_gate_variants:
+                  while old_gate in main:
+                      main = main.replace(old_gate, final_gate, 1)
+              if final_gate not in main:
                   if success_old in main:
-                      main=main.replace(success_old,success_new,1)
+                      main = main.replace(success_old, success_new, 1)
                   else:
-                      raise SystemExit("Could not locate the prior Pigeon diagnostic success gate")
-              old_errors = ["[AA可逆テスト] OOPのAA反映・復元確認に未達です。診断JSONと画像を確認してください。", "[AA:0.5可逆テスト] OOPのAAセル反映・重み表示保存・復元確認に未達です。診断JSONと画像を確認してください。"]
-              new_error = "[OOP複数ハンド可逆テスト] AA+AKsの2セル反映・40%正規化・Source読戻し・完全復元に未達です。"
-              error_replaced = False
-              for candidate_error in old_errors:
-                  if candidate_error in main:
-                      main=main.replace(candidate_error,new_error,1)
-                      error_replaced = True
-                      break
-              if not error_replaced and new_error not in main:
-                  raise SystemExit("Could not update the weighted multi-hand diagnostic failure message")
-              final_gate = 'success = bool(report_safety.get("oop_expected_matrix_cells_reflection_verified") and report_safety.get("oop_restore_source_text_accepted") and report_safety.get("oop_test_range_restored") and report_safety.get("oop_weight_display_capture_saved") and report_safety.get("ip_expected_matrix_cells_reflection_verified") and report_safety.get("ip_restore_source_text_accepted") and report_safety.get("ip_test_range_restored") and report_safety.get("ip_weight_display_capture_saved") and not report_safety.get("manual_close_required"))'
+                      raise SystemExit("Could not locate the previous Pigeon diagnostic success gate")
+              old_errors = [
+                  "[AA可逆テスト] OOPのAA反映・復元確認に未達です。診断JSONと画像を確認してください。",
+                  "[AA:0.5可逆テスト] OOPのAAセル反映・重み表示保存・復元確認に未達です。診断JSONと画像を確認してください。",
+                  "[OOP複数ハンド可逆テスト] AA+AKsの2セル反映・40%正規化・Source読戻し・完全復元に未達です。",
+                  "[OOP複数ハンド可逆テスト] 診断JSONの確認に失敗: "
+              ]
+              new_error = "[OOP/IP複数ハンド可逆テスト] OOPとIPの両方で2セル反映・40%正規化・Source読戻し・完全復元に未達です。"
+              for old_error in old_errors:
+                  main = main.replace(old_error, new_error)
               legacy_aa_key = "oop_aa_only_matrix_reflection_verified"
               if legacy_aa_key in main:
                   legacy_pos = main.index(legacy_aa_key)
@@ -146,24 +145,21 @@ jobs:
                   if legacy_block.count(legacy_aa_key) != 1 or "report_safety.get(" not in legacy_block:
                       raise SystemExit("Legacy AA key was not inside the expected report-validation block")
                   main = main[:legacy_start] + main[legacy_end:]
-              gate_count = main.count(final_gate)
-              if gate_count == 2:
+              while main.count(final_gate) > 1:
                   gate_positions = [i for i in range(len(main)) if main.startswith(final_gate, i)]
-                  duplicate_start = main.rfind("                if success:", 0, gate_positions[1])
-                  duplicate_end = main.find("                self.after(0, lambda: finish(success, report, detail, completed.returncode))", gate_positions[1])
+                  gate_position = gate_positions[-1]
+                  duplicate_start = main.rfind("                if success:", 0, gate_position)
+                  duplicate_end = main.find("                self.after(0, lambda: finish(success, report, detail, completed.returncode))", gate_position)
                   if duplicate_start < 0 or duplicate_end < 0:
-                      raise SystemExit("Could not bound a duplicate multi-hand report-validation block")
+                      raise SystemExit("Could not bound a duplicate OOP/IP report-validation block")
                   duplicate_block = main[duplicate_start:duplicate_end]
                   if duplicate_block.count(final_gate) != 1 or "report_safety.get(" not in duplicate_block:
-                      raise SystemExit("Second validation block was not the expected duplicate")
+                      raise SystemExit("Duplicate report-validation block was not the expected shape")
                   main = main[:duplicate_start] + main[duplicate_end:]
-              elif gate_count != 1:
-                  raise SystemExit("Expected one or two multi-hand validators after removing legacy AA block; found "+str(gate_count))
-              main = main.replace("[AA可逆テスト]", "[OOP複数ハンド可逆テスト]")
               if main.count(final_gate) != 1:
-                  raise SystemExit("Exactly one OOP multi-hand success gate must remain")
-              if legacy_aa_key in main or "[AA可逆テスト]" in main:
-                  raise SystemExit("Legacy AA-only success criteria or messages remain")
+                  raise SystemExit("Exactly one OOP/IP multi-hand success gate must remain")
+              if legacy_aa_key in main or any(old_gate in main for old_gate in old_gate_variants):
+                  raise SystemExit("Legacy AA-only or OOP-only success criteria remain")
               target=root/"pigeon_gto_plus"/"live_range_builder.py"
               ui_target=root/"pigeon_gto_plus"/"auto_solve_ui.py"
               target.write_text(module,encoding="utf-8",newline="\n")
@@ -202,22 +198,25 @@ jobs:
           with open("staging/auto_hu_solve_candidate/live_range_builder.py",encoding="utf-8") as f: ast.parse(f.read())
           ui_source=pathlib.Path("staging/auto_hu_solve_candidate/auto_solve_ui.py").read_text(encoding="utf-8")
           ast.parse(ui_source,filename="auto_solve_ui.py")
-          assert "未知HU局面の自動Solve設定を診断（OOP複数ハンド重み可逆テスト）" in main
-          assert "AA,AKs:0.4を一時確定し、AA/AKsの2セルと40%重み表示を確認" in main
+          assert "未知HU局面の自動Solve設定を診断（OOP/IP複数ハンド重み可逆テスト）" in main
+          assert "OOPとIPの両レンジが空の場合のみ、両方へAA,AKs:0.4" in main
           assert "oop_expected_matrix_cells_reflection_verified" in main
           assert "oop_restore_source_text_accepted" in main
           assert "oop_weight_display_capture_saved" in main
+          assert "ip_expected_matrix_cells_reflection_verified" in main
+          assert "ip_restore_source_text_accepted" in main
+          assert "ip_weight_display_capture_saved" in main
           assert "oop_aa_only_matrix_reflection_verified" not in main
           assert "[AA可逆テスト] OOPのAA反映・復元確認に未達です。" not in main
           assert "[AA可逆テスト] 診断JSONの確認に失敗:" not in main
-          assert main.count('success = bool(report_safety.get("oop_expected_matrix_cells_reflection_verified") and report_safety.get("oop_restore_source_text_accepted") and report_safety.get("oop_test_range_restored") and report_safety.get("oop_weight_display_capture_saved") and not report_safety.get("manual_close_required"))') == 1
+          assert main.count('success = bool(report_safety.get("oop_expected_matrix_cells_reflection_verified") and report_safety.get("oop_restore_source_text_accepted") and report_safety.get("oop_test_range_restored") and report_safety.get("oop_weight_display_capture_saved") and report_safety.get("ip_expected_matrix_cells_reflection_verified") and report_safety.get("ip_restore_source_text_accepted") and report_safety.get("ip_test_range_restored") and report_safety.get("ip_weight_display_capture_saved") and not report_safety.get("manual_close_required"))') == 1
           assert '"test_range": "AA,AKs:0.4"' in ui_source
           assert '"test_range_partial_weight": 0.4' in ui_source
           assert "_matrix_signature_matches_selected_cells" in ui_source
           assert '_GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS = (' in ui_source
           assert 'expected_test_source_texts = set(report["expected_gto_plus_source_texts"])' in ui_source
           assert '"restore_source_text_readback"' in ui_source
-          assert '"schema_version": 16' in ui_source
+          assert '"schema_version": 17' in ui_source
           assert '"pixels_per_cell": 4' in ui_source
           assert '"sampling": "2x2_inner_patch_channel_max"' in ui_source
           assert '"weight_display_capture_saved"' in ui_source
@@ -238,6 +237,12 @@ jobs:
           assert "_source_field_underlay_is_verified_edit" in ui_source
           assert "source_field_occluded_by_foreign_window" in ui_source
           assert "_run_oop_multi_range_commit_roundtrip" in ui_source
+          assert "_run_ip_multi_range_commit_roundtrip" in ui_source
+          assert '"ip_expected_matrix_cells_reflection_verified"' in ui_source
+          assert '"ip_restore_source_text_accepted"' in ui_source
+          assert '"ip_range_restored"' in ui_source
+          assert '"ip_weight_display_capture_saved"' in ui_source
+          assert "Final IP range state:" in ui_source
           assert "_bmp_matrix_center_signature" in ui_source
           assert "_matrix_signature_is_empty" in ui_source
           assert "_matrix_signature_is_aa_only" in ui_source
@@ -249,7 +254,7 @@ jobs:
           assert "or not ip_closed_ok" in ui_source
           assert "_temporary_source_field_window_adjustment" in ui_source
           assert "_source_field_occlusion_shift" in ui_source
-          assert '"probe": "verified_gto_plus_oop_multi_hand_ak_s40_weighted_commit_roundtrip_v16_partial_marker_sampling"' in ui_source
+          assert '"probe": "verified_gto_plus_oop_ip_multi_hand_ak_s40_weighted_commit_roundtrip_v17_partial_marker_sampling"' in ui_source
           assert "unique_captures" in ui_source
           assert "_source_field_underlay_is_verified_gto_view" in ui_source
           assert "_click_verified_gto_hit_target" in ui_source
@@ -279,7 +284,7 @@ jobs:
               (pkg/"auto_solve_ui.py").write_text(ui_source,encoding="utf-8")
               sys.path.insert(0,td)
               from probe_pkg.auto_solve_ui import (_bmp_region_difference_ratio,
-                  _OOP_MATRIX_RECT, _RANGE_EDITOR_VERIFY_ROI,
+                  _OOP_MATRIX_RECT, _IP_MATRIX_RECT, _RANGE_EDITOR_VERIFY_ROI,
                   _bmp_matrix_center_signature, _matrix_signature_is_empty,
                   _matrix_signature_is_aa_only, _matrix_signature_matches_selected_cells,
                   _build_tree_dialog_is_visible, _source_field_occlusion_shift,
@@ -358,6 +363,7 @@ jobs:
               aa_sig=_bmp_matrix_center_signature(pathlib.Path(td)/"matrix_aa.bmp")
               aa_aks_sig=_bmp_matrix_center_signature(pathlib.Path(td)/"matrix_aa_aks.bmp")
               assert _OOP_MATRIX_RECT == (27,89,79,141)
+              assert _IP_MATRIX_RECT == (27,159,82,215)
               assert empty_sig["roi"] == [27,89,79,141]
               assert _matrix_signature_is_empty(empty_sig)
               assert _matrix_signature_is_aa_only(aa_sig,empty_sig)
@@ -366,6 +372,11 @@ jobs:
               # A 40% AKs marker at x=32 is detected even though old center x=33 is black.
               assert aa_aks_sig["samples"][1] != empty_sig["samples"][1]
               assert aa_aks_sig["sampling"] == "2x2_inner_patch_channel_max"
+              matrix_bmp(pathlib.Path(td)/"ip_matrix_aa_aks.bmp",((28,160,(50,160,0)),(32,160,(198,122,22))))
+              ip_aa_aks_sig=_bmp_matrix_center_signature(pathlib.Path(td)/"ip_matrix_aa_aks.bmp",_IP_MATRIX_RECT)
+              ip_empty_sig=_bmp_matrix_center_signature(pathlib.Path(td)/"matrix_empty.bmp",_IP_MATRIX_RECT)
+              assert ip_empty_sig["roi"] == [27,159,82,215]
+              assert _matrix_signature_matches_selected_cells(ip_aa_aks_sig,ip_empty_sig,[0,1])
           assert "def _run_auto_solve_ui_probe" in main
           updater=pathlib.Path("staging/auto_hu_solve_candidate/pigeon_updater.py").read_text(encoding="utf-8")
           ast.parse(updater,filename="pigeon_updater.py")
