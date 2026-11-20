@@ -1,0 +1,198 @@
+name: Publish Pigeon Poker v1.3.75 exact v1.3.69 rollback
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.75/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Repackage the immutable v1.3.69 full payload without later code changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import time
+          import urllib.request
+          import zipfile
+
+          repo = "MEGU612168/pigeon-poker-updates"
+          source_version = "1.3.69"
+          target_version = "1.3.75"
+          source_commit = "5c9f21943fa172d14f49d2ff888e336df9e9c13b"
+          source_b64_size = 295580
+          source_git_blob_sha1 = "7e571fc48803d5aae1d068a8ab4acec469ac8c5f"
+          source_url = (
+              f"https://raw.githubusercontent.com/{repo}/{source_commit}/"
+              "releases/v1.3.69/payload-updater.zip.b64"
+          )
+
+          with urllib.request.urlopen(source_url, timeout=90) as response:
+              encoded_bytes = response.read()
+          if len(encoded_bytes) != source_b64_size:
+              raise SystemExit("Pinned v1.3.69 Base64 package size mismatch.")
+          git_blob = hashlib.sha1(
+              b"blob " + str(len(encoded_bytes)).encode("ascii") + bytes([0]) + encoded_bytes
+          ).hexdigest()
+          if git_blob != source_git_blob_sha1:
+              raise SystemExit("Pinned immutable v1.3.69 payload blob SHA-1 mismatch.")
+
+          encoded = encoded_bytes.decode("ascii").strip()
+          source_payload = base64.b64decode(encoded, validate=True)
+          with zipfile.ZipFile(io.BytesIO(source_payload), "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Original v1.3.69 ZIP CRC check failed.")
+              files = {name: archive.read(name) for name in archive.namelist()}
+
+          expected_files = {
+              "PigeonPoker.pyw",
+              "pigeon_updater.py",
+              "pigeon_gto_plus/live_range_builder.py",
+              "pigeon_gto_plus/auto_solve_ui.py",
+              "pigeon_gto_plus/ui_probe.py",
+              "pigeon_poker/preflop_screenshot_ranges.py",
+              "VERSION.txt",
+          }
+          if set(files) != expected_files:
+              raise SystemExit("Original v1.3.69 package file list changed.")
+          if files["VERSION.txt"].decode("ascii").strip() != source_version:
+              raise SystemExit("Original v1.3.69 version marker mismatch.")
+
+          # The rollback is intentionally exact: only VERSION.txt is changed,
+          # so an installed 1.3.74 updater accepts this package as a newer release.
+          original_hashes = {}
+          for name, data in files.items():
+              original_hashes[name] = hashlib.sha256(data).hexdigest()
+          files["VERSION.txt"] = (target_version + chr(10)).encode("ascii")
+
+          # Prove no file other than VERSION.txt was altered.
+          for name in expected_files - {"VERSION.txt"}:
+              if hashlib.sha256(files[name]).hexdigest() != original_hashes[name]:
+                  raise SystemExit("Unexpected source change during rollback: " + name)
+          for name, data in files.items():
+              if name.endswith(".py") or name.endswith(".pyw"):
+                  ast.parse(data.decode("utf-8"), filename=name)
+
+          output = io.BytesIO()
+          with zipfile.ZipFile(
+              output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+          ) as archive:
+              for name in sorted(files):
+                  archive.writestr(name, files[name])
+          payload = output.getvalue()
+          with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Final v1.3.75 ZIP CRC check failed.")
+              if set(archive.namelist()) != expected_files:
+                  raise SystemExit("Final rollback package file list mismatch.")
+              if archive.read("VERSION.txt").decode("ascii").strip() != target_version:
+                  raise SystemExit("Final rollback package version marker mismatch.")
+              for name in expected_files - {"VERSION.txt"}:
+                  if hashlib.sha256(archive.read(name)).hexdigest() != original_hashes[name]:
+                      raise SystemExit("Packaged v1.3.69 content mismatch: " + name)
+
+          digest = hashlib.sha256(payload).hexdigest()
+          encoded_payload = base64.b64encode(payload).decode("ascii")
+          release_dir = pathlib.Path("releases") / ("v" + target_version)
+          release_dir.mkdir(parents=True, exist_ok=True)
+          (release_dir / "payload-updater.zip.b64").write_text(
+              encoded_payload, encoding="ascii"
+          )
+          chunk_size = 48000
+          chunks = []
+          for index, offset in enumerate(range(0, len(encoded_payload), chunk_size)):
+              name = f"payload.part-{index:03d}"
+              (release_dir / name).write_text(
+                  encoded_payload[offset:offset + chunk_size], encoding="ascii"
+              )
+              chunks.append(name)
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": chunks}, indent=2) + chr(10), encoding="utf-8"
+          )
+
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          notes = (
+              "完全ロールバック：アプリ本体・GTO+連携・レンジ生成・プリフロップレンジ・UI Probeは"
+              "v1.3.69の公開フルパッケージと同一。変更点は74から更新できるようVERSION.txtを"
+              "1.3.75にしたことだけ。v1.3.70以降の画面変更・座標倍率補正・GTO+自動起動・"
+              "自動接続・自動終了変更は含めない。"
+          )
+          release = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": target_version,
+              "published_at": now,
+              "package_mode": "full",
+              "release_notes": notes,
+              "payload_sha256": digest,
+              "payload_size": len(payload),
+              "rollback_source_version": source_version,
+              "rollback_source_commit": source_commit,
+              "only_changed_file": "VERSION.txt",
+              "files": sorted(files),
+              "original_file_sha256": original_hashes,
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(release, ensure_ascii=False, indent=2) + chr(10),
+              encoding="utf-8",
+          )
+          (release_dir / "payload.ready").write_text(
+              "verified " + target_version + chr(10), encoding="ascii"
+          )
+          stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": target_version,
+              "published_at": now,
+              "release_notes": notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": (
+                  f"https://raw.githubusercontent.com/{repo}/main/releases/"
+                  f"v{target_version}/payload-updater.zip.b64?v={digest}"
+              ),
+              "payload_sha256": digest,
+              "payload_size": len(payload),
+          }
+          pathlib.Path("stable.json").write_text(
+              json.dumps(stable, ensure_ascii=False, indent=2) + chr(10),
+              encoding="utf-8",
+          )
+          (release_dir / "build.request").unlink(missing_ok=True)
+          print(json.dumps({
+              "published_version": target_version,
+              "rollback_source_version": source_version,
+              "rollback_source_commit": source_commit,
+              "only_changed_file": "VERSION.txt",
+              "files_verified_byte_for_byte": sorted(expected_files - {"VERSION.txt"}),
+              "payload_size": len(payload),
+              "payload_sha256": digest,
+              "later_ui_and_lifecycle_changes_included": False,
+          }, ensure_ascii=False))
+          PY
+      - name: Publish exact v1.3.69 rollback as installable v1.3.75
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+users.noreply.github.com"
+          git add stable.json releases/v1.3.75/
+          git commit -m "Release Pigeon Poker v1.3.75 exact v1.3.69 rollback"
+          git push
