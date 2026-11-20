@@ -1,1 +1,1 @@
-Build v1.3.73: GTO+ docking only after GTO Engine host is mapped; reattach owned process after prior docking failure.
+Retry v1.3.73 after correcting the active-page assertion; include exact-path discovery and safe reattachment of leftover GTO+ process.
