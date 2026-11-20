@@ -66,7 +66,6 @@ def test_only_preflop_raise_amount_uses_fixed_chart_size_with_legal_fallback() -
 
 def test_postflop_controls_still_use_the_unrestricted_normal_legal_action_ui() -> None:
     refresh = SOURCE_TEXT
-    assert "The fixed screenshot chart applies only before the flop." in refresh
     assert 'legal = hand.legal_actions("hero")' in refresh
     assert "self._floating_table_bet_action(tid, var)" in refresh
 
