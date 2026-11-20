@@ -1,1 +1,1 @@
-Extract stable v1.3.77 and verify fixed outer layout, 665x570 fitted GTO viewport, constructor startup update check, grey disabled UP TO DATE state, active UPDATE NOW only for newer versions, plus exact v1.3.69 range sources.
+Extract stable v1.3.78 and verify native 1320x676 zoom fit, fixed Pigeon frame, 1.3.69 range blobs and preserved updater/GTO lifecycle.
