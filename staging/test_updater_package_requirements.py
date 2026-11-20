@@ -5,6 +5,7 @@ import importlib.util
 import io
 import tempfile
 import zipfile
+import sys
 from pathlib import Path
 
 UPDATER_PATH = Path(__file__).with_name("source_1_3_101") / "pigeon_updater.py"
@@ -12,6 +13,7 @@ SPEC = importlib.util.spec_from_file_location("pigeon_updater_repair_test", UPDA
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError("Could not load the shipped Pigeon Poker updater.")
 updater = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = updater
 SPEC.loader.exec_module(updater)
 
 
