@@ -38,7 +38,7 @@ jobs:
               if bad:
                   raise SystemExit("ZIP CRC failure: " + bad)
               names = z.namelist()
-              needed = [n for n in names if n == "PigeonPoker.pyw" or n == "VERSION.txt" or (n.startswith(("pigeon_poker/", "pigeon_gto_plus/")) and n.endswith(".py"))]
+              needed = [n for n in names if n in {"PigeonPoker.pyw", "VERSION.txt", "pigeon_updater.py"} or (n.startswith(("pigeon_poker/", "pigeon_gto_plus/")) and n.endswith(".py"))]
               for name in needed:
                   target = out / name
                   target.parent.mkdir(parents=True, exist_ok=True)
