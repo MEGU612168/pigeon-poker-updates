@@ -139,6 +139,33 @@ def _seat_position_map(table: Any, hand: Any) -> dict[str, str] | None:
     return result
 
 
+def _supports_100bb_effective_stack(hand: Any) -> bool:
+    """The supplied chart set is 6-max cash at 100 BB; never reuse it at other depths."""
+    try:
+        big_blind = float(getattr(hand, "big_blind", 0) or 0)
+        players = list(getattr(hand, "players", ()) or ())
+    except (TypeError, ValueError):
+        return False
+    if big_blind <= 0 or len(players) != 6:
+        return False
+
+    active = [player for player in players if bool(getattr(player, "eligible", True))]
+    if not active:
+        return False
+    for player in active:
+        stack = getattr(player, "stack", None)
+        contribution = getattr(player, "total_contribution", None)
+        if contribution is None:
+            contribution = getattr(player, "street_contribution", None)
+        try:
+            starting_stack_bb = (float(stack) + float(contribution)) / big_blind
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(starting_stack_bb) or abs(starting_stack_bb - 100.0) > 0.25:
+            return False
+    return True
+
+
 def _event_player_id(event: dict[str, Any], hand: Any) -> str | None:
     direct = event.get("player_id") or event.get("player")
     direct_text = str(direct) if direct is not None else ""
@@ -210,6 +237,8 @@ def _non_fold_history(hand: Any) -> list[tuple[str, dict[str, Any], str]] | None
 
 
 def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
+    if not _supports_100bb_effective_stack(hand):
+        return None
     positions = _seat_position_map(table, hand)
     if positions is None or actor_id not in positions:
         return None
