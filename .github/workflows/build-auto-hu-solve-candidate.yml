@@ -295,7 +295,7 @@ jobs:
           assert '"solver_run": False' in ui_source
           assert 'source_text in set(_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS)' in ui_source
           assert 'still_expected["ratio"] > 0.01' in ui_source
-          assert 'result["dialog_closed_verified"] = not still_popups and after_diff["ratio"] <= 0.01' in ui_source
+          assert 'not after_popups and not remaining_edits and after_diff["ratio"] <= 0.01' in ui_source
           assert 'send(probe.wintypes.HWND(popup_hwnd), 0x0010, 0, 0)' in ui_source
           assert 'result["manual_close_required"] = not result["dialog_closed_verified"]' in ui_source
           assert "_board_card_center" in ui_source
