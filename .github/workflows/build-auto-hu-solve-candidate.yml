@@ -134,39 +134,24 @@ jobs:
                       break
               if not error_replaced and new_error not in main:
                   raise SystemExit("Could not update the weighted multi-hand diagnostic failure message")
-              q = chr(34)
-              legacy_aa_validation = "\n".join([
-                  "                if success:",
-                  "                    try:",
-                  "                        with zipfile.ZipFile(report, " + q + "r" + q + ") as report_zip:",
-                  "                            report_json_name = next((name for name in report_zip.namelist() if name.endswith(" + q + ".json" + q + ")), None)",
-                  "                            if report_json_name is None:",
-                  "                                success = False",
-                  "                            else:",
-                  "                                report_json = json.loads(report_zip.read(report_json_name).decode(" + q + "utf-8" + q + "))",
-                  "                                report_safety = report_json.get(" + q + "safety" + q + ", {})",
-                  "                                success = bool(report_safety.get(" + q + "oop_aa_only_matrix_reflection_verified" + q + ") and report_safety.get(" + q + "oop_test_range_restored" + q + ") and not report_safety.get(" + q + "manual_close_required" + q + "))",
-                  "                                if not success:",
-                  "                                    detail += " + q + " [AA可逆テスト] OOPのAA反映・復元確認に未達です。診断JSONと画像を確認してください。" + q,
-                  "                    except Exception as exc:",
-                  "                        success = False",
-                  "                        detail += " + q + " [AA可逆テスト] 診断JSONの確認に失敗: " + q + "+str(exc)",
-              ])
-              if legacy_aa_validation in main:
-                  main = main.replace(legacy_aa_validation, "", 1)
-              elif "oop_aa_only_matrix_reflection_verified" in main:
-                  raise SystemExit("Found a stale AA-only gate in an unexpected form")
-              old_aa_failure = "[AA可逆テスト] OOPのAA反映・復元確認に未達です。診断JSONと画像を確認してください。"
-              new_multi_failure = "[OOP複数ハンド可逆テスト] AA+AKsの2セル反映・40%正規化・Source読戻し・完全復元に未達です。"
-              old_aa_json_error = "[AA可逆テスト] 診断JSONの確認に失敗: "
-              new_multi_json_error = "[OOP複数ハンド可逆テスト] 診断JSONの確認に失敗: "
-              main = main.replace(old_aa_failure, new_multi_failure)
-              main = main.replace(old_aa_json_error, new_multi_json_error)
-              if old_aa_failure in main or old_aa_json_error in main:
-                  raise SystemExit("Legacy AA-only diagnostic messages remain")
               final_gate = 'success = bool(report_safety.get("oop_expected_matrix_cells_reflection_verified") and report_safety.get("oop_restore_source_text_accepted") and report_safety.get("oop_test_range_restored") and report_safety.get("oop_weight_display_capture_saved") and not report_safety.get("manual_close_required"))'
+              gate_count = main.count(final_gate)
+              if gate_count == 2:
+                  gate_positions = [i for i in range(len(main)) if main.startswith(final_gate, i)]
+                  duplicate_start = main.rfind("                if success:", 0, gate_positions[1])
+                  duplicate_end = main.find("                self.after(0, lambda: finish(success, report, detail, completed.returncode))", gate_positions[1])
+                  if duplicate_start < 0 or duplicate_end < 0:
+                      raise SystemExit("Could not bound the duplicate second report-validation block")
+                  duplicate_block = main[duplicate_start:duplicate_end]
+                  if duplicate_block.count(final_gate) != 1 or "report_safety.get(" not in duplicate_block:
+                      raise SystemExit("Second report-validation block was not the expected duplicate")
+                  main = main[:duplicate_start] + main[duplicate_end:]
+              elif gate_count != 1:
+                  raise SystemExit("Expected one or two multi-hand validators before deduplication; found "+str(gate_count))
               if main.count(final_gate) != 1:
-                  raise SystemExit("Expected exactly one OOP multi-hand success gate")
+                  raise SystemExit("Exactly one multi-hand success gate must remain")
+              if "oop_aa_only_matrix_reflection_verified" in main or "[AA可逆テスト]" in main:
+                  raise SystemExit("Legacy AA-only success criteria or messages remain")
               target=root/"pigeon_gto_plus"/"live_range_builder.py"
               ui_target=root/"pigeon_gto_plus"/"auto_solve_ui.py"
               target.write_text(module,encoding="utf-8",newline="\n")
