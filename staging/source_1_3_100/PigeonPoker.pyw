@@ -31,7 +31,10 @@ from pigeon_poker.sound_design import write_sound_wav, SOUND_ASSETS, SOUND_VARIA
 from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOError,
                           PokerRuleError, build_gto_plus_spot_table, HandHistoryStore,
                           is_gto_plus_supported_postflop_hand, CPUPoolStore, GGCareLedger, CashierLedger, bind_first_matching_tree)
-from pigeon_poker.preflop_screenshot_ranges import choose_preflop_action, preflop_chart_options
+from pigeon_poker.preflop_screenshot_ranges import (
+    choose_preflop_action, preflop_chart_options, estimate_preflop_opponent_ranges
+)
+from pigeon_poker.poker_reasoning import choose_range_aware_action
 from pigeon_gto_plus.live_range_builder import build_live_hu_solver_setup
 from pigeon_poker.multitable import MultiTableRegistry, next_big_blind_index_after_rotation
 from pigeon_poker.betting_ui import (DEFAULT_POT_PRESETS, normalize_pot_presets, format_chip_amount,
