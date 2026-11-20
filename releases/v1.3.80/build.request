@@ -1,1 +1,1 @@
-Build v1.3.80 from pinned v1.3.69 source plus v1.3.77 updater; preserve original embedded GTO+ host; narrow right CONNECTION column from 350 to 320 and canvas 332 to 302; auto socket setup, Pigeon-owned GTO+ launch/connect/retry/shutdown; show GTO page on startup and after update restart; keep UP TO DATE button disabled.
+Retry v1.3.80 after fixing the method replacement validator to allow the automatic flag parameter.
