@@ -1,1 +1,1 @@
-Build v1.3.78 from 1.3.77: do not alter Pigeon outer frame; use original GTO+ screenshot 1320x676 as native zoom reference; preserve 1.3.69 ranges, automatic GTO lifecycle, and update button availability state.
+Retry v1.3.78 with a stable launch API marker; geometry, syntax, range, and package checks previously passed.
