@@ -292,6 +292,20 @@ def test_action_weights_reproduce_all_75_screenshot_totals():
             assert abs(actual_pct-float(target_pct))<=0.15, (node['id'],label,target_pct,actual_pct)
 
 
+def test_six_seat_table_requires_six_dealt_players():
+    node=module._data()['nodes'][0]
+    hand=FakeHand(node,'AA')
+    assert module._supports_100bb_effective_stack(hand)
+    # A seat that is present in the table object but sitting out has no cards.
+    hand.players[5].hole_cards=()
+    hand.players[5].eligible=False
+    assert not module._supports_100bb_effective_stack(hand)
+    assert module._node_for_actor(FakeTable(),hand,hand.actor_id) is None
+    estimate=module.estimate_preflop_opponent_ranges(FakeTable(),hand)
+    assert estimate['supported'] is False
+    assert estimate['reason']=='requires_six_player_100bb_table'
+
+
 def test_hand_class_parsing():
     assert module.hand_class_from_cards(('A♠','A♥'))=='AA'
     assert module.hand_class_from_cards(('A♠','K♠'))=='AKs'
