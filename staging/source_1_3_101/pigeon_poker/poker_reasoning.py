@@ -764,6 +764,81 @@ def _bet_response_metrics(
     )
 
 
+def _blocker_removal_metrics(
+    hand: Any,
+    hero_id: str,
+    ranges: dict[str, OpponentRange],
+    bet_fraction: float = 0.50,
+) -> dict[str, float]:
+    """Quantify whether hero's known cards remove likely value or bluff-catch combos.
+
+    Only hypothetical combos made impossible by hero's own hole cards are
+    inspected. Each removed combo is weighted by its prior/action likelihood,
+    the opponent's probability of entering the pot, and its propensity to
+    continue versus the supplied bet size.
+    """
+    board = [str(card) for card in list(getattr(hand, "board", ()) or ())]
+    hero_cards = [str(card) for card in list(
+        getattr(hand.player(hero_id), "hole_cards", ()) or ()
+    )]
+    if len(board) < 3 or len(hero_cards) != 2:
+        return {
+            "value_call_combos_blocked": 0.0,
+            "bluff_call_combos_blocked": 0.0,
+            "draw_call_combos_blocked": 0.0,
+            "removed_combo_mass": 0.0,
+        }
+    hero_rank = evaluate_seven(hero_cards + board)
+    street = {3: "flop", 4: "turn", 5: "river"}.get(len(board), "river")
+    total_participation = sum(
+        max(0.0, min(1.0, float(item.participation_probability)))
+        for item in ranges.values()
+    )
+    if total_participation <= 0:
+        return {
+            "value_call_combos_blocked": 0.0,
+            "bluff_call_combos_blocked": 0.0,
+            "draw_call_combos_blocked": 0.0,
+            "removed_combo_mass": 0.0,
+        }
+
+    value_blocked = 0.0
+    bluff_blocked = 0.0
+    draw_blocked = 0.0
+    removed_mass = 0.0
+    for opponent_range in ranges.values():
+        participation = max(
+            0.0, min(1.0, float(opponent_range.participation_probability))
+        )
+        if participation <= 0:
+            continue
+        for combo, raw_weight in opponent_range.removed_combos:
+            weight = max(0.0, float(raw_weight)) * participation
+            if weight <= 0 or set(combo) & set(board):
+                continue
+            made, draw = _board_metrics(combo, board)
+            continue_probability = _response_continue_probability(
+                made, draw, bet_fraction, street, opponent_range.archetype
+            )
+            weighted_call = weight * continue_probability
+            removed_mass += weight
+            opponent_rank = evaluate_seven(list(combo) + board)
+            if opponent_rank > hero_rank:
+                value_blocked += weighted_call
+            elif opponent_rank < hero_rank:
+                bluff_blocked += weighted_call
+            if draw >= 0.40:
+                draw_blocked += weighted_call
+
+    scale = 1.0 / max(1e-9, total_participation)
+    return {
+        "value_call_combos_blocked": value_blocked * scale,
+        "bluff_call_combos_blocked": bluff_blocked * scale,
+        "draw_call_combos_blocked": draw_blocked * scale,
+        "removed_combo_mass": removed_mass * scale,
+    }
+
+
 def _cards_to_class(cards: tuple[str, str]) -> str:
     first, second = cards
     r1, r2 = RANKS.index(first[0]), RANKS.index(second[0])
@@ -819,6 +894,7 @@ def _choose_range_aware_action_impl(
     board = [str(card) for card in list(getattr(hand, "board", ()) or ())]
     ranges = infer_opponent_ranges(table, hand, player_id, range_estimator)
     equity, samples = _equity_vs_ranges(hand, player_id, ranges, cpu)
+    blocker_metrics = _blocker_removal_metrics(hand, player_id, ranges)
 
     level = min(5, max(1, int(getattr(cpu, "level", 3) or 3)))
     archetype = str(getattr(cpu, "archetype", "balanced") or "balanced")
@@ -863,7 +939,15 @@ def _choose_range_aware_action_impl(
         )
         decision_name = "multiway preflop range decision"
     else:
-        required_call = min(0.99, required_call + margin * 0.50 + uncertainty_margin)
+        blocker_call_delta = (
+            blocker_metrics["bluff_call_combos_blocked"]
+            - blocker_metrics["value_call_combos_blocked"]
+        ) * 0.22
+        blocker_call_delta = max(-0.035, min(0.035, blocker_call_delta))
+        required_call = max(
+            0.01,
+            min(0.99, required_call + margin * 0.50 + uncertainty_margin + blocker_call_delta),
+        )
         decision_name = "postflop action-updated range decision"
 
     best_action = _best_passive_action(actions)
@@ -902,16 +986,17 @@ def _choose_range_aware_action_impl(
                 for factor in multipliers
             }
         else:
-            fractions = (0.33, 0.50, 0.75, 1.00)
+            fractions = (0.25, 0.33, 0.50, 0.75, 1.00, 1.50)
             bases = [
                 street_contribution + max(min_target - street_contribution,
                                           int(round(max(1, pot) * fraction)))
                 for fraction in fractions
             ]
             if to_call:
+                fractions = (0.50, 0.75, 1.00, 1.25, 1.50)
                 bases = [
                     max(min_target, current_bet + max(last_full_raise, int(round(max(1, pot) * fraction))))
-                    for fraction in (0.50, 0.75, 1.00)
+                    for fraction in fractions
                 ]
             targets = {min(max_target, target) for target in bases
                        if min(max_target, target) >= min_target}
@@ -920,13 +1005,17 @@ def _choose_range_aware_action_impl(
                 continue
             risk = target - street_contribution
             bet_fraction = risk / max(1, pot)
+            candidate_blockers = _blocker_removal_metrics(
+                hand, player_id, ranges, bet_fraction
+            )
             (
                 candidate_fold_probability,
                 candidate_expected_callers,
                 candidate_called_equity,
                 candidate_response_samples,
             ) = _bet_response_metrics(
-                hand, player_id, ranges, board, bet_fraction, cpu
+                hand, player_id, ranges, board, bet_fraction, cpu,
+                simulation_multiplier=0.40,
             )
             required_success = required_bluff_success(pot, risk)
             candidate_required_bluff = required_success
@@ -943,12 +1032,27 @@ def _choose_range_aware_action_impl(
                     - risk
                 )
             )
-            value_gate = candidate_called_equity >= max(
-                0.56 if street == "preflop" else 0.57,
-                required_call + (0.105 if street == "preflop" else 0.13) + uncertainty_margin,
+            # Thin value is still value when the weighted calling range
+            # loses often enough. More likely callers in multiway pots raise
+            # the required threshold; level and uncertainty calibrate caution.
+            value_threshold = max(
+                0.50 + margin * 0.22 + uncertainty_margin * 0.15
+                + max(0.0, candidate_expected_callers - 1.0) * 0.025,
+                required_call + (0.035 if street == "preflop" else 0.015)
+                + uncertainty_margin * 0.20,
+            )
+            value_gate = candidate_called_equity >= min(0.78, value_threshold)
+            blocker_bluff_pressure = max(
+                0.0,
+                min(
+                    0.05,
+                    candidate_blockers["value_call_combos_blocked"] * 0.30
+                    - candidate_blockers["bluff_call_combos_blocked"] * 0.08,
+                ),
             )
             bluff_gate = (
-                candidate_fold_probability >= required_success + 0.04 + uncertainty_margin
+                candidate_fold_probability
+                >= required_success + 0.04 + uncertainty_margin - blocker_bluff_pressure
                 and candidate_called_equity < 0.48
             )
             premium_preflop = False
@@ -1006,6 +1110,9 @@ def _choose_range_aware_action_impl(
         f"{decision_name}; equity {equity:.1%}; required call {required_call:.1%}; "
         f"pure-bluff required folds {required_bluff:.1%}; estimated all-fold {fold_probability:.1%}; "
         f"expected callers {expected_callers:.2f}; equity when called {called_equity_estimate:.1%}; "
+        f"blockers value/bluff/draw={blocker_metrics['value_call_combos_blocked']:.1%}/"
+        f"{blocker_metrics['bluff_call_combos_blocked']:.1%}/"
+        f"{blocker_metrics['draw_call_combos_blocked']:.1%}; "
         f"ranges {len(ranges)}; samples {samples + response_samples}; uncertainty {uncertainty:.2f}; "
         f"policy penalty {guardrail_penalty}; EV≈{best_ev:.1f}; "
         "source=range-aware multiway response model (not solver exact)"
