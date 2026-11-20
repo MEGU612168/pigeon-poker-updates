@@ -1,1 +1,0 @@
-Retry v1.3.80 after the update button state replacement was made explicit for the separate no-update and error callbacks.
