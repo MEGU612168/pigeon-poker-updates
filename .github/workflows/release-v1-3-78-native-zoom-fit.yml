@@ -1,0 +1,359 @@
+name: Release Pigeon Poker v1.3.78 native GTO+ zoom fit
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.78/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fit the real 1320x676 GTO+ UI with native zoom, not a resized Pigeon frame
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import time
+          import urllib.request
+          import zipfile
+
+          repo = "MEGU612168/pigeon-poker-updates"
+          source_version = "1.3.77"
+          target_version = "1.3.78"
+          source_sha256 = "0c756f41ee0e4d573b423fc251052db95bfd43546b105b712b8daf2b53f38639"
+          source_size = 223106
+          source_url = (
+              f"https://raw.githubusercontent.com/{repo}/main/releases/v{source_version}/"
+              f"payload-updater.zip.b64?v={source_sha256}"
+          )
+
+          with urllib.request.urlopen(source_url, timeout=90) as response:
+              encoded = response.read().decode("ascii").strip()
+          source_payload = base64.b64decode(encoded, validate=True)
+          if len(source_payload) != source_size:
+              raise SystemExit("Pinned v1.3.77 payload size mismatch.")
+          if hashlib.sha256(source_payload).hexdigest() != source_sha256:
+              raise SystemExit("Pinned v1.3.77 payload SHA-256 mismatch.")
+
+          with zipfile.ZipFile(io.BytesIO(source_payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("Pinned v1.3.77 ZIP CRC failure: " + bad)
+              files = {name: archive.read(name) for name in archive.namelist()}
+
+          expected_files = {
+              "PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
+              "pigeon_gto_plus/auto_solve_ui.py",
+              "pigeon_gto_plus/live_range_builder.py",
+              "pigeon_gto_plus/ui_probe.py",
+              "pigeon_poker/preflop_screenshot_ranges.py",
+          }
+          if set(files) != expected_files:
+              raise SystemExit("Unexpected v1.3.77 package file set.")
+          if files["VERSION.txt"].decode("ascii").strip() != source_version:
+              raise SystemExit("Pinned v1.3.77 VERSION.txt mismatch.")
+
+          range_blobs = {
+              "pigeon_gto_plus/live_range_builder.py": "4b8d0c287acce64cce98562313ea63f73cfb3b60",
+              "pigeon_gto_plus/ui_probe.py": "6984be9b528ce4f463d8f0bf7ce72d95038ed1fd",
+              "pigeon_poker/preflop_screenshot_ranges.py": "5a816dc1a2a07d686c6fe83b7e04155549ac4818",
+          }
+          for name, expected_blob in range_blobs.items():
+              data = files[name]
+              actual_blob = hashlib.sha1(
+                  b"blob " + str(len(data)).encode("ascii") + bytes([0]) + data
+              ).hexdigest()
+              if actual_blob != expected_blob:
+                  raise SystemExit("v1.3.69 range baseline mismatch: " + name)
+
+          main = files["PigeonPoker.pyw"].decode("utf-8")
+
+          def replace_once(source: str, old: str, new: str, label: str) -> str:
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one exact match, found {count}.")
+              return source.replace(old, new, 1)
+
+          # Keep the Pigeon workspace, viewport, right controls column, and
+          # all outer frame geometry unchanged. Only the native GTO+ child
+          # receives a new size that matches the full GTO+ reference aspect.
+          main = replace_once(
+              main,
+              'self.gto_viewport, bg="#080f18", width=665, height=570,',
+              'self.gto_viewport, bg="#080f18", width=1320, height=676,',
+              "native GTO+ reference host initial size",
+          )
+          main = replace_once(
+              main,
+              'relx=0.5, rely=0.5, anchor="center", width=665, height=570,',
+              'relx=0.5, rely=0.5, anchor="center", width=1320, height=676,',
+              "native GTO+ reference host initial placement",
+          )
+
+          layout_start = main.find("    def _layout_embedded_gto_host(self) -> bool:\n")
+          sync_start = main.find("    def _sync_embedded_gto_geometry(", layout_start)
+          if layout_start < 0 or sync_start < 0:
+              raise SystemExit("Could not locate the GTO+ native zoom layout method.")
+          if main.count("    def _layout_embedded_gto_host(self) -> bool:\n") != 1:
+              raise SystemExit("GTO+ native zoom layout method is not unique.")
+
+          layout_lines = [
+              "    def _layout_embedded_gto_host(self) -> bool:",
+              '        """Fit the full native GTO+ UI using its actual 1320x676 reference ratio.',
+              "        Resizing this child HWND triggers GTO+'s own interface zoom; the",
+              "        Pigeon workspace/viewport frame is never resized.",
+              '        """',
+              "        try:",
+              "            self.update_idletasks()",
+              "            viewport_width = int(self.gto_viewport.winfo_width())",
+              "            viewport_height = int(self.gto_viewport.winfo_height())",
+              "            if viewport_width < 2 or viewport_height < 2:",
+              "                return False",
+              "            reference_width = 1320.0",
+              "            reference_height = 676.0",
+              "            scale = min(",
+              "                viewport_width / reference_width,",
+              "                viewport_height / reference_height,",
+              "                1.0,",
+              "            )",
+              "            if scale <= 0:",
+              "                return False",
+              "            target_width = max(2, int(round(reference_width * scale)))",
+              "            target_height = max(2, int(round(reference_height * scale)))",
+              "            current_size = (",
+              "                int(self.gto_host.winfo_width()),",
+              "                int(self.gto_host.winfo_height()),",
+              "            )",
+              "            if current_size != (target_width, target_height):",
+              "                self.gto_host.place_configure(",
+              "                    width=target_width, height=target_height,",
+              "                )",
+              "            self._gto_display_scale = scale",
+              "            self._gto_native_zoom_percent = int(round(scale * 100))",
+              "            return True",
+              "        except (tk.TclError, ZeroDivisionError, ValueError):",
+              "            return False",
+              "",
+          ]
+          new_layout = "\n".join(layout_lines) + "\n"
+          main = main[:layout_start] + new_layout + main[sync_start:]
+
+          # Re-apply the child dimensions after GTO+ handles WM_SIZE; do not
+          # touch the outer frame. This allows the solver's native zoom layout
+          # to settle before final sizing/position synchronization.
+          schedule_start = main.find("    def _schedule_embedded_gto_geometry_sync(", sync_start)
+          resize_start = main.find("    def _resize_embedded(", schedule_start)
+          if schedule_start < 0 or resize_start < 0:
+              raise SystemExit("Could not locate the GTO+ resize scheduling callbacks.")
+          schedule_lines = [
+              "    def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:",
+              '        """Apply the fitted native zoom immediately and after GTO+ WM_SIZE settles."""',
+              "        if not self.gto_embedded:",
+              "            return",
+              "        self._layout_embedded_gto_host()",
+              "        self._sync_embedded_gto_geometry(reason)",
+              "        try:",
+              "            self.after_idle(",
+              '                lambda r=reason: self._sync_embedded_gto_geometry(r + "-idle")',
+              "            )",
+              "            self.after(250, lambda r=reason: self._sync_embedded_gto_geometry(r + '-settled'))",
+              "            self.after(900, lambda r=reason: self._sync_embedded_gto_geometry(r + '-native-zoom-settled'))",
+              "        except tk.TclError:",
+              "            pass",
+              "",
+          ]
+          main = main[:schedule_start] + "\n".join(schedule_lines) + "\n" + main[resize_start:]
+
+          resize_start = main.find("    def _resize_embedded(", schedule_start)
+          resize_end = main.find("\n    def ", resize_start + 5)
+          if resize_start < 0 or resize_end < 0:
+              raise SystemExit("Could not bound the embedded GTO+ resize callback.")
+          resize_lines = [
+              "    def _resize_embedded(self, _event=None):",
+              "        self._layout_embedded_gto_host()",
+              '        self._sync_embedded_gto_geometry("viewport-configure")',
+          ]
+          main = main[:resize_start] + "\n".join(resize_lines) + "\n" + main[resize_end:]
+
+          # The frame layout is intentionally invariant.
+          required_main = (
+              'host_col.pack(side="left", fill="both", expand=True)',
+              'controls_outer.pack(side="right", fill="y", padx=(12, 0))',
+              'self.gto_viewport = tk.Frame(host_col, bg="#080f18")',
+              'self.gto_viewport.pack(fill="both", expand=True, padx=8, pady=8)',
+              "reference_width = 1320.0",
+              "reference_height = 676.0",
+              "scale = min(",
+              "self.gto_host.place_configure(",
+              "self.integration.resize_docked_window(host_width, host_height)",
+              "native-zoom-settled",
+              "self.after(1200, self._refresh_update_button_state)",
+              'text="UP TO DATE"',
+              'state="disabled", style="MutedUpdate.TButton"',
+              'text="UPDATE NOW"',
+              'self.after(350, self._auto_start_gto_plus)',
+              "self.integration.enable_socket_connection()",
+              "self.integration.launch_and_dock(host_hwnd, startup_timeout=25)",
+              '["taskkill", "/PID", str(self.gto_owned_pid), "/T", "/F"]',
+          )
+          for item in required_main:
+              if item not in main:
+                  raise SystemExit("Missing v1.3.78 requirement: " + item)
+          if 'controls_outer.pack(fill="x"' in main or "controls_toggle" in main:
+              raise SystemExit("Pigeon outer control-panel layout was changed.")
+          if 'self.gto_viewport.pack(fill="both", expand=True, padx=8, pady=8)' not in main:
+              raise SystemExit("Pigeon fixed GTO+ display viewport was changed.")
+
+          # Verify actual fit math against the supplied 1320x676 GTO+ screenshot
+          # and representative Pigeon inner viewport sizes.
+          def fit(width: int, height: int):
+              scale = min(width / 1320.0, height / 676.0, 1.0)
+              target_w = int(round(1320.0 * scale))
+              target_h = int(round(676.0 * scale))
+              return scale, target_w, target_h
+
+          scale, fw, fh = fit(856, 548)
+          if (fw, fh) != (856, 438) or scale <= 0 or fw > 856 or fh > 548:
+              raise SystemExit(f"Native zoom fit calculation failed: {(scale, fw, fh)}")
+          if abs(fw / fh - 1320 / 676) > 0.004:
+              raise SystemExit("Native GTO+ zoom did not preserve the supplied reference aspect.")
+          scale2, w2, h2 = fit(714, 548)
+          if w2 > 714 or h2 > 548 or abs(w2 / h2 - 1320 / 676) > 0.004:
+              raise SystemExit(f"Smaller viewport native zoom fit failed: {(scale2, w2, h2)}")
+          if (fw, fh) == (665, 570):
+              raise SystemExit("Old portrait-oriented 665x570 viewport baseline remains.")
+
+          for name, expected_blob in range_blobs.items():
+              actual_blob = hashlib.sha1(
+                  b"blob " + str(len(files[name])).encode("ascii") + bytes([0]) + files[name]
+              ).hexdigest()
+              if actual_blob != expected_blob:
+                  raise SystemExit("v1.3.69 range baseline changed: " + name)
+
+          files["PigeonPoker.pyw"] = main.encode("utf-8")
+          files["VERSION.txt"] = (target_version + chr(10)).encode("ascii")
+          for name, data in files.items():
+              if name.endswith(".py") or name.endswith(".pyw"):
+                  ast.parse(data.decode("utf-8"), filename=name)
+
+          output = io.BytesIO()
+          with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+              for name in sorted(files):
+                  archive.writestr(name, files[name])
+          final_payload = output.getvalue()
+          with zipfile.ZipFile(io.BytesIO(final_payload), "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Final v1.3.78 ZIP CRC check failed.")
+              if set(archive.namelist()) != expected_files:
+                  raise SystemExit("Final v1.3.78 package file list changed.")
+              if archive.read("VERSION.txt").decode("ascii").strip() != target_version:
+                  raise SystemExit("Final v1.3.78 version marker mismatch.")
+              ast.parse(archive.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
+
+          digest = hashlib.sha256(final_payload).hexdigest()
+          encoded_final = base64.b64encode(final_payload).decode("ascii")
+          release_dir = pathlib.Path("releases") / ("v" + target_version)
+          release_dir.mkdir(parents=True, exist_ok=True)
+          (release_dir / "payload-updater.zip.b64").write_text(encoded_final, encoding="ascii")
+
+          chunk_size = 48000
+          chunks = []
+          for index, offset in enumerate(range(0, len(encoded_final), chunk_size)):
+              name = f"payload.part-{index:03d}"
+              (release_dir / name).write_text(encoded_final[offset:offset + chunk_size], encoding="ascii")
+              chunks.append(name)
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": chunks}, indent=2) + chr(10), encoding="utf-8"
+          )
+
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          notes = (
+              "Pigeonの外側のGTO+ WORKSPACE枠・左右パネル配置は一切変更しない。"
+              "元のGTO+画面スクリーンショット1320x676を正しい基準比率として使用し、"
+              "GTO+のネイティブウィンドウだけを固定枠内に均等縮小。"
+              "GTO+自身のWM_SIZEに応じた内部ズーム機能を利用し、レンジ一覧・マトリクス・操作UIを同じ倍率で縮小表示。"
+              "サイズ変更後250ms/900msに再同期してネイティブズーム後の寸法を安定化。"
+              "v1.3.77の自動起動・自動ソケット設定・自動接続・所有PID終了・更新なしボタン無効化を維持。"
+              "v1.3.69のHU/プリフロップレンジ本体はバイト単位で維持。"
+          )
+          release = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": target_version,
+              "published_at": now,
+              "package_mode": "full",
+              "release_notes": notes,
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+              "source_version": source_version,
+              "range_baseline": "1.3.69",
+              "gto_native_reference_size": [1320, 676],
+              "fixed_outer_workspace_frame": True,
+              "native_gto_zoom_on_resize": True,
+              "uniform_inner_fit": True,
+              "automatic_gto_lifecycle": True,
+              "update_button_disabled_when_current": True,
+              "files": sorted(files),
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(release, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8"
+          )
+          (release_dir / "payload.ready").write_text(
+              "verified " + target_version + chr(10), encoding="ascii"
+          )
+          stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": target_version,
+              "published_at": now,
+              "release_notes": notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": (
+                  f"https://raw.githubusercontent.com/{repo}/main/releases/v{target_version}/"
+                  f"payload-updater.zip.b64?v={digest}"
+              ),
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+          }
+          pathlib.Path("stable.json").write_text(
+              json.dumps(stable, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8"
+          )
+          (release_dir / "build.request").unlink(missing_ok=True)
+          print(json.dumps({
+              "published_version": target_version,
+              "native_gto_reference_size": [1320, 676],
+              "outer_workspace_frame_changed": False,
+              "native_zoom_fit": [scale, fw, fh],
+              "range_baseline": "1.3.69",
+              "automatic_gto_lifecycle_preserved": True,
+              "update_availability_button_preserved": True,
+              "payload_size": len(final_payload),
+              "payload_sha256": digest,
+          }, ensure_ascii=False))
+          PY
+      - name: Publish v1.3.78 native zoom fit package
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+users.noreply.github.com"
+          git add stable.json releases/v1.3.78/
+          git commit -m "Release Pigeon Poker v1.3.78 native GTO+ zoom fit"
+          git push
