@@ -430,13 +430,16 @@ def _known_public_blockers(hand: Any, exclude_player_id: str | None) -> tuple[se
 
 
 def estimate_preflop_opponent_ranges(table: Any, hand: Any,
-                                     exclude_player_id: str | None = None) -> dict[str, Any]:
+                                     exclude_player_id: str | None = None,
+                                     opponent_profiles: dict[str, Any] | None = None) -> dict[str, Any]:
     """Estimate latest supported opponent ranges, adjusted for known hero/board blockers.
 
     Screenshot-derived per-class weights are multiplied by the number of physical
     combinations still available in each class. Only the supplied acting player's
     cards and the public board are used as blockers; the other seats' hidden cards
     are deliberately ignored. Suit-specific strategy differences remain unknown.
+    Known CPU profile archetypes are attached as weak behavioral priors; they do not
+    alter the fixed chart rows or frequencies.
     """
     if not _supports_100bb_effective_stack(hand):
         return {"supported": False, "reason": "requires_six_player_100bb_table", "players": {}}
@@ -511,6 +514,30 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
 
     if exclude_player_id is not None:
         latest.pop(str(exclude_player_id), None)
+
+    # The 100-player CPU pool carries stable archetype labels. They are useful
+    # as weak starting priors for observed actions, not as certainty or a
+    # substitute for hand-history evidence.
+    profile_map = opponent_profiles or {}
+    for player_id, row in latest.items():
+        profile = profile_map.get(str(player_id))
+        if profile is None:
+            continue
+        if isinstance(profile, dict):
+            archetype = profile.get("archetype", "balanced")
+            profile_level = profile.get("level")
+        else:
+            archetype = getattr(profile, "archetype", "balanced")
+            profile_level = getattr(profile, "level", None)
+        archetype = str(archetype or "balanced").lower()
+        if archetype in {"aggressive", "calling_station", "overfolder", "underbluffer"}:
+            row["archetype"] = archetype
+            if profile_level is not None:
+                try:
+                    row["profile_level"] = max(1, min(5, int(profile_level)))
+                except (TypeError, ValueError, OverflowError):
+                    pass
+
     return {
         "supported": True,
         "reason": "",
