@@ -1,0 +1,441 @@
+name: Release Pigeon Poker v1.3.83 GTO workspace wide drawer
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.83/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build from verified v1.3.82 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import time
+          import urllib.request
+          import zipfile
+
+          REPO = "MEGU612168/pigeon-poker-updates"
+          SOURCE_VERSION = "1.3.82"
+          TARGET_VERSION = "1.3.83"
+          SOURCE_SHA256 = "0d73cc8ce1a1168f1032ef8ae54875f3bb8554a037dce074a932676cc07c385f"
+          SOURCE_SIZE = 223547
+          SOURCE_URL = (
+              f"https://raw.githubusercontent.com/{REPO}/main/releases/v{SOURCE_VERSION}/"
+              f"payload-updater.zip.b64?v={SOURCE_SHA256}"
+          )
+
+          with urllib.request.urlopen(SOURCE_URL, timeout=90) as response:
+              source_transport = response.read().decode("ascii").strip()
+          source_payload = base64.b64decode(source_transport, validate=True)
+          if len(source_payload) != SOURCE_SIZE:
+              raise SystemExit("Pinned v1.3.82 package size mismatch.")
+          if hashlib.sha256(source_payload).hexdigest() != SOURCE_SHA256:
+              raise SystemExit("Pinned v1.3.82 package SHA-256 mismatch.")
+
+          EXPECTED_FILES = {
+              "PigeonPoker.pyw",
+              "pigeon_updater.py",
+              "VERSION.txt",
+              "pigeon_gto_plus/auto_solve_ui.py",
+              "pigeon_gto_plus/live_range_builder.py",
+              "pigeon_gto_plus/ui_probe.py",
+              "pigeon_poker/preflop_screenshot_ranges.py",
+          }
+          with zipfile.ZipFile(io.BytesIO(source_payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("Pinned v1.3.82 ZIP CRC failure: " + bad)
+              files = {name: archive.read(name) for name in archive.namelist()}
+          if set(files) != EXPECTED_FILES:
+              raise SystemExit("Unexpected v1.3.82 package file list.")
+          if files["VERSION.txt"].decode("ascii").strip() != SOURCE_VERSION:
+              raise SystemExit("Pinned v1.3.82 version marker mismatch.")
+
+          # Keep the validated v1.3.69 range implementation and data byte-for-byte.
+          range_blobs = {
+              "pigeon_gto_plus/live_range_builder.py": "4b8d0c287acce64cce98562313ea63f73cfb3b60",
+              "pigeon_gto_plus/ui_probe.py": "6984be9b528ce4f463d8f0bf7ce72d95038ed1fd",
+              "pigeon_poker/preflop_screenshot_ranges.py": "5a816dc1a2a07d686c6fe83b7e04155549ac4818",
+          }
+          for name, expected_blob in range_blobs.items():
+              data = files[name]
+              actual_blob = hashlib.sha1(
+                  b"blob " + str(len(data)).encode("ascii") + bytes([0]) + data
+              ).hexdigest()
+              if actual_blob != expected_blob:
+                  raise SystemExit("Range baseline changed: " + name)
+
+          main = files["PigeonPoker.pyw"].decode("utf-8")
+
+          def replace_once(source: str, old: str, new: str, label: str) -> str:
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one exact match, got {count}.")
+              return source.replace(old, new, 1)
+
+          # Make the GTO+ page use the full available page, not the old
+          # header + side-by-side 320px control-column layout.
+          main = replace_once(
+              main,
+              '        self._page_header(page, "GTO+ Engine", "GTO+ remains installed on this Windows PC. Pigeon connects to its local solver and caches solved node strategies.")\n',
+              "",
+              "remove GTO+ page header to recover vertical workspace",
+          )
+          main = replace_once(
+              main,
+              '        row.pack(fill="both", expand=True, padx=22, pady=(0, 20))',
+              '        row.pack(fill="both", expand=True, padx=4, pady=4)',
+              "expand GTO+ workspace page",
+          )
+          main = replace_once(
+              main,
+              '        self.gto_viewport.pack(fill="both", expand=True, padx=8, pady=8)',
+              '        self.gto_viewport.pack(fill="both", expand=True, padx=2, pady=2)',
+              "reduce GTO+ viewport inner margins",
+          )
+
+          # Right-side settings become a floating overlay drawer. It is
+          # COLLAPSED at startup; opening it covers the workspace but never
+          # changes the workspace's size, geometry or GTO+ HWND dimensions.
+          old_controls = (
+              '        controls_outer = tk.Frame(row, bg=COLORS["bg"], width=320)\n'
+              '        controls_outer.pack(side="right", fill="y", padx=(12, 0))\n'
+              '        controls_outer.pack_propagate(False)\n'
+          )
+          new_controls = (
+              '        self._gto_controls_drawer_open = False\n'
+              '        self.gto_controls_drawer = tk.Frame(\n'
+              '            host_col, bg=COLORS["panel"],\n'
+              '            highlightbackground=COLORS["border"], highlightthickness=1,\n'
+              '        )\n'
+              '        self.gto_controls_drawer.place(\n'
+              '            relx=1.0, rely=0.0, anchor="ne", relheight=1.0, width=40,\n'
+              '        )\n'
+              '        self.gto_controls_toggle = ttk.Button(\n'
+              '            self.gto_controls_drawer, text="◀", width=2,\n'
+              '            style="DrawerToggle.TButton",\n'
+              '            command=self._toggle_gto_controls_drawer,\n'
+              '        )\n'
+              '        self.gto_controls_toggle.place(x=0, y=12, width=40, height=44)\n'
+              '        controls_outer = tk.Frame(\n'
+              '            self.gto_controls_drawer, bg=COLORS["bg"], width=360,\n'
+              '        )\n'
+              '        self.gto_controls_panel = controls_outer\n'
+              '        controls_outer.place_forget()\n'
+              '        self.gto_controls_drawer.lift()\n'
+          )
+          main = replace_once(main, old_controls, new_controls, "replace fixed GTO+ side panel with overlay drawer")
+
+          main = replace_once(
+              main,
+              '            width=302, yscrollincrement=24,',
+              '            width=340, yscrollincrement=24,',
+              "widen overlay controls canvas",
+          )
+
+          # The reference is the entire GTO+ interface at roughly 80% of the
+          # original full-screen capture. Keep its native aspect ratio, fit it
+          # inside the expanded workspace and never upscale past that reference.
+          main = replace_once(
+              main,
+              '                viewport_width / content_width,\n'
+              '                viewport_height / content_height,\n'
+              '            )',
+              '                viewport_width / content_width,\n'
+              '                viewport_height / content_height,\n'
+              '                1.0,\n'
+              '            )',
+              "cap GTO+ display at the 80-percent reference size",
+          )
+
+          # The drawer's toggle is an overlay-only operation: no call to the
+          # GTO+ resize or geometry-sync methods is permitted here.
+          drawer_method = """    def _toggle_gto_controls_drawer(self):
+                  \"\"\"Open/close the right controls over GTO+ without resizing the workspace.\"\"\"
+                  try:
+                      opening = not bool(getattr(self, "_gto_controls_drawer_open", False))
+                      self._gto_controls_drawer_open = opening
+                      if opening:
+                          self.gto_controls_drawer.place_configure(width=400)
+                          self.gto_controls_panel.place(
+                              x=40, y=0, width=360, relheight=1.0,
+                          )
+                          self.gto_controls_toggle.configure(text="▶")
+                      else:
+                          self.gto_controls_panel.place_forget()
+                          self.gto_controls_drawer.place_configure(width=40)
+                          self.gto_controls_toggle.configure(text="◀")
+                      self.gto_controls_drawer.lift()
+                      self.gto_controls_toggle.lift()
+                      self.after_idle(self.gto_controls_drawer.lift)
+                  except tk.TclError:
+                      return
+
+          """
+          anchor = "    def _build_placeholder_pages(self):\n"
+          if main.count(anchor) != 1:
+              raise SystemExit("Could not uniquely locate GTO+ page builder insertion point.")
+          main = main.replace(anchor, drawer_method + anchor, 1)
+
+          # Add a visually clear but narrow arrow handle style.
+          style_anchor = (
+              '        style.configure("RetryUpdate.TButton", background="#64748b", foreground="#f2f6fc")\n'
+          )
+          style_insert = style_anchor + (
+              '        style.configure("DrawerToggle.TButton", background="#22364d", foreground=COLORS["text"], font=("Segoe UI Symbol", 14, "bold"), padding=0)\n'
+              '        style.map("DrawerToggle.TButton", background=[("active", "#315276")])\n'
+          )
+          main = replace_once(main, style_anchor, style_insert, "GTO drawer arrow style")
+
+          # Remove the incorrect manual CHECK AGAIN action. Automatic
+          # checks run at startup and every 30 minutes; only a real update
+          # enables the button. A current installation stays disabled.
+          check_again = (
+              'state="normal", style="Accent.TButton", text="CHECK AGAIN", '
+              'command=self._refresh_update_button_state'
+          )
+          if main.count(check_again) != 2:
+              raise SystemExit("Expected exactly two CHECK AGAIN states.")
+          main = main.replace(
+              check_again,
+              'state="disabled", style="MutedUpdate.TButton", text="UP TO DATE"',
+          )
+          retry_check = (
+              'state="normal", style="RetryUpdate.TButton", text="RETRY CHECK", '
+              'command=self._refresh_update_button_state'
+          )
+          if main.count(retry_check) != 2:
+              raise SystemExit("Expected exactly two manual retry states.")
+          main = main.replace(
+              retry_check,
+              'state="disabled", style="MutedUpdate.TButton", text="CHECK FAILED"',
+          )
+
+          required = (
+              'row.pack(fill="both", expand=True, padx=4, pady=4)',
+              'self.gto_viewport.pack(fill="both", expand=True, padx=2, pady=2)',
+              'self.gto_controls_drawer.place(',
+              'relx=1.0, rely=0.0, anchor="ne", relheight=1.0, width=40,',
+              'self._gto_controls_drawer_open = False',
+              'text="◀"',
+              'self.gto_controls_panel = controls_outer',
+              'controls_outer.place_forget()',
+              'def _toggle_gto_controls_drawer(self):',
+              'self.gto_controls_drawer.place_configure(width=400)',
+              'self.gto_controls_panel.place(',
+              'self.gto_controls_drawer.place_configure(width=40)',
+              'self.gto_controls_panel.place_forget()',
+              'self.gto_controls_toggle.configure(text="▶")',
+              'self.gto_controls_toggle.configure(text="◀")',
+              'style.configure("DrawerToggle.TButton"',
+              '                1.0,',
+              'self.after(30 * 60 * 1000, self._periodic_update_check)',
+              'text="UP TO DATE"',
+              'text="UPDATE NOW"',
+              'state="disabled", style="MutedUpdate.TButton", text="CHECK FAILED"',
+          )
+          for marker in required:
+              if marker not in main:
+                  raise SystemExit("Missing v1.3.83 requirement: " + marker)
+          if "CHECK AGAIN" in main or "RETRY CHECK" in main:
+              raise SystemExit("Manual update-check buttons remain.")
+          if main.count("    def _toggle_gto_controls_drawer(self):") != 1:
+              raise SystemExit("GTO+ controls drawer method is missing or duplicated.")
+          toggle_start = main.find("    def _toggle_gto_controls_drawer(self):")
+          toggle_end = main.find("\n    def ", toggle_start + 5)
+          toggle_source = main[toggle_start:toggle_end]
+          if "_sync_embedded_gto_geometry" in toggle_source or "resize_docked_window" in toggle_source:
+              raise SystemExit("Opening/closing the controls drawer resizes the GTO+ workspace.")
+          if main.count('controls_outer = tk.Frame(\n            self.gto_controls_drawer') != 1:
+              raise SystemExit("The settings panel is not parented to the overlay drawer.")
+          if 'controls_outer.pack(side="right"' in main:
+              raise SystemExit("The old side-by-side GTO+ controls layout remains.")
+
+          # Validate workspace fit: the actual GTO+ content is always inside
+          # the current client area, with no forced upscale. Drawer visibility
+          # does not appear in this computation.
+          def fit(width: int, height: int):
+              scale = min(width / 1320.0, height / 676.0, 1.0)
+              w = max(2, min(width, int(1320.0 * scale)))
+              h = max(2, min(height, int(676.0 * scale)))
+              return scale, w, h
+
+          for vw, vh in ((1320, 676), (1380, 730), (1450, 770), (1600, 820), (1000, 600)):
+              scale, fw, fh = fit(vw, vh)
+              if not (0 < scale <= 1.0 and fw <= vw and fh <= vh):
+                  raise SystemExit(f"GTO+ content fit failed: {vw}x{vh} -> {fw}x{fh}")
+          if fit(1450, 770)[1:] != (1320, 676):
+              raise SystemExit("Expanded GTO+ workspace does not reach its intended ~80% reference size.")
+
+          files["PigeonPoker.pyw"] = main.encode("utf-8")
+          files["VERSION.txt"] = (TARGET_VERSION + chr(10)).encode("ascii")
+
+          for name, data in files.items():
+              if name.endswith(".py") or name.endswith(".pyw"):
+                  ast.parse(data.decode("utf-8"), filename=name)
+
+          output = io.BytesIO()
+          with zipfile.ZipFile(
+              output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+          ) as archive:
+              for name in sorted(files):
+                  archive.writestr(name, files[name])
+          final_payload = output.getvalue()
+          with zipfile.ZipFile(io.BytesIO(final_payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("Final v1.3.83 ZIP CRC failure: " + bad)
+              if set(archive.namelist()) != EXPECTED_FILES:
+                  raise SystemExit("Final v1.3.83 file set changed.")
+              if archive.read("VERSION.txt").decode("ascii").strip() != TARGET_VERSION:
+                  raise SystemExit("Final v1.3.83 version marker mismatch.")
+              ast.parse(archive.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
+
+          digest = hashlib.sha256(final_payload).hexdigest()
+          encoded_final = base64.b64encode(final_payload).decode("ascii")
+          release_dir = pathlib.Path("releases") / ("v" + TARGET_VERSION)
+          release_dir.mkdir(parents=True, exist_ok=True)
+          (release_dir / "payload-updater.zip.b64").write_text(
+              encoded_final, encoding="ascii"
+          )
+
+          chunk_size = 48000
+          chunks = []
+          for index, offset in enumerate(range(0, len(encoded_final), chunk_size)):
+              name = f"payload.part-{index:03d}"
+              (release_dir / name).write_text(
+                  encoded_final[offset:offset + chunk_size], encoding="ascii"
+              )
+              chunks.append(name)
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": chunks}, indent=2) + chr(10), encoding="utf-8"
+          )
+
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          notes = (
+              "GTO+ WORKSPACEをGTO+ ENGINEページのメイン領域いっぱいに拡大。"
+              "旧ページ見出しと固定右320px列を撤去し、右側のCONNECTION/AUTOMATIC TREE ANALYSIS/"
+              "STRATEGY CACHE等を右端スライド式オーバーレイドロワーへ移動。"
+              "初期状態は格納。右端の左矢印で開き、右矢印で閉じる。"
+              "展開時はGTO+ WORKSPACEの上へ重ねるだけで、workspace/viewport/HWNDの寸法を変更しない。"
+              "GTO+の全体比率1320:676を維持し、約80%基準サイズを上限として表示領域内に配置。"
+              "更新確認は起動時と30分ごとの自動確認のみ。最新版と確認失敗時は更新ボタン無効、"
+              "更新がある場合だけUPDATE NOWを有効化。"
+              "v1.3.82の権限復旧・PID引継ぎ・自動起動/接続とv1.3.69のレンジ本体を維持。"
+          )
+          release = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "package_mode": "full",
+              "release_notes": notes,
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+              "source_version": SOURCE_VERSION,
+              "gto_workspace_uses_full_page": True,
+              "gto_controls_drawer_default": "collapsed",
+              "gto_controls_overlay_width": 400,
+              "drawer_toggle_resizes_workspace": False,
+              "gto_reference_size": [1320, 676],
+              "gto_reference_scale_cap": 1.0,
+              "automatic_update_check_on_startup": True,
+              "automatic_update_check_interval_minutes": 30,
+              "up_to_date_update_button_disabled": True,
+              "manual_check_buttons_removed": True,
+              "range_baseline": "1.3.69",
+              "gto_permission_recovery": "preserved from v1.3.81/v1.3.82",
+              "automatic_gto_lifecycle": True,
+              "files": sorted(files),
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(release, ensure_ascii=False, indent=2) + chr(10),
+              encoding="utf-8",
+          )
+          (release_dir / "payload.ready").write_text(
+              "verified " + TARGET_VERSION + chr(10), encoding="ascii"
+          )
+
+          stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "release_notes": notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": (
+                  f"https://raw.githubusercontent.com/{REPO}/main/releases/v{TARGET_VERSION}/"
+                  f"payload-updater.zip.b64?v={digest}"
+              ),
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+          }
+          pathlib.Path("stable.json").write_text(
+              json.dumps(stable, ensure_ascii=False, indent=2) + chr(10),
+              encoding="utf-8",
+          )
+
+          dist = pathlib.Path("dist")
+          dist.mkdir(exist_ok=True)
+          artifact = dist / f"PigeonPoker_{TARGET_VERSION}_Improved.zip"
+          artifact.write_bytes(final_payload)
+          with zipfile.ZipFile(artifact, "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Download artifact ZIP CRC validation failed.")
+
+          (release_dir / "build.request").unlink(missing_ok=True)
+          print(json.dumps({
+              "published_version": TARGET_VERSION,
+              "source_version": SOURCE_VERSION,
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+              "workspace_full_page": True,
+              "drawer_default_collapsed": True,
+              "drawer_overlay_width": 400,
+              "drawer_resize_workspace": False,
+              "update_check_automatic_only": True,
+              "update_check_interval_minutes": 30,
+              "up_to_date_button_disabled": True,
+              "range_baseline_preserved": True,
+          }, ensure_ascii=False))
+          PY
+
+      - name: Upload installable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: PigeonPoker_1.3.83_Improved
+          path: dist/PigeonPoker_1.3.83_Improved.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish stable v1.3.83 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+users.noreply.github.com"
+          git add stable.json releases/v1.3.83/
+          git commit -m "Release Pigeon Poker v1.3.83 full GTO workspace and overlay controls"
+          git push
