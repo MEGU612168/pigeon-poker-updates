@@ -200,10 +200,6 @@ jobs:
               except (TypeError, ValueError, OverflowError):
                   return None
           '''
-          fixed_target_helpers = "\n".join(
-              line[14:] if line.startswith("              ") else line
-              for line in fixed_target_helpers.splitlines()
-          )
           pre = pre[:clamp_start] + fixed_target_helpers.rstrip() + pre[clamp_end:]
           pre = replace_once(
               pre,
