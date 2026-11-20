@@ -134,23 +134,24 @@ jobs:
                       break
               if not error_replaced and new_error not in main:
                   raise SystemExit("Could not update the weighted multi-hand diagnostic failure message")
-              legacy_aa_validation = (
-                  "                if success:" + chr(10)
-                  + "                    try:" + chr(10)
-                  + "                        with zipfile.ZipFile(report, \\"r\\") as report_zip:" + chr(10)
-                  + "                            report_json_name = next((name for name in report_zip.namelist() if name.endswith(\\".json\\")), None)" + chr(10)
-                  + "                            if report_json_name is None:" + chr(10)
-                  + "                                success = False" + chr(10)
-                  + "                            else:" + chr(10)
-                  + "                                report_json = json.loads(report_zip.read(report_json_name).decode(\\"utf-8\\"))" + chr(10)
-                  + "                                report_safety = report_json.get(\\"safety\\", {})" + chr(10)
-                  + "                                success = bool(report_safety.get(\\"oop_aa_only_matrix_reflection_verified\\") and report_safety.get(\\"oop_test_range_restored\\") and not report_safety.get(\\"manual_close_required\\"))" + chr(10)
-                  + "                                if not success:" + chr(10)
-                  + "                                    detail += \\" [AA可逆テスト] OOPのAA反映・復元確認に未達です。診断JSONと画像を確認してください。\\"" + chr(10)
-                  + "                    except Exception as exc:" + chr(10)
-                  + "                        success = False" + chr(10)
-                  + "                        detail += \\" [AA可逆テスト] 診断JSONの確認に失敗: \\"+str(exc)" + chr(10)
-              )
+              q = chr(34)
+              legacy_aa_validation = "\\n".join([
+                  "                if success:",
+                  "                    try:",
+                  "                        with zipfile.ZipFile(report, " + q + "r" + q + ") as report_zip:",
+                  "                            report_json_name = next((name for name in report_zip.namelist() if name.endswith(" + q + ".json" + q + ")), None)",
+                  "                            if report_json_name is None:",
+                  "                                success = False",
+                  "                            else:",
+                  "                                report_json = json.loads(report_zip.read(report_json_name).decode(" + q + "utf-8" + q + "))",
+                  "                                report_safety = report_json.get(" + q + "safety" + q + ", {})",
+                  "                                success = bool(report_safety.get(" + q + "oop_aa_only_matrix_reflection_verified" + q + ") and report_safety.get(" + q + "oop_test_range_restored" + q + ") and not report_safety.get(" + q + "manual_close_required" + q + "))",
+                  "                                if not success:",
+                  "                                    detail += " + q + " [AA可逆テスト] OOPのAA反映・復元確認に未達です。診断JSONと画像を確認してください。" + q,
+                  "                    except Exception as exc:",
+                  "                        success = False",
+                  "                        detail += " + q + " [AA可逆テスト] 診断JSONの確認に失敗: " + q + "+str(exc)",
+              ])
               if legacy_aa_validation in main:
                   main = main.replace(legacy_aa_validation, "", 1)
               elif "oop_aa_only_matrix_reflection_verified" in main:
