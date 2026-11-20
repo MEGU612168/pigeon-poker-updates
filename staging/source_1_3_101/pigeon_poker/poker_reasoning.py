@@ -473,7 +473,7 @@ def _best_passive_action(legal_actions: set[str]) -> str:
     return next(iter(legal_actions))
 
 
-def choose_range_aware_action(
+def _choose_range_aware_action_impl(
     table: Any,
     hand: Any,
     player_id: str,
@@ -653,3 +653,57 @@ def choose_range_aware_action(
         equity_estimate=equity,
         note=note,
     )
+
+
+def choose_range_aware_action(
+    table: Any,
+    hand: Any,
+    player_id: str,
+    cpu: Any,
+    range_estimator: Callable[..., dict[str, Any]] | None = None,
+) -> CPUAction:
+    """Non-stopping wrapper: policy errors become a conservative legal action.
+
+    A normal chart gap is not an error and is handled by the range-aware
+    policy. This guardrail activates only when card/state/range evaluation
+    itself fails; it records a cumulative per-CPU penalty and never invents
+    a raise, bet, or shove.
+    """
+    try:
+        return _choose_range_aware_action_impl(
+            table, hand, player_id, cpu, range_estimator=range_estimator
+        )
+    except Exception as exc:
+        legal = hand.legal_actions(player_id)
+        actions = {
+            str(value).lower().replace("-", "_")
+            for value in legal.get("actions", ())
+        }
+        to_call = max(0, int(legal.get("to_call", 0) or 0))
+        if to_call <= 0 and "check" in actions:
+            action = "check"
+        elif "fold" in actions:
+            action = "fold"
+        elif "check" in actions:
+            action = "check"
+        elif "call" in actions:
+            action = "call"
+        else:
+            action = next(iter(actions))
+        previous = max(0, int(getattr(cpu, "_range_guardrail_penalty", 0) or 0))
+        penalty = min(1000, previous + 100)
+        try:
+            setattr(cpu, "_range_guardrail_penalty", penalty)
+        except Exception:
+            pass
+        return CPUAction(
+            player_id=str(player_id),
+            action=action,
+            amount=None,
+            source="range-aware-guardrail",
+            equity_estimate=0.0,
+            note=(
+                "Range estimate failed; conservative legal action selected; "
+                f"error={type(exc).__name__}; cumulative policy penalty={penalty}"
+            ),
+        )
