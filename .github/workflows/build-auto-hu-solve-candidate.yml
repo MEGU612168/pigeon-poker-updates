@@ -311,12 +311,12 @@ jobs:
           assert '_schedule_embedded_gto_geometry_sync("attach")' not in method_sources["_launch_gto"]
           assert method_sources["_attach_existing_gto"].count('_schedule_embedded_gto_geometry_sync("attach")') == 1
           assert '_schedule_embedded_gto_geometry_sync("launch")' not in method_sources["_attach_existing_gto"]
-          assert '_sync_embedded_gto_geometry("host-configure")' in method_sources["_resize_embedded"]
+          assert '_sync_embedded_gto_geometry("viewport-configure")' in method_sources["_resize_embedded"]
           assert "def _sync_embedded_gto_geometry" in main
           assert "def _schedule_embedded_gto_geometry_sync" in main
           assert 'self._schedule_embedded_gto_geometry_sync("launch")' in main
           assert 'self._schedule_embedded_gto_geometry_sync("attach")' in main
-          assert 'self._sync_embedded_gto_geometry("host-configure")' in main
+          assert 'self._sync_embedded_gto_geometry("viewport-configure")' in main
           assert "resize_docked_window(host_width, host_height)" in main
           assert "def _layout_embedded_gto_host" in main
           assert "self.gto_viewport" in main
