@@ -862,6 +862,28 @@ def required_bluff_success(pot_before_bet: int, risk_amount: int) -> float:
     risk = max(0, int(risk_amount))
     return min(1.0, risk / max(1, pot + risk))
 
+def _thin_value_threshold(
+    level: int,
+    uncertainty: float,
+    expected_callers: float,
+    required_call: float,
+    street: str,
+) -> float:
+    """Minimum equity when called for thin-value betting, stricter multiway."""
+    cpu_level = min(5, max(1, int(level)))
+    level_margin = {1: 0.105, 2: 0.075, 3: 0.050, 4: 0.025, 5: 0.010}[cpu_level]
+    unknown = max(0.0, min(1.0, float(uncertainty)))
+    callers = max(0.0, float(expected_callers))
+    price_floor = float(required_call) + (
+        0.035 if str(street).lower() == "preflop" else 0.015
+    ) + unknown * 0.20
+    multiway_floor = (
+        0.50 + level_margin * 0.22 + unknown * 0.15
+        + max(0.0, callers - 1.0) * 0.025
+    )
+    return max(0.50, min(0.78, max(price_floor, multiway_floor)))
+
+
 def _best_passive_action(legal_actions: set[str]) -> str:
     for action in ("check", "fold", "call"):
         if action in legal_actions:
@@ -1035,13 +1057,11 @@ def _choose_range_aware_action_impl(
             # Thin value is still value when the weighted calling range
             # loses often enough. More likely callers in multiway pots raise
             # the required threshold; level and uncertainty calibrate caution.
-            value_threshold = max(
-                0.50 + margin * 0.22 + uncertainty_margin * 0.15
-                + max(0.0, candidate_expected_callers - 1.0) * 0.025,
-                required_call + (0.035 if street == "preflop" else 0.015)
-                + uncertainty_margin * 0.20,
+            value_threshold = _thin_value_threshold(
+                level, uncertainty_margin, candidate_expected_callers,
+                required_call, street,
             )
-            value_gate = candidate_called_equity >= min(0.78, value_threshold)
+            value_gate = candidate_called_equity >= value_threshold
             blocker_bluff_pressure = max(
                 0.0,
                 min(
