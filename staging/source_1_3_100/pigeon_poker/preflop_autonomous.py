@@ -150,8 +150,6 @@ def _latest_unmodelled_range(hand: Any, player_id: str,
     )
     cutoff = _action_range_cutoff(action, raises_before)
     weighted: list[tuple[tuple[str, str], float]] = []
-    for pair in [(a, b) for a in RANKS for b in RANKS]:
-        pass
     classes: list[str] = []
     for i, high in enumerate(reversed(RANKS)):
         for low in reversed(RANKS[:RANKS.index(high)]):
@@ -196,6 +194,10 @@ def _weighted_class_range(probabilities: dict[str, Any],
     return result
 
 
+def deck_for_uniform() -> list[str]:
+    return [rank + suit for suit in SUITS for rank in RANKS]
+
+
 def _weighted_pick(options: list[tuple[tuple[str, str], float]],
                    blocked: set[str], rng: Any) -> tuple[str, str] | None:
     available = [
@@ -215,7 +217,7 @@ def _weighted_pick(options: list[tuple[tuple[str, str], float]],
     return available[-1][0]
 
 
-def _range_weighted_equity(hand: Any, actor_id: str, cpu: Any,
+def _range_weighted_equity(table: Any, hand: Any, actor_id: str, cpu: Any,
                            range_estimator: Callable[..., dict[str, Any]],
                            evaluate_seven: Callable[[list[str]], Any],
                            make_deck: Callable[[], list[str]]) -> tuple[float, int, int]:
@@ -233,9 +235,7 @@ def _range_weighted_equity(hand: Any, actor_id: str, cpu: Any,
     if not active_opponents:
         return 1.0, 0, 0
 
-    estimate = range_estimator(hand=hand, table=getattr(hand, "table", None),
-                               exclude_player_id=actor_id)
-    # Accept the exact table argument from the caller's bound estimator wrapper.
+    estimate = range_estimator(table=table, hand=hand, exclude_player_id=actor_id)
     rows = estimate.get("players", {}) if isinstance(estimate, dict) else {}
     active_with_history = [
         player for player in active_opponents
@@ -257,15 +257,12 @@ def _range_weighted_equity(hand: Any, actor_id: str, cpu: Any,
         if not options:
             options = _latest_unmodelled_range(hand, pid, blockers)
         if not options:
-            # A player with no usable action model receives a uniform combo prior.
+            # A player with no usable action model receives a uniform physical-combo prior.
             options = [
-                (combo, 1.0)
-                for high in reversed(RANKS)
-                for low in reversed(RANKS)
-                for combo in _physical_combos(high + high if high == low else
-                                               (high + low + ("s" if suited else "o")))
-                for suited in ([True] if high != low else [False])
-                if not (set(combo) & blockers)
+                (tuple(cards), 1.0)
+                for cards in itertools.combinations(
+                    [card for card in deck_for_uniform() if card not in blockers], 2
+                )
             ]
         if options:
             opponent_options.append(options)
@@ -357,7 +354,7 @@ def choose_uncovered_preflop_action(
     if rng is None or not hasattr(rng, "random"):
         rng = random.Random()
     equity, runs, ranged_opponents = _range_weighted_equity(
-        hand, actor_id, cpu, range_estimator, evaluate_seven, make_deck
+        table, hand, actor_id, cpu, range_estimator, evaluate_seven, make_deck
     )
 
     # The chart intentionally has no multiway branch. The uncertainty score
@@ -413,8 +410,10 @@ def choose_uncovered_preflop_action(
                 desired = min(desired, max_target)
                 if desired >= max_target and "all_in" in legal_actions:
                     chosen_action = "all-in"
-                elif desired > current_bet and "raise" in legal_actions:
-                    chosen_action = "raise"
+                elif desired > current_bet and (
+                    "raise" in legal_actions or "bet" in legal_actions
+                ):
+                    chosen_action = "raise" if "raise" in legal_actions else "bet"
                     chosen_amount = desired
                 else:
                     chosen_action = "call" if "call" in legal_actions else "fold"
