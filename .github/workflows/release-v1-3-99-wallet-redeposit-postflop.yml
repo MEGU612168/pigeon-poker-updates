@@ -254,7 +254,7 @@ jobs:
                   except tk.TclError:
                       pass
 
-'''
+          '''
           main = main[:hero_start] + hero_block + main[hero_end:]
           if "tk.Scale(" not in hero_block or "self.bet_pot_percentages" not in hero_block:
               raise SystemExit("Legacy postflop sizing controls not restored.")
@@ -356,7 +356,7 @@ jobs:
                       "remaining_study_cents": remaining_study,
                   }
 
-'''
+          '''
           main = replace_once(
               main,
               "    def _cashier_deposit(self):\n",
@@ -427,7 +427,7 @@ jobs:
                       colour = COLORS["red"] if pnl < 0 else (COLORS["green"] if pnl > 0 else COLORS["white"])
                       self.cashier_pnl_label.configure(fg=colour)
 
-'''
+          '''
           funding_method = funding_method.replace("                  ", "        ")
           main = main[:funding_start] + funding_method.rstrip() + main[funding_end:]
 
