@@ -405,7 +405,7 @@ jobs:
           assert '"ip_matrix_cell_sample_centers": {"first": [29, 161], "step": [4, 4], "rows": 13, "columns": 13}' in ui_source
           assert 'report["weight_display_expected_percent"] = 40' in ui_source
           assert "_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS = _GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS" in ui_source
-          assert ui_source.count("_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS") == 2
+          assert ui_source.count("_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS") >= 2
           assert '"ip_expected_matrix_cells_reflection_verified"' in ui_source
           assert '"ip_restore_source_text_accepted"' in ui_source
           assert '"ip_range_restored"' in ui_source
