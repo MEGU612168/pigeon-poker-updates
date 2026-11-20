@@ -185,55 +185,109 @@ def _uniform_combos(blockers: set[str]) -> list[tuple[tuple[str, str], float]]:
     return [(combo, 1.0) for combo in itertools.combinations(cards, 2)]
 
 
+def _rank_strength(rank: tuple[Any, ...]) -> float:
+    """Map the evaluator's lexicographic rank tuple to a monotonic 0..1 score."""
+    category = max(0, min(8, int(rank[0])))
+    category_base = (0.035, 0.175, 0.315, 0.455, 0.595,
+                     0.735, 0.835, 0.915, 0.965)[category]
+    components = [max(0, min(14, int(value))) for value in rank[1:6]]
+    tie_code = sum(value / (15 ** (index + 1))
+                   for index, value in enumerate(components))
+    return max(0.0, min(0.999, category_base + 0.032 * tie_code))
+
+
 def _board_metrics(cards: tuple[str, str], board: list[str]) -> tuple[float, float]:
-    """Approximate made-hand and draw strength using only currently visible cards."""
+    """Estimate made-hand class, kicker quality and live draw potential."""
     if len(board) < 3:
-        return 0.0, 0.0
+        return _preflop_strength(_cards_to_class(cards)), 0.0
     all_cards = list(cards) + list(board)
     rank = evaluate_seven(all_cards)
-    category = int(rank[0])
-    tie = sum(int(value) for value in rank[1:])
-    made = min(1.0, category / 8.0 + tie / 25000.0)
+    made = _rank_strength(rank)
 
     suit_counts: dict[str, int] = {}
-    rank_values = set()
+    rank_values: set[int] = set()
     for card in all_cards:
         suit_counts[card[1]] = suit_counts.get(card[1], 0) + 1
         rank_values.add(14 if card[0] == "A" else RANKS.index(card[0]) + 2)
     if 14 in rank_values:
         rank_values.add(1)
 
-    flush_draw = max(suit_counts.values(), default=0) >= 4
-    straight_draw = False
-    for high in range(14, 4, -1):
+    highest_suit_count = max(suit_counts.values(), default=0)
+    flush_draw = 0.0
+    if highest_suit_count < 5 and len(board) < 5:
+        if highest_suit_count >= 4:
+            flush_draw = 0.84
+        elif highest_suit_count == 3 and len(board) == 3:
+            flush_draw = 0.16
+
+    completion_ranks: set[int] = set()
+    backdoor_straight = False
+    for high in range(5, 15):
         window = set(range(high - 4, high + 1))
-        if len(window & rank_values) >= 4:
-            straight_draw = True
-            break
-    draw = (0.62 if flush_draw else 0.0) + (0.45 if straight_draw else 0.0)
-    return made, min(1.0, draw)
+        missing = window - rank_values
+        if len(missing) == 1:
+            completion_ranks.update(missing)
+        elif len(missing) == 2 and len(board) == 3:
+            backdoor_straight = True
+    straight_draw = min(0.88, len(completion_ranks) * 0.10)
+    if straight_draw <= 0 and backdoor_straight:
+        straight_draw = 0.14
+
+    board_ranks = {
+        14 if card[0] == "A" else RANKS.index(card[0]) + 2
+        for card in board
+    }
+    board_high = max(board_ranks, default=14)
+    overcards = sum(
+        1 for card in cards
+        if (14 if card[0] == "A" else RANKS.index(card[0]) + 2) > board_high
+    )
+    overcard_draw = min(0.18, overcards * (0.075 if len(board) == 3 else 0.035))
+    draw = min(1.0, flush_draw + straight_draw + overcard_draw)
+    return made, draw
 
 
 def _action_likelihood(action: str, made: float, draw: float,
                        size_fraction: float, street: str) -> float:
+    """Likelihood used for Bayesian range updates; large sizing is more value-heavy."""
     value = action.lower()
-    if value in {"check"}:
-        likelihood = 0.88 - 0.48 * made + 0.12 * draw
-        return max(0.18, min(1.0, likelihood))
+    made = max(0.0, min(1.0, float(made)))
+    draw = 0.0 if street == "river" else max(0.0, min(1.0, float(draw)))
+    size = max(0.0, float(size_fraction))
+    if value == "check":
+        likelihood = 0.90 - 0.58 * made + 0.10 * draw
+        return max(0.12, min(1.0, likelihood))
     if value in {"call", "allin_call", "all_in_call"}:
-        likelihood = 0.12 + 0.82 * made + 0.30 * draw
-        return max(0.04, min(1.0, likelihood))
+        likelihood = 0.05 + 0.82 * made + 0.34 * draw
+        return max(0.025, min(1.0, likelihood))
     if value in {"raise", "bet", "allin", "all_in", "jam", "shove"}:
-        if size_fraction <= 0.33:
-            likelihood = 0.30 + 0.30 * made + 0.18 * draw
-        elif size_fraction <= 0.75:
-            likelihood = 0.08 + 0.78 * made + 0.34 * draw
+        if size <= 0.33:
+            likelihood = 0.16 + 0.48 * made + 0.26 * draw
+        elif size <= 0.75:
+            likelihood = 0.045 + 0.80 * made + 0.38 * draw
         else:
-            likelihood = 0.025 + 0.92 * (made ** 1.5) + 0.42 * draw
+            likelihood = 0.012 + 0.96 * (made ** 1.35) + 0.48 * draw
         if street == "river":
-            likelihood *= 0.92 + 0.12 * made
-        return max(0.015, min(1.0, likelihood))
+            likelihood *= 0.94 + 0.08 * made
+        return max(0.012, min(1.0, likelihood))
     return 0.5
+
+
+def _response_continue_probability(made: float, draw: float,
+                                   size_fraction: float, street: str) -> float:
+    """Approximate how often a hand continues when facing the candidate bet size."""
+    made = max(0.0, min(1.0, float(made)))
+    draw = 0.0 if street == "river" else max(0.0, min(1.0, float(draw)))
+    size = max(0.0, float(size_fraction))
+    logit = -1.0 + 4.1 * made + 1.5 * draw - 0.72 * math.log1p(size)
+    if street == "river":
+        logit += 0.10 * made
+    if logit >= 0:
+        probability = 1.0 / (1.0 + math.exp(-min(30.0, logit)))
+    else:
+        exp_value = math.exp(max(-30.0, logit))
+        probability = exp_value / (1.0 + exp_value)
+    return max(0.015, min(0.985, probability))
 
 
 def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
@@ -419,28 +473,98 @@ def _equity_vs_ranges(hand: Any, hero_id: str, ranges: dict[str, OpponentRange],
 
 def _fold_probability(ranges: dict[str, OpponentRange], board: list[str],
                       bet_fraction: float) -> float:
-    """Estimate probability that every active opponent folds to this bet size."""
+    """Estimate joint all-fold probability using each player's weighted range."""
     all_fold = 1.0
+    street = "postflop" if len(board) >= 3 else "preflop"
     for opponent_range in ranges.values():
-        total = 0.0
-        folds = 0.0
+        total = sum(max(0.0, float(weight)) for _, weight in opponent_range.combos)
+        if total <= 0:
+            continue
+        continue_mass = 0.0
         for combo, weight in opponent_range.combos:
             made, draw = _board_metrics(combo, board) if len(board) >= 3 else (
                 _preflop_strength(_cards_to_class(combo)), 0.0
             )
-            # Small bets fold fewer hands; large bets apply more pressure.
-            pressure = max(0.55, min(1.65, 0.78 + bet_fraction * 0.78))
-            continue_strength = max(0.03, min(0.98, 0.12 + 0.88 * made + 0.28 * draw))
-            fold_rate = max(0.015, min(0.95, (1.0 - continue_strength) * pressure))
-            folds += weight * fold_rate
-            total += weight
-        if total > 0:
-            conditional_fold = max(0.0, min(1.0, folds / total))
-            actual_fold = 1.0 - (
-                float(opponent_range.participation_probability) * (1.0 - conditional_fold)
+            continue_mass += max(0.0, float(weight)) * _response_continue_probability(
+                made, draw, bet_fraction, street
             )
-            all_fold *= max(0.0, min(1.0, actual_fold))
-    return all_fold
+        conditional_continue = max(0.0, min(1.0, continue_mass / total))
+        participation = max(0.0, min(1.0, float(opponent_range.participation_probability)))
+        all_fold *= 1.0 - participation * conditional_continue
+    return max(0.0, min(1.0, all_fold))
+
+
+def _bet_response_metrics(
+    hand: Any,
+    hero_id: str,
+    ranges: dict[str, OpponentRange],
+    board: list[str],
+    bet_fraction: float,
+    cpu: Any,
+) -> tuple[float, float, float, int]:
+    """Condition ranges on calling; return all-fold, callers, called equity and samples."""
+    street = "postflop" if len(board) >= 3 else "preflop"
+    response_ranges: dict[str, OpponentRange] = {}
+    expected_callers = 0.0
+    all_fold = 1.0
+    for pid, opponent_range in ranges.items():
+        total = 0.0
+        continue_mass = 0.0
+        conditioned: list[tuple[tuple[str, str], float]] = []
+        for combo, weight in opponent_range.combos:
+            base_weight = max(0.0, float(weight))
+            if base_weight <= 0:
+                continue
+            made, draw = _board_metrics(combo, board) if len(board) >= 3 else (
+                _preflop_strength(_cards_to_class(combo)), 0.0
+            )
+            probability = _response_continue_probability(
+                made, draw, bet_fraction, street
+            )
+            weighted = base_weight * probability
+            conditioned.append((combo, weighted))
+            continue_mass += weighted
+            total += base_weight
+        if total <= 0:
+            continue
+        conditional_continue = max(0.0, min(1.0, continue_mass / total))
+        participation = max(
+            0.0, min(1.0, float(opponent_range.participation_probability))
+        )
+        actual_call_probability = participation * conditional_continue
+        expected_callers += actual_call_probability
+        all_fold *= 1.0 - actual_call_probability
+        if continue_mass > 0:
+            combo_weights = tuple(
+                (combo, weight / continue_mass)
+                for combo, weight in conditioned if weight > 0
+            )
+        else:
+            combo_weights = opponent_range.combos
+        response_ranges[pid] = OpponentRange(
+            player_id=pid,
+            combos=combo_weights,
+            source=opponent_range.source + "+bet-response",
+            confidence=opponent_range.confidence,
+            participation_probability=actual_call_probability,
+        )
+
+    unconditional_equity, samples = _equity_vs_ranges(
+        hand, hero_id, response_ranges, cpu
+    )
+    if all_fold >= 0.999999:
+        called_equity = 1.0
+    else:
+        called_equity = (
+            unconditional_equity - all_fold
+        ) / max(1e-9, 1.0 - all_fold)
+        called_equity = max(0.0, min(1.0, called_equity))
+    return (
+        max(0.0, min(1.0, all_fold)),
+        expected_callers,
+        called_equity,
+        samples,
+    )
 
 
 def _cards_to_class(cards: tuple[str, str]) -> str:
