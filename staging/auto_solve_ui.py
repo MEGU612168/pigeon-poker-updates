@@ -8,7 +8,7 @@ against the baseline screenshot before the next click is allowed.
 """
 from __future__ import annotations
 
-# Build marker: OOP and IP AA+AKs 40% multi-range commits/restores are visually verified; schema v17.
+# Build marker: OOP/IP matrix ROIs calibrated; None-safe stage summaries; schema v18.
 # Rebuild trigger: normalize last legacy AA JSON error label for dual OOP/IP check.
 # PigeonPoker completion gate: exactly one OOP multi-hand validator, v1.3.58.
 # Rebuild trigger: remove second post-success report check, keep one OOP multi-hand gate.
@@ -35,7 +35,7 @@ _OOP_MATRIX_RECT = (27, 89, 79, 141)
 _OOP_MATRIX_CENTER = (54, 116)
 _OOP_CLOSE_RECT = (488, 66, 504, 84)
 _OOP_CLOSE_CENTER = (496, 75)
-_IP_MATRIX_RECT = (27, 159, 82, 215)
+_IP_MATRIX_RECT = (27, 160, 79, 212)
 _IP_MATRIX_CENTER = (54, 187)
 _RANGE_SOURCE_FIELD_RECT = (112, 427, 412, 449)
 _RANGE_SOURCE_FIELD_CENTER = (262, 438)
@@ -1019,6 +1019,25 @@ def _matrix_signature_is_aa_only(
     return _matrix_signature_matches_selected_cells(signature, baseline, [0], threshold)
 
 
+def _append_stage_summary_lines(lines: list[str], stages: list[dict[str, Any]]) -> None:
+    """Append concise diagnostics while tolerating intentionally skipped stages."""
+    for stage in stages:
+        lines.append(f"{stage.get('stage', 'unknown')}: {stage.get('status', 'unknown')}")
+        for key, label in (
+            ("visible_overlay_difference", "Overlay pixel ratio"),
+            ("open_overlay_difference", "Editor-open pixel ratio"),
+            ("baseline_difference_after_escape", "After Escape baseline pixel ratio"),
+            ("baseline_difference_after_x", "After X baseline pixel ratio"),
+        ):
+            metric = stage.get(key)
+            if isinstance(metric, dict):
+                ratio = metric.get("ratio")
+                if isinstance(ratio, (int, float)):
+                    lines.append(f"{label}: {ratio:.4f}")
+        if stage.get("stage") == "board_input" and isinstance(stage.get("baseline_difference_after_x"), dict):
+            lines.append(f"Board selector closed by X: {bool(stage.get('visually_closed'))}")
+
+
 def _run_oop_multi_range_commit_roundtrip(
     user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
     output_dir: Path, stem: str, target_hwnd: int, target_pid: int,
@@ -1223,7 +1242,7 @@ def _run_oop_multi_range_commit_roundtrip(
         report["restore_editor_open_difference"] = restore_open_appearance
         report["weight_display_capture_path"] = restore_open_path
         report["weight_display_capture_saved"] = bool(restore_open_path and Path(restore_open_path).is_file())
-        report["weight_display_expected_percent"] = 50
+        report["weight_display_expected_percent"] = 40
         report["weight_display_roi"] = [414, 343, 476, 376]
         if restore_open_appearance["ratio"] < 0.05:
             raise RuntimeError("OOP editor did not reopen for restoration")
@@ -1545,7 +1564,7 @@ def _run_ip_multi_range_commit_roundtrip(
         report["restore_editor_open_difference"] = restore_open_appearance
         report["weight_display_capture_path"] = restore_open_path
         report["weight_display_capture_saved"] = bool(restore_open_path and Path(restore_open_path).is_file())
-        report["weight_display_expected_percent"] = 50
+        report["weight_display_expected_percent"] = 40
         report["weight_display_roi"] = [414, 343, 476, 376]
         if restore_open_appearance["ratio"] < 0.05:
             raise RuntimeError("IP editor did not reopen for restoration")
@@ -1999,9 +2018,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     all_captures = unique_captures
 
     report = {
-        "schema_version": 17,
+        "schema_version": 18,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_ip_multi_hand_ak_s40_weighted_commit_roundtrip_v17_partial_marker_sampling",
+        "probe": "verified_gto_plus_oop_ip_multi_hand_ak_s40_weighted_commit_roundtrip_v18_ip_roi_null_safe_summary",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -2044,6 +2063,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         },
         "coordinate_reference": {
             "oop_matrix_cell_sample_centers": {"first": [29, 91], "step": [4, 4], "rows": 13, "columns": 13},
+            "ip_matrix_cell_sample_centers": {"first": [29, 161], "step": [4, 4], "rows": 13, "columns": 13},
             "range_editor_verification_roi": list(_RANGE_EDITOR_VERIFY_ROI),
             "client_size": list(_REFERENCE_SIZE),
             "oop_matrix_rect": list(_OOP_MATRIX_RECT),
@@ -2169,18 +2189,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         "Solver run: no",
         "",
     ]
-    for stage in stages:
-        lines.append(f"{stage['stage']}: {stage['status']}")
-        if "visible_overlay_difference" in stage:
-            lines.append(f"Overlay pixel ratio: {stage['visible_overlay_difference']['ratio']:.4f}")
-        if "open_overlay_difference" in stage:
-            lines.append(f"Editor-open pixel ratio: {stage['open_overlay_difference']['ratio']:.4f}")
-        if "baseline_difference_after_escape" in stage and stage["baseline_difference_after_escape"]:
-            lines.append(f"After Escape baseline pixel ratio: {stage['baseline_difference_after_escape']['ratio']:.4f}")
-        if "baseline_difference_after_x" in stage:
-            lines.append(f"After X baseline pixel ratio: {stage['baseline_difference_after_x']['ratio']:.4f}")
-        if "baseline_difference_after_x" in stage and stage.get("stage") == "board_input":
-            lines.append(f"Board selector closed by X: {bool(stage.get('visually_closed'))}")
+    _append_stage_summary_lines(lines, stages)
     txt_path.write_text("\n".join(lines), encoding="utf-8")
     zip_path = output_dir / f"{stem}.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
