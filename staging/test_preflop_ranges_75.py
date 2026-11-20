@@ -2,7 +2,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-MODULE_PATH = Path(__file__).with_name('preflop_screenshot_ranges_v2.py')
+MODULE_PATH = Path(__file__).with_name('preflop_screenshot_ranges_75.py')
 spec = importlib.util.spec_from_file_location('preflop75', MODULE_PATH)
 module = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = module
