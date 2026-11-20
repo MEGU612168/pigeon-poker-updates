@@ -2640,6 +2640,202 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         }
         stages.append(board_roundtrip)
 
+    # Stage 5: retain the known OOP/IP/Board test setup, inspect the Build Tree dialog,
+    # then remove only those exact known test values and verify the original blank state.
+    build_tree_sequence: dict[str, Any] = {
+        "stage": "build_tree_setup_sequence",
+        "status": "not_started",
+        "test_setup_committed": False,
+        "dialog_opened": False,
+        "dialog_closed_verified": False,
+        "oop_test_range_restored": False,
+        "ip_test_range_restored": False,
+        "board_test_restored": False,
+        "all_test_inputs_restored": False,
+        "manual_close_required": False,
+    }
+    oop_build_tree_range: dict[str, Any] | None = None
+    ip_build_tree_range: dict[str, Any] | None = None
+    board_build_tree_setup: dict[str, Any] | None = None
+    build_tree_dialog_probe: dict[str, Any] | None = None
+    oop_build_tree_cleanup: dict[str, Any] | None = None
+    ip_build_tree_cleanup: dict[str, Any] | None = None
+    board_build_tree_cleanup: dict[str, Any] | None = None
+
+    if (
+        continue_after_oop
+        and board_roundtrip
+        and board_roundtrip.get("board_test_restored")
+        and not manual_close_required
+    ):
+        oop_build_tree_range = _run_oop_multi_range_commit_roundtrip(
+            user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+            output_dir, stem, target_hwnd, target_pid, host, baseline_path,
+            restore_after_commit=False,
+        )
+        actions.extend(oop_build_tree_range.get("actions", []))
+        for capture in oop_build_tree_range.get("captures", []):
+            if capture:
+                all_captures.append(capture)
+        for window in oop_build_tree_range.get("capture_windows", []):
+            capture = window.get("capture") if isinstance(window, dict) else None
+            if capture:
+                all_captures.append(capture)
+        stages.append(oop_build_tree_range)
+        oop_ready = bool(
+            oop_build_tree_range.get("range_committed_temporarily")
+            and oop_build_tree_range.get("expected_matrix_cells_reflection_verified")
+            and oop_build_tree_range.get("restore_source_text_accepted")
+            and oop_build_tree_range.get("editor_closed_after_commit")
+            and not oop_build_tree_range.get("manual_close_required")
+            and oop_build_tree_range.get("window_position_restore_verified", True)
+        )
+        if oop_ready:
+            ip_build_tree_range = _run_ip_multi_range_commit_roundtrip(
+                user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                output_dir, stem, target_hwnd, target_pid, host, baseline_path,
+                restore_after_commit=False,
+            )
+            actions.extend(ip_build_tree_range.get("actions", []))
+            for capture in ip_build_tree_range.get("captures", []):
+                if capture:
+                    all_captures.append(capture)
+            for window in ip_build_tree_range.get("capture_windows", []):
+                capture = window.get("capture") if isinstance(window, dict) else None
+                if capture:
+                    all_captures.append(capture)
+            stages.append(ip_build_tree_range)
+        ip_ready = bool(
+            ip_build_tree_range
+            and ip_build_tree_range.get("range_committed_temporarily")
+            and ip_build_tree_range.get("expected_matrix_cells_reflection_verified")
+            and ip_build_tree_range.get("restore_source_text_accepted")
+            and ip_build_tree_range.get("editor_closed_after_commit")
+            and not ip_build_tree_range.get("manual_close_required")
+            and ip_build_tree_range.get("window_position_restore_verified", True)
+        )
+        if oop_ready and ip_ready:
+            board_build_tree_setup = _run_board_selection_roundtrip(
+                user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                target_hwnd, target_pid, output_dir, stem, baseline_path,
+                actions, all_captures, restore_after_commit=False,
+            )
+            stages.append(board_build_tree_setup)
+
+        board_ready = bool(
+            board_build_tree_setup
+            and board_build_tree_setup.get("board_test_temporarily_committed")
+            and board_build_tree_setup.get("board_cards_reflection_verified")
+            and board_build_tree_setup.get("board_test_may_remain_set")
+            and not board_build_tree_setup.get("manual_close_required")
+        )
+        if oop_ready and ip_ready and board_ready:
+            build_tree_sequence["test_setup_committed"] = True
+            build_tree_dialog_probe = _run_build_tree_dialog_probe(
+                user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                target_hwnd, target_pid, output_dir, stem, actions, all_captures,
+            )
+            stages.append(build_tree_dialog_probe)
+            build_tree_sequence["dialog_opened"] = bool(build_tree_dialog_probe.get("dialog_opened"))
+            build_tree_sequence["dialog_closed_verified"] = bool(build_tree_dialog_probe.get("dialog_closed_verified"))
+        else:
+            build_tree_dialog_probe = {
+                "stage": "build_tree_dialog_probe",
+                "status": "skipped_test_setup_not_fully_verified",
+                "build_tree_clicked": False,
+                "dialog_opened": False,
+                "dialog_closed_verified": False,
+                "tree_built": False,
+                "solver_run": False,
+                "manual_close_required": False,
+            }
+            stages.append(build_tree_dialog_probe)
+
+        # Never edit setup values while an unclosed Build Tree/modal dialog is visible.
+        if build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_closed_verified"):
+            if board_ready:
+                committed_board_path = str(board_build_tree_setup.get("committed_screenshot") or "")
+                if committed_board_path:
+                    board_build_tree_cleanup = _clear_committed_test_board(
+                        user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                        target_hwnd, target_pid, output_dir, stem, baseline_path,
+                        committed_board_path, actions, all_captures,
+                    )
+                    stages.append(board_build_tree_cleanup)
+            if ip_ready:
+                ip_build_tree_cleanup = _clear_committed_test_range(
+                    user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                    target_hwnd, target_pid, host, output_dir, stem,
+                    baseline_path, "IP", actions,
+                )
+                stages.append(ip_build_tree_cleanup)
+            if oop_ready:
+                oop_build_tree_cleanup = _clear_committed_test_range(
+                    user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
+                    target_hwnd, target_pid, host, output_dir, stem,
+                    baseline_path, "OOP", actions,
+                )
+                stages.append(oop_build_tree_cleanup)
+
+        build_tree_sequence["oop_test_range_restored"] = bool(
+            oop_build_tree_cleanup and oop_build_tree_cleanup.get("range_restored")
+        )
+        build_tree_sequence["ip_test_range_restored"] = bool(
+            ip_build_tree_cleanup and ip_build_tree_cleanup.get("range_restored")
+        )
+        build_tree_sequence["board_test_restored"] = bool(
+            board_build_tree_cleanup and board_build_tree_cleanup.get("board_restored")
+        )
+        build_tree_sequence["all_test_inputs_restored"] = bool(
+            build_tree_sequence["oop_test_range_restored"]
+            and build_tree_sequence["ip_test_range_restored"]
+            and build_tree_sequence["board_test_restored"]
+        )
+        cleanup_reports = (
+            oop_build_tree_cleanup, ip_build_tree_cleanup, board_build_tree_cleanup
+        )
+        cleanup_failed = any(
+            item is not None and (
+                item.get("manual_close_required")
+                or item.get("error")
+                or item.get("status", "").endswith("not_verified")
+            )
+            for item in cleanup_reports
+        )
+        dialog_not_closed = bool(
+            build_tree_dialog_probe
+            and build_tree_dialog_probe.get("dialog_opened")
+            and not build_tree_dialog_probe.get("dialog_closed_verified")
+        )
+        build_tree_sequence["manual_close_required"] = bool(cleanup_failed or dialog_not_closed)
+        build_tree_sequence["status"] = (
+            "build_tree_dialog_inspected_and_all_test_inputs_restored"
+            if build_tree_sequence["dialog_opened"]
+            and build_tree_sequence["dialog_closed_verified"]
+            and build_tree_sequence["all_test_inputs_restored"]
+            else "build_tree_dialog_not_detected_but_test_inputs_restored"
+            if not build_tree_sequence["dialog_opened"]
+            and build_tree_sequence["all_test_inputs_restored"]
+            else "build_tree_probe_incomplete_or_cleanup_not_verified"
+        )
+        manual_close_required = manual_close_required or build_tree_sequence["manual_close_required"]
+    else:
+        build_tree_dialog_probe = {
+            "stage": "build_tree_dialog_probe",
+            "status": "skipped_previous_roundtrip_not_verified",
+            "build_tree_clicked": False,
+            "dialog_opened": False,
+            "dialog_closed_verified": False,
+            "tree_built": False,
+            "solver_run": False,
+            "manual_close_required": False,
+        }
+        stages.append(build_tree_dialog_probe)
+        build_tree_sequence["status"] = "skipped_previous_roundtrip_not_verified"
+        build_tree_sequence["manual_close_required"] = False
+
+    stages.append(build_tree_sequence)
+
     # Deduplicate repeated references; the round-trip stage also appears in capture_windows.
     unique_captures: list[dict[str, Any]] = []
     seen_capture_paths: set[str] = set()
