@@ -334,12 +334,32 @@ def _action_likelihood(action: str, made: float, draw: float,
 
 
 def _response_continue_probability(made: float, draw: float,
-                                   size_fraction: float, street: str) -> float:
-    """Approximate how often a hand continues when facing the candidate bet size."""
+                                   size_fraction: float, street: str,
+                                   archetype: str = "balanced") -> float:
+    """Estimate a player's continue frequency from hand strength, draws, size and style."""
     made = max(0.0, min(1.0, float(made)))
     draw = 0.0 if street == "river" else max(0.0, min(1.0, float(draw)))
     size = max(0.0, float(size_fraction))
-    logit = -1.0 + 4.1 * made + 1.5 * draw - 0.72 * math.log1p(size)
+    style = str(archetype or "balanced").lower()
+    size_sensitivity = {
+        "calling_station": 0.48,
+        "aggressive": 0.78,
+        "balanced": 1.0,
+        "underbluffer": 1.08,
+        "overfolder": 1.34,
+    }.get(style, 1.0)
+    logit = (
+        -1.0 + 4.1 * made + 1.5 * draw
+        - 0.72 * size_sensitivity * math.log1p(size)
+    )
+    if style == "calling_station":
+        logit += 0.52 * (1.0 - made) + 0.10 * draw
+    elif style == "overfolder":
+        logit -= 0.46 * (1.0 - made)
+    elif style == "aggressive":
+        logit += 0.16 + 0.16 * draw
+    elif style == "underbluffer":
+        logit -= 0.28 * (1.0 - made)
     if street == "river":
         logit += 0.10 * made
     if logit >= 0:
@@ -599,7 +619,7 @@ def _sample_joint_opponent_hands(
 
 
 def _equity_vs_ranges(hand: Any, hero_id: str, ranges: dict[str, OpponentRange],
-                      cpu: Any) -> tuple[float, int]:
+                      cpu: Any, *, simulation_multiplier: float = 1.0) -> tuple[float, int]:
     hero = hand.player(hero_id)
     hero_cards = [str(card) for card in list(getattr(hero, "hole_cards", ()) or ())]
     board = [str(card) for card in list(getattr(hand, "board", ()) or ())]
@@ -610,8 +630,8 @@ def _equity_vs_ranges(hand: Any, hero_id: str, ranges: dict[str, OpponentRange],
         return 1.0, 0
     rng = getattr(cpu, "rng", None) or random.Random()
     level = min(5, max(1, int(getattr(cpu, "level", 3) or 3)))
-    runs = 220 + level * 130
-    runs = min(950, runs)
+    runs = int((220 + level * 130) * max(0.20, min(1.0, simulation_multiplier)))
+    runs = max(100, min(950, runs))
     deck = [str(card) for card in make_deck()]
     remaining = 5 - len(board)
     wins = 0.0
@@ -660,7 +680,7 @@ def _fold_probability(ranges: dict[str, OpponentRange], board: list[str],
                 _preflop_strength(_cards_to_class(combo)), 0.0
             )
             continue_mass += max(0.0, float(weight)) * _response_continue_probability(
-                made, draw, bet_fraction, street
+                made, draw, bet_fraction, street, opponent_range.archetype
             )
         conditional_continue = max(0.0, min(1.0, continue_mass / total))
         participation = max(0.0, min(1.0, float(opponent_range.participation_probability)))
@@ -675,6 +695,8 @@ def _bet_response_metrics(
     board: list[str],
     bet_fraction: float,
     cpu: Any,
+    *,
+    simulation_multiplier: float = 0.40,
 ) -> tuple[float, float, float, int]:
     """Condition ranges on calling; return all-fold, callers, called equity and samples."""
     street = {3: "flop", 4: "turn", 5: "river"}.get(len(board), "preflop")
@@ -693,7 +715,7 @@ def _bet_response_metrics(
                 _preflop_strength(_cards_to_class(combo)), 0.0
             )
             probability = _response_continue_probability(
-                made, draw, bet_fraction, street
+                made, draw, bet_fraction, street, opponent_range.archetype
             )
             weighted = base_weight * probability
             conditioned.append((combo, weighted))
@@ -724,7 +746,8 @@ def _bet_response_metrics(
         )
 
     unconditional_equity, samples = _equity_vs_ranges(
-        hand, hero_id, response_ranges, cpu
+        hand, hero_id, response_ranges, cpu,
+        simulation_multiplier=simulation_multiplier,
     )
     if all_fold >= 0.999999:
         called_equity = 1.0
