@@ -107,17 +107,17 @@ jobs:
                   ("Run a reversible OOP=AA range commit/clear test and inspect the setup dialogs.",
                    "Run reversible OOP/IP weighted ranges, a three-card Board test, and inspect the Build Tree dialog."),
                   ("未知HU局面の自動Solve設定を診断（OOP AA可逆テスト）",
-                   "未知HU局面の自動Solve設定を診断（OOP/IP/Board/Build Tree設定ダイアログ可逆テスト）"),
+                   "未知HU局面の自動Solve設定を診断（OOP/IP/Board/Build Tree/Player2検証）"),
                   ("OOPレンジが空の場合のみAAを一時確定してマトリクス反映を確認し、Clear＋完了で元に戻します。空でない場合は変更せず停止。Board/Pot/Stack/Rake・Tree・Solverは操作しません。",
-                   "OOP/IPレンジとBoard欄が空の場合のみ、AA,AKs:0.4とAs・Kd・7cを一時投入し、Build Tree設定画面を開いて撮影します。画面を閉じた後、既知のテスト文字列・マトリクス・Board画像が一致する場合のみClearして空欄に復元。Pot/Stack/Rake変更・Tree確定・Solver実行はしません。"),
+                   "OOP/IPレンジとBoard欄が空の場合のみテスト値を一時投入。Build Tree押下後の「プレイヤー2のレンジを入力してください」メッセージを識別し、既知のAA+AKs:40% Source値の場合だけPlayer2を再確定して再試行。拒否が続けば既知テスト値だけClearし、OOP/IP/Boardを復元します。Pot/Stack/Rake変更・Tree確定・Solver実行はしません。"),
                   ("未知局面Solve用のGTO+入力を可逆テスト中…（OOP AAを一時確定して復元）",
-                   "未知局面Solve用のGTO+入力を可逆テスト中…（Build Tree設定画面を検査しテスト設定を復元）"),
+                   "未知局面Solve用のGTO+入力を可逆テスト中…（Player2入力要求を判定しBuild Treeを再試行、設定を復元）"),
                   ("GTO+画面診断完了（OOP AAの反映・復元を確認。Tree/Solver未実行）",
                    "GTO+画面診断完了（Build Tree設定画面の採取・閉鎖・OOP/IPレンジとBoardの完全復元を確認。Tree構築/Solver未実行）"),
                   ("GTO+画面診断は安全停止しました。AAテストの反映・復元状態と手動対応フラグをログで確認してください。",
-                   "GTO+画面診断は安全停止しました。Build Tree設定画面の閉鎖、OOP/IPレンジ・Boardの復元結果をログで確認してください。"),
+                   "GTO+画面診断は安全停止しました。Player2入力要求の判定、Build Tree画面の閉鎖、OOP/IPレンジ・Boardの復元結果を確認してください。"),
                   ("AAテストの復元に未達の可能性があります。診断ログを確認してください。Tree/Solverは未実行です。",
-                   "Build Tree設定画面の検査またはテスト設定の復元に未達です。診断JSONと画像を確認してください。Tree/Solverは未実行です。"),
+                   "Player2の入力要求・Build Tree画面の検査、またはテスト設定の復元に未達です。診断JSONと画像を確認してください。Tree/Solverは未実行です。"),
               ]
               for old_text,new_text in ui_replacements:
                   if old_text in main:
@@ -253,6 +253,19 @@ jobs:
           assert "_is_player2_range_validation_popup" in ui_source
           assert "_dismiss_exact_gto_message_with_ok" in ui_source
           assert "_commit_verified_player2_editor_after_prompt" in ui_source
+          assert "プレイヤー 2 のレンジを入力してください" in ui_source
+          assert "player2_range_validation_seen" in ui_source
+          assert "player2_range_validation_recovered" in ui_source
+          assert "player2_validation_cleanup_restored_ip" in ui_source
+          assert 'player2_validation_cleanup.get("range_restored")' in ui_source
+          assert 'label="player2_range_validation_done"' in ui_source
+          assert 'label="clear_player2_prompt_test_range"' in ui_source
+          assert 'result["safe_to_cleanup"] = not retry_edits and not retry_popups' in ui_source
+          assert 'if title == "program message":' in ui_source
+          assert 'return False' in ui_source
+          assert "_is_player2_range_validation_popup" in ui_source
+          assert "_dismiss_exact_gto_message_with_ok" in ui_source
+          assert "_commit_verified_player2_editor_after_prompt" in ui_source
           assert '"プレイヤー 2 のレンジを入力してください。"' in ui_source
           assert "player2_range_validation_seen" in ui_source
           assert "player2_range_validation_recovered" in ui_source
@@ -310,6 +323,9 @@ jobs:
               '"build_tree_player2_validation_recovered": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_range_validation_recovered"))',
               '"build_tree_player2_range_cleanup_restored": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_validation_cleanup_restored_ip"))',
               '"build_tree_probe_safe_to_cleanup": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("safe_to_cleanup"))',
+              '"build_tree_player2_validation_seen": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_range_validation_seen"))',
+              '"build_tree_player2_validation_recovered": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_range_validation_recovered"))',
+              '"build_tree_player2_range_cleanup_restored": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("player2_validation_cleanup_restored_ip"))',
           ):
               assert required_safety_key in safety_block
           assert '_BOARD_TEST_CARDS = ("As", "Kd", "7c")' in ui_source
@@ -325,7 +341,7 @@ jobs:
           assert '"board_test_cards_reflection_verified"' in safety_block
           assert '"board_test_restored"' in safety_block
           assert '"board_test_may_remain_set"' in safety_block
-          assert "未知HU局面の自動Solve設定を診断（OOP/IP/Board/Build Tree設定ダイアログ可逆テスト）" in main
+          assert "未知HU局面の自動Solve設定を診断（OOP/IP/Board/Build Tree/Player2検証）" in main
           assert "OOP/IPレンジとBoard欄が空の場合のみ" in main
           assert "oop_expected_matrix_cells_reflection_verified" in main
           assert "oop_restore_source_text_accepted" in main
@@ -350,7 +366,7 @@ jobs:
           assert '_GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS = (' in ui_source
           assert 'expected_test_source_texts = set(report["expected_gto_plus_source_texts"])' in ui_source
           assert '"restore_source_text_readback"' in ui_source
-          assert '"schema_version": 20' in ui_source
+          assert '"schema_version": 21' in ui_source
           assert '"pixels_per_cell": 4' in ui_source
           assert '"sampling": "2x2_inner_patch_channel_max"' in ui_source
           assert '"weight_display_capture_saved"' in ui_source
