@@ -1,1 +1,1 @@
-Retry v1.3.77 with the auto-check scheduled only in the constructor; run source syntax, geometry, range baseline and updater checks.
+Retry v1.3.77 after replacing updater error callback by function boundaries and encoding exact indentation.
