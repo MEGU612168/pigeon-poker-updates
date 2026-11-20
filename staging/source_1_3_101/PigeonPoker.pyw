@@ -2169,8 +2169,9 @@ class PigeonPokerApp(tk.Tk):
         """Refresh the standalone table windows; the lobby never hosts action controls."""
         self._refresh_table_windows()
 
-    def _fixed_preflop_raise_target(self, table, hand, actor_id: str, legal: dict[str, Any]) -> int | None:
-        """Keep only preflop raise sizing fixed; never use chart frequencies to gate actions."""
+    def _preflop_initial_raise_target(self, table, hand, actor_id: str,
+                                      legal: dict[str, Any]) -> int | None:
+        """Return an editable default raise-to size for this exact preflop node."""
         minimum = int(legal.get("min_target", 0) or 0)
         maximum = int(legal.get("max_target", 0) or 0)
         if maximum <= 0:
@@ -2179,15 +2180,15 @@ class PigeonPokerApp(tk.Tk):
             minimum = maximum
         try:
             chart_controls = preflop_chart_options(table, hand, actor_id)
-            chart_target = chart_controls.get("raise_amount") if chart_controls else None
-            if chart_target is not None:
-                target = int(chart_target)
-                if minimum <= target <= maximum:
-                    return target
+            suggested = chart_controls.get("raise_amount") if chart_controls else None
+            if suggested is not None:
+                suggested = int(suggested)
+                if minimum <= suggested <= maximum:
+                    return suggested
         except (AttributeError, KeyError, TypeError, ValueError, RuntimeError, OverflowError):
             pass
-        # Unsupported chart nodes still leave every legal action available.
-        # The only fallback is a deterministic legal minimum raise size.
+        # Unsupported branches are still fully playable; use only an initial
+        # legal minimum suggestion. The user can edit it freely before submit.
         return minimum
 
     def _cash_human_action(self, action: str, amount: int | None = None):
@@ -2196,17 +2197,6 @@ class PigeonPokerApp(tk.Tk):
         hand = self.cash_table.hand
         if hand.next_to_act != "hero":
             return
-        if (hand.street == "preflop"
-                and not bool(getattr(self, "cash_gto_spot_mode", False))):
-            key = str(action).lower().replace("_", "-")
-            if key in {"raise", "bet"}:
-                legal = hand.legal_actions("hero")
-                # Actions are always the player's choice. Only the preflop
-                # raise-to amount is normalized to the fixed chart size (or
-                # the legal minimum when this exact line is not in the chart).
-                amount = self._fixed_preflop_raise_target(
-                    self.cash_table, hand, "hero", legal
-                )
         try:
             table_id = self.active_cash_table_id
             if table_id:
@@ -6302,100 +6292,8 @@ class PigeonPokerApp(tk.Tk):
                          fg=COLORS["gold"], font=("Segoe UI", 8, "bold")).pack(side="left", padx=5)
                 continue
 
-            if hand.next_to_act == "hero":
-                record["status"].set("YOUR TURN")
-
-                if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):
-                    legal = hand.legal_actions("hero")
-                    action_names = {
-                        str(value).lower().replace("_", "-")
-                        for value in legal.get("actions", ())
-                    }
-                    rush = is_rush_mode(state.get("cash_game_mode", RUSH_MODE))
-
-                    # FOLD is always exposed in Rush & Cash; in regular ring
-                    # play it follows the engine's legal-action list.
-                    fold_button = record["fold_button"]
-                    if rush or "fold" in action_names:
-                        fold_command = (
-                            (lambda tid=slot.table_id: self._handle_table_fold(tid))
-                            if rush else
-                            (lambda tid=slot.table_id: self._floating_table_action(tid, "fold"))
-                        )
-                        fold_button.configure(
-                            text="FOLD", command=fold_command, state="normal"
-                        )
-                        fold_button.pack(side="left", padx=2)
-                    else:
-                        fold_button.pack_forget()
-
-                    # CHECK / CALL is available whenever the engine says it is.
-                    if "check" in action_names:
-                        self._compact_action_button(
-                            actions_frame, "CHECK",
-                            lambda tid=slot.table_id: self._floating_table_action(tid, "check"),
-                            "accent"
-                        ).pack(side="left", padx=2)
-                    elif "call" in action_names:
-                        call_amount = int(legal.get("to_call", 0) or 0)
-                        self._compact_action_button(
-                            actions_frame,
-                            f"CALL {format_chip_amount(call_amount, bb, self.chip_display_unit)}",
-                            lambda tid=slot.table_id: self._floating_table_action(tid, "call"),
-                            "accent"
-                        ).pack(side="left", padx=2)
-
-                    # A legal RAISE/BET button is never hidden by chart action
-                    # frequencies. Its amount alone is fixed preflop.
-                    if "raise" in action_names or "bet" in action_names:
-                        verb = "raise" if "raise" in action_names else "bet"
-                        fixed_target = self._fixed_preflop_raise_target(
-                            table, hand, "hero", legal
-                        )
-                        if fixed_target is not None:
-                            raise_bb = fixed_target / max(1, int(hand.big_blind))
-                            self._compact_action_button(
-                                actions_frame, f"RAISE {raise_bb:.2f} BB",
-                                lambda tid=slot.table_id, act=verb, target=fixed_target:
-                                    self._floating_table_action(tid, act, target),
-                                "accent"
-                            ).pack(side="left", padx=2)
-
-                    # ALL-IN remains an independent legal action, not removed
-                    # because the chart selects a different raise size.
-                    if "all-in" in action_names:
-                        self._compact_action_button(
-                            actions_frame, "ALL-IN",
-                            lambda tid=slot.table_id:
-                                self._floating_table_action(tid, "all-in"),
-                            "danger"
-                        ).pack(side="left", padx=2)
-
-                    record["status"].set(
-                        "YOUR TURN • PREFLOP RAISE SIZE FIXED"
-                    )
-                    try:
-                        record["window"].deiconify()
-                    except tk.TclError:
-                        pass
-                    continue
-
-                if hand.next_to_act != "hero":
-                    actor = hand.player(hand.next_to_act).name if hand.next_to_act else "CPU"
-                    record["status"].set(f"{actor} TO ACT")
-                    if is_rush_mode(state.get("cash_game_mode", RUSH_MODE)):
-                        queued = bool(state.get("cash_rush_fold_pending", False))
-                        self._compact_action_button(
-                            actions_frame, "FOLD" if not queued else "FOLD ✓",
-                            lambda tid=slot.table_id: self._handle_table_fold(tid),
-                            "danger").pack(side="left", padx=2)
-                    continue
-                # The hero-turn chart branch above already rendered the exact
-                # chart-approved actions and returned. Do not create generic
-                # off-chart preflop sizing controls here.
-                record["status"].set("PREFLOP CHART ACTIONS ONLY")
-                continue
-
+            # All streets use the same live legal-action renderer. Do not
+            # branch away from this path on a postflop HERO turn.
             if hand.next_to_act != "hero":
                 actor = hand.player(hand.next_to_act).name if hand.next_to_act else "CPU"
                 record["status"].set(f"{actor} TO ACT")
@@ -6432,13 +6330,23 @@ class PigeonPokerApp(tk.Tk):
                     minimum = min(minimum, maximum)  # short all-in is a valid target too
                     record["bet_min"], record["bet_max"] = minimum, maximum
                     record["bet_verb"], record["bet_bb"] = verb, bb
-                    target = int(record["bet_target_cents"].get())
-                    if target <= 0 or target < minimum or target > maximum:
-                        target = minimum
-                    # Keep the sizing model initialized but leave the editable amount box blank.
+                    # Chart size is only a suggested initial value for
+                    # the preflop amount field. The entry, slider and presets
+                    # remain editable; submit passes the user's chosen size as-is.
+                    target = minimum
+                    if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):
+                        suggested = self._preflop_initial_raise_target(
+                            table, hand, "hero", legal
+                        )
+                        if suggested is not None and minimum <= suggested <= maximum:
+                            target = int(suggested)
                     record["bet_target_cents"].set(target)
                     record["bet_slider"].set(target)
-                    record["bet_target"].set("")
+                    record["bet_target"].set(
+                        format_chip_amount(
+                            target, bb, self.chip_display_unit, include_unit=False
+                        )
+                    )
                     self._update_bet_submit_label(slot.table_id)
 
                     # A small amount field makes the slider precise; presets only select.
