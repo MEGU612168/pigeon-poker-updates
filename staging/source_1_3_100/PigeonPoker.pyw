@@ -2620,59 +2620,22 @@ class PigeonPokerApp(tk.Tk):
                     # move almost immediately; postflop keeps natural thinking time.
                     fallback_decision = None
                     if hand.street == "preflop":
-                        # Preflop is a mechanical chart lookup. CPU level is not consulted.
-                        # Never fall back to an untrained legacy action such as a limp.
-                        try:
-                            setattr(
-                                cpu, "_preflop_policy_penalty",
-                                int(self.cash_preflop_policy_penalties.get(str(pid), 0))
-                            )
-                        except Exception:
-                            pass
-                        # A chart miss is not a fatal table error. The preflop
-                        # policy module returns only CHECK/FOLD/CALL under a
-                        # cumulative guardrail penalty; legacy random actions
-                        # and off-chart raises are never used.
+                        # Fixed chart actions remain immutable wherever covered.
+                        # Uncovered branches use independent range-weighted reasoning.
                         range_decision = choose_preflop_action(table, hand, pid, cpu, None)
-                        if range_decision is None:
-                            legal_now = hand.legal_actions(pid)
-                            legal_names = {
-                                str(value).lower().replace("-", "_")
-                                for value in legal_now.get("actions", ())
-                            }
-                            safe_action = next(
-                                (candidate for candidate in ("check", "fold", "call")
-                                 if candidate in legal_names), None
+                        if getattr(range_decision, "source", "") == "screenshot-range":
+                            fallback_decision = range_decision
+                        else:
+                            fallback_decision = choose_range_aware_action(
+                                table, hand, pid, cpu,
+                                range_estimator=estimate_preflop_opponent_ranges,
                             )
-                            if safe_action is None:
-                                raise RuntimeError(
-                                    f"No passive legal preflop action exists for {actor_name} ({pid}); "
-                                    "the hand engine returned no CHECK/FOLD/CALL option."
-                                )
-                            from types import SimpleNamespace
-                            range_decision = SimpleNamespace(
-                                action=safe_action, amount=None, equity_estimate=0.0,
-                                source="preflop-guardrail", node_id="", hand_class="",
-                                action_frequency=0.0, policy_penalty=(
-                                    int(self.cash_preflop_policy_penalties.get(str(pid), 0)) + 100
-                                ), guardrail_reason="last_resort_runtime_guardrail",
-                            )
-                        if getattr(range_decision, "source", "") == "preflop-guardrail":
-                            penalty = max(
-                                100, int(getattr(range_decision, "policy_penalty", 100) or 100)
-                            )
-                            self.cash_preflop_policy_penalties[str(pid)] = penalty
-                            self.config_data["cash_preflop_policy_penalties"] = dict(
-                                self.cash_preflop_policy_penalties
-                            )
-                            try:
-                                save_config(self.config_data)
-                            except Exception:
-                                pass
-                        fallback_decision = range_decision
                     elif not (session is not None and session.hand_token == id(hand) and session.context is not None):
-                        # Postflop retains the CPU-level policy.
-                        fallback_decision = cpu.choose_action(hand, pid)
+                        # The same opponent-range engine handles postflop decisions.
+                        fallback_decision = choose_range_aware_action(
+                            table, hand, pid, cpu,
+                            range_estimator=estimate_preflop_opponent_ranges,
+                        )
                     if hand.street == "preflop":
                         if fallback_decision is not None and fallback_decision.action == "fold":
                             think_seconds = timing_rng.uniform(0.07, 0.16)
