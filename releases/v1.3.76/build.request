@@ -1,1 +1,1 @@
-Retry v1.3.76 after anchoring ownership state to constructor; validate full-width workspace, auto socket/launch/connect, and close managed GTO+ on exit.
+Retry v1.3.76 after switching constructor ownership-state insertion to a unique tree-file anchor; rerun all source, range, syntax and ZIP checks.
