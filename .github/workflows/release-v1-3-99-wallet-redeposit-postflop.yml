@@ -1,9 +1,9 @@
-name: Release Pigeon Poker v1.3.99 restore postflop UI and redepositable funds
+name: Release Pigeon Poker v1.3.100 always-clickable updater and fixed preflop sizes
 
 on:
   push:
     paths:
-      - "releases/v1.3.99/build.request"
+      - "releases/v1.3.100/build.request"
 
 permissions:
   contents: write
@@ -16,9 +16,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Verify preserved preflop chart tests
-        run: python staging/test_preflop_ranges_75.py
-      - name: Build Stable v1.3.99 from exact v1.3.98
+      - name: Build and validate Stable v1.3.100
         shell: bash
         run: |
           set -euo pipefail
@@ -26,20 +24,22 @@ jobs:
           import ast
           import base64
           import hashlib
+          import importlib.util
           import io
           import json
           import pathlib
+          import re
           import subprocess
+          import sys
           import time
-          import textwrap
           import urllib.request
           import zipfile
 
           REPO = "MEGU612168/pigeon-poker-updates"
-          SOURCE_VERSION = "1.3.98"
-          TARGET_VERSION = "1.3.99"
-          SOURCE_SHA256 = "ddd66141b88c37cc25f5e9564b62ca786a22dde80a02b4a13a45b1291c8b7591"
-          SOURCE_SIZE = 1075468
+          SOURCE_VERSION = "1.3.99"
+          TARGET_VERSION = "1.3.100"
+          SOURCE_SHA256 = "7834124c5dbb02c34774eb52dde8c5d70d40c1963698d5ec904670dd4fe75900"
+          SOURCE_SIZE = 270126
           source_url = (
               f"https://raw.githubusercontent.com/{REPO}/main/releases/v{SOURCE_VERSION}/"
               f"payload-updater.zip.b64?v={SOURCE_SHA256}"
@@ -51,9 +51,9 @@ jobs:
               encoded = response.read().decode("ascii").strip()
           payload = base64.b64decode(encoded, validate=True)
           if len(payload) != SOURCE_SIZE:
-              raise SystemExit("Pinned v1.3.98 payload size mismatch.")
+              raise SystemExit("Pinned v1.3.99 payload size mismatch.")
           if hashlib.sha256(payload).hexdigest() != SOURCE_SHA256:
-              raise SystemExit("Pinned v1.3.98 payload SHA-256 mismatch.")
+              raise SystemExit("Pinned v1.3.99 payload SHA-256 mismatch.")
 
           expected_files = {
               "PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
@@ -65,12 +65,12 @@ jobs:
           with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
               bad = archive.testzip()
               if bad:
-                  raise SystemExit("v1.3.98 ZIP CRC failure: " + bad)
+                  raise SystemExit("v1.3.99 ZIP CRC failure: " + bad)
               files = {name: archive.read(name) for name in archive.namelist()}
           if set(files) != expected_files:
-              raise SystemExit("Unexpected v1.3.98 package file layout.")
+              raise SystemExit("Unexpected v1.3.99 package file layout.")
           if files["VERSION.txt"].decode("ascii").strip() != SOURCE_VERSION:
-              raise SystemExit("Pinned v1.3.98 VERSION.txt mismatch.")
+              raise SystemExit("Pinned v1.3.99 VERSION.txt mismatch.")
 
           def replace_once(source, old, new, label):
               count = source.count(old)
@@ -79,306 +79,158 @@ jobs:
               return source.replace(old, new, 1)
 
           main = files["PigeonPoker.pyw"].decode("utf-8")
-
-          # Preflop uses fixed chart BB buttons only. Postflop explicitly
-          # retains the legacy slider / amount box / presets / BET or RAISE.
-          # Inject a chart-only action panel only when the street is preflop.
-          # The existing action UI below remains byte-for-byte unchanged for postflop.
-          refresh_start = main.index("    def _refresh_table_windows(")
-          hero_start = None
-          hero_indent = ""
-          search_pos = refresh_start
-          while search_pos < len(main):
-              line_end = main.find("\n", search_pos)
-              if line_end < 0:
-                  line_end = len(main)
-              line = main[search_pos:line_end]
-              if line.strip() == 'if hand.next_to_act == "hero":':
-                  hero_start = search_pos
-                  hero_indent = line[:len(line) - len(line.lstrip())]
-                  break
-              search_pos = line_end + 1
-          if hero_start is None:
-              raise SystemExit("Could not locate complete HERO action branch.")
-          status_marker = 'record["status"].set("YOUR TURN")'
-          status_pos = main.index(status_marker, hero_start)
-          status_line_start = main.rfind("\n", hero_start, status_pos) + 1
-          status_indent = main[status_line_start:status_pos]
-          status_line_end = main.find("\n", status_pos)
-          if status_line_end < 0:
-              raise SystemExit("HERO status line is not newline terminated.")
-          insert_at = status_line_end + 1
-          preflop_block = '''
-          if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):
-              chart_controls = preflop_chart_options(table, hand, "hero")
-              fold_button = record["fold_button"]
-              rush = is_rush_mode(state.get("cash_game_mode", RUSH_MODE))
-              fold_command = (
-                  (lambda tid=slot.table_id: self._handle_table_fold(tid))
-                  if rush else
-                  (lambda tid=slot.table_id: self._floating_table_action(tid, "fold"))
-              )
-              fold_button.configure(
-                  text="FOLD", command=fold_command,
-                  state="normal" if chart_controls and chart_controls.get("fold") else "disabled"
-              )
-              fold_button.pack(side="left", padx=2)
-
-              call_action = chart_controls.get("call_action") if chart_controls else None
-              call_label = "CHECK" if call_action == "check" else "CALL"
-              call_button = self._compact_action_button(
-                  actions_frame, call_label,
-                  (lambda tid=slot.table_id, act=call_action:
-                      self._floating_table_action(tid, act)) if call_action else (lambda: None),
-                  "accent"
-              )
-              call_button.configure(state="normal" if call_action else "disabled")
-              call_button.pack(side="left", padx=2)
-
-              raise_action = chart_controls.get("raise_action") if chart_controls else None
-              raise_amount = chart_controls.get("raise_amount") if chart_controls else None
-              if raise_amount is not None and int(hand.big_blind) > 0:
-                  raise_bb = int(raise_amount) / int(hand.big_blind)
-                  raise_label = f"RAISE {raise_bb:.2f} BB"
-                  if raise_action == "all-in":
-                      raise_label += " (ALL-IN)"
-                  raise_button = self._compact_action_button(
-                      actions_frame, raise_label,
-                      lambda tid=slot.table_id, act=raise_action, amt=raise_amount:
-                          self._floating_table_action(tid, act, None if act == "all-in" else amt),
-                      "accent"
-                  )
-                  raise_button.configure(state="normal")
-              else:
-                  raise_button = self._compact_action_button(
-                      actions_frame, "RAISE — BB", lambda: None, "accent"
-                  )
-                  raise_button.configure(state="disabled")
-              raise_button.pack(side="left", padx=2)
-              record["status"].set(
-                  f"YOUR TURN • CHART {chart_controls['node_id']} / {chart_controls['hand_class']}"
-                  if chart_controls else "PREFLOP CHART LINE NOT COVERED • NO OFF-CHART ACTION"
-              )
-              try:
-                  record["window"].deiconify()
-              except tk.TclError:
-                  pass
-              continue
-          '''
-          preflop_block = textwrap.indent(textwrap.dedent(preflop_block), status_indent)
-          main = main[:insert_at] + preflop_block + main[insert_at:]
-          if "tk.Scale(" not in main or "self.bet_pot_percentages" not in main:
-              raise SystemExit("Original postflop sizing controls were unexpectedly removed.")
-          if "preflop_chart_options(table, hand, \"hero\")" not in main:
-              raise SystemExit("Fixed-BB preflop action controls missing.")
-                    # A single atomic redeposit operation. Funds withdrawn from the
-          # poker Wallet are used first; remaining amount may use Study hours.
-          redeposit_helper = '''    def _redeposit_available_funds(self, amount_cents: int):
-                  import sqlite3
-                  amount = int(amount_cents)
-                  if amount <= 0:
-                      raise ValueError("入金額を入力してください。")
-                  snapshot = read_study_time_snapshot()
-                  connected = bool(getattr(snapshot, "connected", False))
-                  total_seconds = max(0, int(getattr(snapshot, "total_seconds", 0) or 0))
-                  now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-                  with sqlite3.connect(str(self.wallet_store.db_path), timeout=20) as con:
-                      con.row_factory = sqlite3.Row
-                      con.execute("PRAGMA busy_timeout=20000")
-                      con.execute("BEGIN IMMEDIATE")
-                      columns = {row[1] for row in con.execute("PRAGMA table_info(wallet_account)")}
-                      if "withdrawable_cents" not in columns:
-                          con.execute("ALTER TABLE wallet_account ADD COLUMN withdrawable_cents INTEGER NOT NULL DEFAULT 0")
-                      row = con.execute(
-                          "SELECT balance_cents,withdrawable_cents FROM wallet_account WHERE account_id=1"
-                      ).fetchone()
-                      if row is None:
-                          con.execute("ROLLBACK")
-                          raise ValueError("ウォレット口座が見つかりません。")
-                      balance = max(0, int(row["balance_cents"]))
-                      withdrawable = max(0, int(row["withdrawable_cents"]))
-                      withdrawn_part = min(amount, withdrawable)
-                      study_part = amount - withdrawn_part
-                      redeemed_row = con.execute(
-                          "SELECT COALESCE(SUM(amount_cents),0) FROM study_redemptions"
-                      ).fetchone()
-                      redeemed = max(0, int(redeemed_row[0] or 0))
-                      study_available = (
-                          max(0, (total_seconds // 3600) * 100 - redeemed)
-                          if connected else 0
-                      )
-                      if study_part > 0:
-                          if not connected:
-                              con.execute("ROLLBACK")
-                              raise ValueError(
-                                  "出金済み残高を超える入金にはFocus TimerのStudy時間が必要です。"
-                              )
-                          if study_part % 100:
-                              con.execute("ROLLBACK")
-                              raise ValueError(
-                                  "Study時間分の入金は整数ドルです。セント単位の入金には出金済み残高をご利用ください。"
-                              )
-                          if study_part > study_available:
-                              con.execute("ROLLBACK")
-                              combined = withdrawn_part + study_available
-                              dollar = chr(36)
-                              raise ValueError(
-                                  f"入金可能額は {dollar}{combined / 100:,.2f} です "
-                                  f"(出金済み {dollar}{withdrawn_part / 100:,.2f} + Study {dollar}{study_available / 100:,.2f})。"
-                              )
-                      new_balance = balance
-                      if withdrawn_part > 0:
-                          new_balance += withdrawn_part
-                          con.execute(
-                              "INSERT INTO cashier_transactions "
-                              "(transaction_id,played_at,kind,delta_cents,balance_after_cents,recipient,note) "
-                              "VALUES(?,?,?,?,?,?,?)",
-                              (uuid.uuid4().hex, now, "withdrawable-redeposit", withdrawn_part,
-                               new_balance, "", "Returned from Withdrawable Balance to Pigeon Wallet"),
-                          )
-                      if study_part > 0:
-                          new_balance += study_part
-                          note = f"Redeemed {study_part // 100} cumulative Study hours at $1/hour"
-                          txid = uuid.uuid4().hex
-                          con.execute(
-                              "INSERT INTO cashier_transactions "
-                              "(transaction_id,played_at,kind,delta_cents,balance_after_cents,recipient,note) "
-                              "VALUES(?,?,?,?,?,?,?)",
-                              (txid, now, "study-time-deposit", study_part, new_balance, "", note),
-                          )
-                          con.execute(
-                              "INSERT INTO study_redemptions "
-                              "(transaction_id,redeemed_at,amount_cents,balance_after_cents,total_study_seconds,note) "
-                              "VALUES(?,?,?,?,?,?)",
-                              (txid, now, study_part, new_balance, total_seconds, note),
-                          )
-                      new_withdrawable = withdrawable - withdrawn_part
-                      con.execute(
-                          "UPDATE wallet_account SET balance_cents=?,withdrawable_cents=?,updated_at=? "
-                          "WHERE account_id=1",
-                          (new_balance, new_withdrawable, now),
-                      )
-                      con.execute("COMMIT")
-                  remaining_study = max(0, study_available - study_part)
-                  return {
-                      "balance_cents": new_balance,
-                      "withdrawable_cents": new_withdrawable,
-                      "withdrawn_part_cents": withdrawn_part,
-                      "study_part_cents": study_part,
-                      "remaining_study_cents": remaining_study,
-                  }
-
-          '''
           main = replace_once(
               main,
-              "    def _cashier_deposit(self):\n",
-              redeposit_helper + "    def _cashier_deposit(self):\n",
-              "add atomic deposit from Study and withdrawable funds",
-          )
-
-          deposit_start = main.index("    def _cashier_deposit(self):")
-          deposit_end = main.index("\n    def _open_study_wallet(self):", deposit_start)
-          new_deposit = '''    def _cashier_deposit(self):
-                  try:
-                      self._sync_external_wallet_balance()
-                      amount = self._parse_cashier_amount(self.cashier_amount_var.get())
-                      result = self._redeposit_available_funds(amount)
-                      self.cash_balance_cents = int(result["balance_cents"])
-                      self._update_cash_balance()
-                      self._refresh_study_funding_panel()
-                      self._refresh_cashier()
-                      dollar = chr(36)
-                      self.cashier_status_var.set(
-                          f"Deposit +{dollar}{amount / 100:.2f} • "
-                          f"withdrawn funds {dollar}{result['withdrawn_part_cents'] / 100:.2f} • "
-                          f"Study {dollar}{result['study_part_cents'] / 100:.2f}"
-                      )
-                      self.cashier_amount_var.set("")
-                  except Exception as exc:
-                      messagebox.showerror("Cashier deposit", str(exc), parent=self)
-          '''
-          new_deposit = new_deposit.replace("                  ", "        ")
-          main = main[:deposit_start] + new_deposit.rstrip() + main[deposit_end:]
-
-          funding_start = main.index("    def _refresh_study_funding_panel(self):")
-          funding_end = main.index("\n    def _study_cashier_live_refresh(self):", funding_start)
-          funding_method = '''    def _refresh_study_funding_panel(self):
-                  if not hasattr(self, "study_depositable_var"):
-                      return
-                  snapshot = read_study_time_snapshot()
-                  self.study_snapshot_connected = bool(snapshot.connected)
-                  redeemed = self.wallet_store.redeemed_study_cents()
-                  study_available = (
-                      available_deposit_cents(snapshot.total_seconds, redeemed)
-                      if snapshot.connected else 0
-                  )
-                  withdrawable = self._withdrawable_balance_cents()
-                  total_available = max(0, int(study_available) + int(withdrawable))
-                  self.study_depositable_cents = total_available
-                  dollar = chr(36)
-                  self.study_depositable_var.set(f"{dollar}{total_available / 100:,.2f}")
-                  if snapshot.connected:
-                      updated = snapshot.updated_at.replace("T", " ")[:19] if snapshot.updated_at else "unknown"
-                      self.study_hours_detail_var.set(
-                          f"Study allowance {dollar}{study_available / 100:,.2f} + "
-                          f"withdrawable {dollar}{withdrawable / 100:,.2f} • "
-                          f"Focus Timer {snapshot.total_hours:,.2f}h • Updated {updated}"
-                      )
-                  else:
-                      self.study_hours_detail_var.set(
-                          f"Focus Timer not linked • withdrawable {dollar}{withdrawable / 100:,.2f} "
-                          "remains available to deposit into Pigeon"
-                      )
-                  pnl = self._cashier_poker_pnl_cents()
-                  try:
-                      self.wallet_store.set_live_poker_stack(self._active_cash_table_stacks_cents())
-                  except Exception:
-                      pass
-                  self.poker_pnl_var.set(format_signed_usd(pnl))
-                  if self.cashier_pnl_label is not None:
-                      colour = COLORS["red"] if pnl < 0 else (COLORS["green"] if pnl > 0 else COLORS["white"])
-                      self.cashier_pnl_label.configure(fg=colour)
-
-          '''
-          funding_method = funding_method.replace("                  ", "        ")
-          main = main[:funding_start] + funding_method.rstrip() + main[funding_end:]
-
-          main = replace_once(
-              main,
-              'text="DEPOSITABLE FROM STUDY TIME"',
-              'text="AVAILABLE TO DEPOSIT"',
-              "rename depositable amount label",
+              'header, text="CHECKING…", style="MutedUpdate.TButton",\n            command=self._begin_app_update, state="disabled",',
+              'header, text="CHECK / UPDATE", style="Accent.TButton",\n            command=self._begin_app_update, state="normal",',
+              "make top-bar update button clickable from startup",
           )
           main = replace_once(
               main,
-              '"1 full Study hour = $1. Only whole dollars can be redeemed. The allowance updates from Focus Timer history; already redeemed hours are never reused.",\n'
-              '                           self._cashier_deposit, "REDEEM STUDY TIME")',
-              '"Use previously withdrawn funds first, then remaining whole-dollar Study allowance. Withdrawn funds can be deposited back into your Pigeon Wallet.",\n'
-              '                           self._cashier_deposit, "DEPOSIT AVAILABLE FUNDS")',
-              "explain combined deposit sources",
+              '"""Recheck the stable channel every 30 minutes while Pigeon is open."""',
+              '"""Recheck the stable channel every minute while Pigeon is open."""',
+              "correct update interval documentation",
           )
 
-          required = [
-              "preflop_chart_options(table, hand, \"hero\")",
-              "self._floating_table_bet_action(tid, var)",
-              "tk.Scale(",
-              "self.bet_pot_percentages",
-              "BET TO",
-              "cash_cpu_timeout",
-              "action_seconds_for_street(hand.street)",
-              "progress=min(1.0,job[\"frame\"]/2.0)",
-              'self.after(1, lambda tid=table_id: self._deal_animation_frame(tid))',
-              "def _move_wallet_to_withdrawable(self, amount_cents)",
-              "def _redeposit_available_funds(self, amount_cents: int)",
-              "withdrawable_migration_v1",
-              "AVAILABLE TO DEPOSIT",
-          ]
-          for item in required:
-              if item not in main:
-                  raise SystemExit("Required v1.3.99 behavior missing: " + item)
+          refresh_start = main.index("    def _refresh_update_button_state(self):")
+          refresh_end = main.index("\n    def _begin_app_update(self):", refresh_start)
+          refresh = main[refresh_start:refresh_end]
+          refresh = replace_once(
+              refresh,
+              'self.update_button.configure(state="disabled", style="MutedUpdate.TButton", text="CHECKING…")',
+              'self.update_button.configure(state="normal", style="Accent.TButton", text="CHECK / UPDATE")',
+              "keep button enabled during availability check",
+          )
+          refresh = replace_once(
+              refresh,
+              'self.update_button.configure(state="normal", style="Accent.TButton", text="UPDATE NOW", command=self._begin_app_update)',
+              'self.update_button.configure(state="normal", style="Accent.TButton", text="CHECK / UPDATE", command=self._begin_app_update)',
+              "keep one persistent manual button label when update exists",
+          )
+          refresh = replace_once(
+              refresh,
+              'self.update_button.configure(state="disabled", style="MutedUpdate.TButton", text="UP TO DATE")',
+              'self.update_button.configure(state="normal", style="Accent.TButton", text="CHECK / UPDATE")',
+              "keep button enabled when already up to date",
+          )
+          refresh = replace_once(
+              refresh,
+              'self.update_button.configure(state="disabled", style="MutedUpdate.TButton", text="CHECK FAILED")',
+              'self.update_button.configure(state="normal", style="Accent.TButton", text="CHECK / UPDATE")',
+              "keep button enabled after check failure",
+          )
+          refresh = replace_once(
+              refresh,
+              'self.update_status_var.set(f"Pigeon Poker is up to date ({current}).")',
+              'self.update_status_var.set(f"Pigeon Poker is up to date ({current}). Press CHECK / UPDATE to check again.")',
+              "explain manual retry while up to date",
+          )
+          if 'self.update_button.configure(state="disabled"' in refresh:
+              raise SystemExit("Availability check still disables the update button.")
+          main = main[:refresh_start] + refresh + main[refresh_end:]
+
+          begin_start = main.index("    def _begin_app_update(self):")
+          begin_end = main.index("\n    def _save_betting_display_settings(self):", begin_start)
+          begin = main[begin_start:begin_end]
+          begin = replace_once(
+              begin,
+              'self.update_button.configure(state="disabled", style="MutedUpdate.TButton", text="CHECKING…")',
+              'self.update_button.configure(state="normal", style="Accent.TButton", text="CHECK / UPDATE")',
+              "keep button enabled while manual update runs",
+          )
+          begin = replace_once(
+              begin,
+              'self.update_button.configure(state="disabled", style="MutedUpdate.TButton", text="UP TO DATE")',
+              'self.update_button.configure(state="normal", style="Accent.TButton", text="CHECK / UPDATE")',
+              "keep button enabled after no-update response",
+          )
+          begin = replace_once(
+              begin,
+              'self.update_button.configure(state="disabled", style="MutedUpdate.TButton", text="CHECK FAILED")',
+              'self.update_button.configure(state="normal", style="Accent.TButton", text="CHECK / UPDATE")',
+              "keep button enabled after download/update failure",
+          )
+          if 'self.update_button.configure(state="disabled"' in begin:
+              raise SystemExit("Manual update path still disables the update button.")
+          main = main[:begin_start] + begin + main[begin_end:]
           ast.parse(main, filename="PigeonPoker.pyw")
           files["PigeonPoker.pyw"] = main.encode("utf-8")
+
+          pre = files["pigeon_poker/preflop_screenshot_ranges.py"].decode("utf-8")
+          pre = replace_once(
+              pre,
+              "import random\nfrom dataclasses import dataclass",
+              "import random\nfrom decimal import Decimal, ROUND_HALF_UP\nfrom dataclasses import dataclass",
+              "add deterministic cent-denomination conversion",
+          )
+          policy_match = re.search(r'_FULL_POLICY_B64 = "([^"]+)"', pre)
+          if not policy_match:
+              raise SystemExit("Could not locate immutable 75-node policy payload.")
+          original_policy = policy_match.group(1)
+
+          clamp_start = pre.index("def _clamp_raise_target(desired: int, legal: dict[str, Any]) -> int | None:")
+          clamp_end = pre.index("\n\ndef _decision_choices(", clamp_start)
+          fixed_target_helpers = '''def _bb_target_to_cents(amount_bb: Any, big_blind_cents: int) -> int:
+              """Convert a fixed chart BB target to the nearest available cent.
+
+              ROUND_HALF_UP avoids Python's ties-to-even behavior: 2.5 * 25
+              must not silently become 62 cents (2.48 BB) at NL25. The chart
+              source remains 2.50 BB; only currency denomination is rounded.
+              """
+              blind = int(big_blind_cents)
+              amount = Decimal(str(amount_bb)) * Decimal(blind)
+              if not amount.is_finite() or amount < 0 or blind <= 0:
+                  raise ValueError("Invalid fixed chart BB target")
+              return int(amount.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+          def _clamp_raise_target(desired: int, legal: dict[str, Any]) -> int | None:
+              """Accept the fixed chart target unchanged; never resize it to fit."""
+              try:
+                  target = int(desired)
+                  minimum = legal.get("min_target")
+                  maximum = legal.get("max_target")
+                  if target <= 0:
+                      return None
+                  if minimum is not None and target < int(minimum):
+                      return None
+                  if maximum is not None and target > int(maximum):
+                      return None
+                  return target
+              except (TypeError, ValueError, OverflowError):
+                  return None
+          '''
+          pre = pre[:clamp_start] + fixed_target_helpers.rstrip() + pre[clamp_end:]
+          pre = replace_once(
+              pre,
+              'desired = int(round(float(item["amount_bb"]) * big_blind))',
+              'desired = _bb_target_to_cents(item["amount_bb"], big_blind)',
+              "convert fixed BB chart target with half-up cent rounding",
+          )
+          policy_after = re.search(r'_FULL_POLICY_B64 = "([^"]+)"', pre)
+          if not policy_after or policy_after.group(1) != original_policy:
+              raise SystemExit("Preflop screenshot policy data changed unexpectedly.")
+          ast.parse(pre, filename="preflop_screenshot_ranges.py")
+          files["pigeon_poker/preflop_screenshot_ranges.py"] = pre.encode("utf-8")
           files["VERSION.txt"] = (TARGET_VERSION + "\n").encode("ascii")
+
+          # Run focused tests against the exact packaged preflop module.
+          test_path = pathlib.Path("preflop_screenshot_ranges_test_runtime.py")
+          test_path.write_text(pre, encoding="utf-8")
+          spec = importlib.util.spec_from_file_location("preflop_chart_test", test_path)
+          module = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = module
+          spec.loader.exec_module(module)
+          summary = module.coverage_summary()
+          if summary.get("node_count") != 75 or summary.get("hand_rows") != 12675:
+              raise SystemExit("Preflop chart coverage changed.")
+          assert module._bb_target_to_cents(2.5, 25) == 63
+          assert module._bb_target_to_cents(2.5, 10) == 25
+          assert module._bb_target_to_cents(2.5, 2) == 5
+          assert module._clamp_raise_target(63, {"min_target": 60, "max_target": 90}) == 63
+          assert module._clamp_raise_target(63, {"min_target": 64, "max_target": 90}) is None
+          assert module._clamp_raise_target(63, {"min_target": 1, "max_target": 62}) is None
+          test_path.unlink()
 
           for name, content in files.items():
               if name.endswith((".py", ".pyw")):
@@ -395,12 +247,15 @@ jobs:
                   raise SystemExit("Final ZIP CRC failure: " + bad)
               if set(archive.namelist()) != expected_files:
                   raise SystemExit("Final package file set mismatch.")
-              packaged_main = archive.read("PigeonPoker.pyw").decode("utf-8")
-              ast.parse(packaged_main, filename="PigeonPoker.pyw")
-              assert "AVAILABLE TO DEPOSIT" in packaged_main
-              assert "self._redeposit_available_funds(amount)" in packaged_main
-              assert "self.bet_pot_percentages" in packaged_main
-              assert "cash_cpu_timeout" in packaged_main
+              main_check = archive.read("PigeonPoker.pyw").decode("utf-8")
+              pre_check = archive.read("pigeon_poker/preflop_screenshot_ranges.py").decode("utf-8")
+              ast.parse(main_check, filename="PigeonPoker.pyw")
+              ast.parse(pre_check, filename="preflop_screenshot_ranges.py")
+              assert 'state="normal", style="Accent.TButton", text="CHECK / UPDATE"' in main_check
+              assert "ROUND_HALF_UP" in pre_check
+              assert "node_count" in pre_check
+              assert "Pigeon Poker is up to date" in main_check
+              assert "_FULL_POLICY_B64" in pre_check
 
           digest = hashlib.sha256(final_payload).hexdigest()
           final_encoded = base64.b64encode(final_payload).decode("ascii")
@@ -418,12 +273,12 @@ jobs:
 
           now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
           notes = (
-              "プリフロップだけを75局面チャートの固定BBアクションにし、ポストフロップは従来の"
-              "BET/RAISEスライダー・金額入力・ポットサイズプリセット・実行ボタンを明示的に復元。"
-              "出金可能額をCashierの入金可能額へ加算し、Study時間の入金枠と合算表示。"
-              "入金時は出金済み残高を先に使い、残りをStudy時間から使う。両方の残高移動と台帳記録は"
-              "共有SQLite内の1トランザクションで確定。CPUのストリート別タイマー、超高速配札、"
-              "同位置の離席/再開ボタン、固定フォールドボタンはv1.3.98から維持。"
+              "上部のCHECK / UPDATEボタンを、確認中・最新版・確認失敗・更新処理中の全状態で常時クリック可能に変更。"
+              "起動時確認と60秒ごとの自動確認を維持し、手動ボタンからいつでも再確認・更新可能。"
+              "プリフロップの75局面・12,675ハンドクラス・頻度・固定BB指定サイズは変更せず、"
+              "NL25で2.5BB×25セントがPythonの偶数丸めにより62セント(2.48BB)となる変換誤差を修正。"
+              "1セント刻みで厳密に表現できない場合は最寄りセントへ変換し、チャート指定額が合法でない場合に"
+              "別サイズへ勝手に変更せず、そのアクションを除外。"
           )
           release = {
               "schema_version": 1,
@@ -436,21 +291,15 @@ jobs:
               "payload_sha256": digest,
               "payload_size": len(final_payload),
               "source_version": SOURCE_VERSION,
-              "preflop_fixed_bb_only": True,
-              "postflop_legacy_slider_entry_presets_restored": True,
-              "postflop_controls_explicitly_preserved": True,
-              "withdrawable_balance_included_in_cashier_depositable": True,
-              "redeposit_withdrawable_first": True,
-              "deposit_sources_committed_atomically": True,
-              "cpu_action_clock_matches_hero_by_street": True,
-              "cpu_timeout_action": "check_if_legal_else_fold",
-              "initial_hole_card_animation_frames": 2,
-              "initial_deal_interval_ms": 1,
-              "sitout_resume_uses_existing_utility_button": True,
-              "persistent_fold_widget_across_cpu_and_hero_states": True,
-              "mechanical_preflop_all_cpu_levels": True,
-              "cpu_level_differences_apply_to": ["postflop"],
-              "gto_plus_engine_removed_from_runtime": True,
+              "update_button_always_clickable": True,
+              "automatic_update_check_interval_ms": 60000,
+              "preflop_75_node_policy_preserved": True,
+              "preflop_12675_hand_rows_preserved": True,
+              "preflop_chart_bb_sizes_preserved": True,
+              "preflop_chip_conversion_rounding": "ROUND_HALF_UP",
+              "illegal_fixed_chart_target_resized": False,
+              "postflop_ui_preserved": True,
+              "withdrawable_redeposit_preserved": True,
               "package_ast_and_zip_crc": "passed",
               "files": sorted(files),
           }
@@ -486,7 +335,7 @@ jobs:
           )
           subprocess.run(["git", "add", "stable.json", str(release_dir)], check=True)
           subprocess.run(
-              ["git", "commit", "-m", "Release Pigeon Poker v1.3.99 postflop UI and redepositable wallet"],
+              ["git", "commit", "-m", "Release Pigeon Poker v1.3.100 always-clickable updater and fixed preflop sizes"],
               check=True,
           )
           subprocess.run(["git", "push"], check=True)
@@ -495,9 +344,10 @@ jobs:
               "source_version": SOURCE_VERSION,
               "sha256": digest,
               "payload_size": len(final_payload),
-              "preflop_fixed_bb_only": True,
-              "postflop_legacy_controls_restored": True,
-              "withdrawable_added_to_depositable": True,
-              "redeposit_is_atomic": True,
+              "update_button_always_clickable": True,
+              "automatic_check_interval_ms": 60000,
+              "preflop_policy_75_nodes_12675_rows_unchanged": True,
+              "rounding": "ROUND_HALF_UP",
+              "illegal_chart_size_mutation": False,
           }, ensure_ascii=False, indent=2))
           PY
