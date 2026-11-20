@@ -2975,6 +2975,17 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "board_test_cards_reflection_verified": bool(board_roundtrip and board_roundtrip.get("board_cards_reflection_verified")),
             "board_test_restored": bool(board_roundtrip and board_roundtrip.get("board_test_restored")),
             "board_test_may_remain_set": bool(board_roundtrip and board_roundtrip.get("board_test_may_remain_set")),
+            "build_tree_button_clicked_for_dialog_probe": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("build_tree_clicked")),
+            "build_tree_dialog_opened": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_opened")),
+            "build_tree_dialog_closed_verified": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_closed_verified")),
+            "build_tree_probe_oop_range_restored": bool(build_tree_sequence.get("oop_test_range_restored")),
+            "build_tree_probe_ip_range_restored": bool(build_tree_sequence.get("ip_test_range_restored")),
+            "build_tree_probe_board_restored": bool(build_tree_sequence.get("board_test_restored")),
+            "build_tree_probe_inputs_restored": bool(build_tree_sequence.get("all_test_inputs_restored")),
+            "build_tree_probe_may_remain_configured": bool(
+                build_tree_sequence.get("test_setup_committed")
+                and not build_tree_sequence.get("all_test_inputs_restored")
+            ),
             "oop_restore_source_text_readback": oop_roundtrip.get("restore_source_text_readback"),
             "oop_restore_source_text_accepted": bool(oop_roundtrip.get("restore_source_text_accepted")),
             "board_changed": False,
@@ -2984,7 +2995,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "tree_built": False,
             "solver_run": False,
             "other_gto_processes_touched": False,
-            "build_tree_clicked": False,
+            "build_tree_clicked": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("build_tree_clicked")),
             "board_selector_left_open": bool(
                 board_input_result and board_input_result.get("dialog_detected")
                 and not board_input_result.get("visually_closed")
