@@ -626,14 +626,8 @@ def _choose_range_aware_action_impl(
     level = min(5, max(1, int(getattr(cpu, "level", 3) or 3)))
     archetype = str(getattr(cpu, "archetype", "balanced") or "balanced")
     margin = {1: 0.105, 2: 0.075, 3: 0.050, 4: 0.025, 5: 0.010}[level]
-    aggression = {1: 0.16, 2: 0.25, 3: 0.36, 4: 0.50, 5: 0.64}[level]
-    aggression += {"aggressive": 0.16, "calling_station": -0.18,
-                   "overfolder": -0.10, "underbluffer": -0.08}.get(archetype, 0.0)
     guardrail_penalty = min(
         1000, max(0, int(getattr(cpu, "_range_guardrail_penalty", 0) or 0))
-    )
-    aggression = max(
-        0.03, min(0.85, aggression * (1.0 - min(0.85, guardrail_penalty / 1000.0)))
     )
     uncertainty = (
         sum(1.0 - opponent.confidence for opponent in ranges.values()) / max(1, len(ranges))
@@ -649,6 +643,9 @@ def _choose_range_aware_action_impl(
     required_call = required_call_equity(pot, to_call, estimated_rake)
     required_bluff = required_bluff_success(pot, max(1, int(round(max(1, pot) * 0.50))))
     fold_probability = 0.0
+    expected_callers = 0.0
+    called_equity_estimate = equity
+    response_samples = 0
 
     if street == "preflop":
         # Require stronger equity when multiple players still have cards and
@@ -717,24 +714,36 @@ def _choose_range_aware_action_impl(
                 continue
             risk = target - street_contribution
             bet_fraction = risk / max(1, pot)
-            fold_probability = _fold_probability(ranges, board, bet_fraction)
-            required_success = required_bluff_success(pot, risk)
-            required_bluff = required_success
-            # When called, an additional raise receives a larger pot; this is
-            # an approximation, not a solver-exact future-game EV.
-            raise_increment = max(0, risk - to_call) if to_call else risk
-            called_pot = pot + risk + raise_increment
-            raise_ev = (
-                fold_probability * pot
-                + (1.0 - fold_probability) * (equity * max(0, called_pot - estimated_rake) - risk)
+            (
+                candidate_fold_probability,
+                candidate_expected_callers,
+                candidate_called_equity,
+                candidate_response_samples,
+            ) = _bet_response_metrics(
+                hand, player_id, ranges, board, bet_fraction, cpu
             )
-            value_gate = equity >= max(
+            required_success = required_bluff_success(pot, risk)
+            candidate_required_bluff = required_success
+            raise_increment = max(0, risk - to_call) if to_call else risk
+            caller_payment = raise_increment if to_call else risk
+            called_pot = (
+                pot + risk + candidate_expected_callers * caller_payment
+            )
+            raise_ev = (
+                candidate_fold_probability * pot
+                + (1.0 - candidate_fold_probability)
+                * (
+                    candidate_called_equity * max(0, called_pot - estimated_rake)
+                    - risk
+                )
+            )
+            value_gate = candidate_called_equity >= max(
                 0.56 if street == "preflop" else 0.57,
                 required_call + (0.105 if street == "preflop" else 0.13) + uncertainty_margin,
             )
             bluff_gate = (
-                fold_probability >= required_success + 0.04 + uncertainty_margin
-                and equity < 0.48
+                candidate_fold_probability >= required_success + 0.04 + uncertainty_margin
+                and candidate_called_equity < 0.48
             )
             premium_preflop = False
             if street == "preflop":
@@ -744,16 +753,33 @@ def _choose_range_aware_action_impl(
                     )) in {"AA", "KK", "AKs"}
                 except Exception:
                     premium_preflop = False
-            raise_probability = aggression * (0.60 + 0.40 * max(0.0, min(1.0, equity)))
+
+            # Higher CPU levels compare candidate EV more tightly. Archetypes
+            # shift the EV margin, but do not inject random raises unrelated to EV.
+            ev_margin = max(1, int(round(
+                max(1, pot) * {1: 0.085, 2: 0.060, 3: 0.038, 4: 0.018, 5: 0.006}[level]
+            )))
+            ev_margin = int(round(ev_margin * {
+                "aggressive": 0.68,
+                "calling_station": 1.45,
+                "overfolder": 1.25,
+                "underbluffer": 1.18,
+            }.get(archetype, 1.0)))
             if premium_preflop:
-                raise_probability = min(0.95, raise_probability + 0.24)
-            if bluff_gate:
-                raise_probability *= 0.72
-            if (value_gate or bluff_gate) and float(getattr(getattr(cpu, "rng", None), "random", lambda: 0.0)()) < raise_probability:
-                action_name = "raise" if to_call else "bet"
-                action_key = action_name
-                if action_key in actions and raise_ev > best_ev + 0.01:
-                    best_action, best_amount, best_ev = action_key, target, raise_ev
+                ev_margin = int(round(ev_margin * 0.60))
+            ev_margin += int(round(max(1, pot) * guardrail_penalty / 1000.0 * 0.06))
+            action_name = "raise" if to_call else "bet"
+            if (
+                (value_gate or bluff_gate)
+                and action_name in actions
+                and raise_ev > best_ev + max(1, ev_margin)
+            ):
+                best_action, best_amount, best_ev = action_name, target, raise_ev
+                fold_probability = candidate_fold_probability
+                expected_callers = candidate_expected_callers
+                called_equity_estimate = candidate_called_equity
+                response_samples = candidate_response_samples
+                required_bluff = candidate_required_bluff
 
     # If no call is faced, a low-EV bluff is not forced: checking remains the baseline.
     if to_call == 0 and "check" in actions and best_ev <= 0:
@@ -773,9 +799,10 @@ def _choose_range_aware_action_impl(
     note = (
         f"{decision_name}; equity {equity:.1%}; required call {required_call:.1%}; "
         f"pure-bluff required folds {required_bluff:.1%}; estimated all-fold {fold_probability:.1%}; "
-        f"ranges {len(ranges)}; samples {samples}; uncertainty {uncertainty:.2f}; "
+        f"expected callers {expected_callers:.2f}; equity when called {called_equity_estimate:.1%}; "
+        f"ranges {len(ranges)}; samples {samples + response_samples}; uncertainty {uncertainty:.2f}; "
         f"policy penalty {guardrail_penalty}; EV≈{best_ev:.1f}; "
-        "source=range-aware estimate (not solver exact)"
+        "source=range-aware multiway response model (not solver exact)"
     )
     return CPUAction(
         player_id=str(player_id),
