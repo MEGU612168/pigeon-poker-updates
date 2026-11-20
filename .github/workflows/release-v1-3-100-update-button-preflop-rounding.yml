@@ -91,113 +91,119 @@ jobs:
 
           refresh_start = main.index("    def _refresh_update_button_state(self):")
           refresh_end = main.index("\n    def _begin_app_update(self):", refresh_start)
-          refresh_method = '''    def _refresh_update_button_state(self):
-                  """Check the stable manifest without disabling the manual update button."""
-                  if getattr(self, "_update_check_active", False) or getattr(self, "_update_in_progress", False):
-                      return
-                  self._update_check_active = True
-                  try:
-                      self.update_button.configure(
-                          state="normal", style="Accent.TButton", text="CHECK / UPDATE"
-                      )
-                  except tk.TclError:
-                      self._update_check_active = False
-                      return
+          refresh_method = '''\
+def _refresh_update_button_state(self):
+    """Check the stable manifest without disabling the manual update button."""
+    if getattr(self, "_update_check_active", False) or getattr(self, "_update_in_progress", False):
+        return
+    self._update_check_active = True
+    try:
+        self.update_button.configure(
+            state="normal", style="Accent.TButton", text="CHECK / UPDATE"
+        )
+    except tk.TclError:
+        self._update_check_active = False
+        return
 
-                  def on_result(available: bool, current: str, candidate: str):
-                      def apply_result():
-                          self._update_check_active = False
-                          self.update_button.configure(
-                              state="normal", style="Accent.TButton", text="CHECK / UPDATE"
-                          )
-                          if available:
-                              self.update_status_var.set(
-                                  f"Update {candidate} available (current {current}). Press CHECK / UPDATE."
-                              )
-                          else:
-                              self.update_status_var.set(
-                                  f"Pigeon Poker is up to date ({current}). Press CHECK / UPDATE to check again."
-                              )
-                      try:
-                          self.after(0, apply_result)
-                      except tk.TclError:
-                          pass
+    def on_result(available: bool, current: str, candidate: str):
+        def apply_result():
+            self._update_check_active = False
+            self.update_button.configure(
+                state="normal", style="Accent.TButton", text="CHECK / UPDATE"
+            )
+            if available:
+                self.update_status_var.set(
+                    f"Update {candidate} available (current {current}). Press CHECK / UPDATE."
+                )
+            else:
+                self.update_status_var.set(
+                    f"Pigeon Poker is up to date ({current}). Press CHECK / UPDATE to check again."
+                )
+        try:
+            self.after(0, apply_result)
+        except tk.TclError:
+            pass
 
-                  def on_error(error: str):
-                      def apply_error():
-                          self._update_check_active = False
-                          self.update_button.configure(
-                              state="normal", style="Accent.TButton", text="CHECK / UPDATE"
-                          )
-                          self.update_status_var.set(
-                              f"Update check failed: {error} • Press CHECK / UPDATE to retry."
-                          )
-                      try:
-                          self.after(0, apply_error)
-                      except tk.TclError:
-                          pass
+    def on_error(error: str):
+        def apply_error():
+            self._update_check_active = False
+            self.update_button.configure(
+                state="normal", style="Accent.TButton", text="CHECK / UPDATE"
+            )
+            self.update_status_var.set(
+                f"Update check failed: {error} • Press CHECK / UPDATE to retry."
+            )
+        try:
+            self.after(0, apply_error)
+        except tk.TclError:
+            pass
 
-                  start_update_availability_check(ROOT, on_result, on_error)
-          '''
-          refresh_method = refresh_method.replace("                  ", "        ")
+    start_update_availability_check(ROOT, on_result, on_error)
+'''
+          refresh_method = "\n".join(
+              "    " + line if line else "" for line in refresh_method.rstrip().splitlines()
+          )
           main = main[:refresh_start] + refresh_method.rstrip() + main[refresh_end:]
 
           begin_start = main.index("    def _begin_app_update(self):")
           begin_end = main.index("\n    def _save_betting_display_settings(self):", begin_start)
-          begin_method = '''    def _begin_app_update(self):
-                  """Check, verify and apply a stable update while keeping the button clickable."""
-                  if getattr(self, "_update_in_progress", False):
-                      return
-                  self._update_in_progress = True
-                  self.update_button.configure(
-                      state="normal", style="Accent.TButton", text="CHECK / UPDATE"
-                  )
-                  self.update_status_var.set("Checking for updates…")
+          begin_method = '''\
+def _begin_app_update(self):
+    """Check, verify and apply a stable update while keeping the button clickable."""
+    if getattr(self, "_update_in_progress", False):
+        return
+    self._update_in_progress = True
+    self.update_button.configure(
+        state="normal", style="Accent.TButton", text="CHECK / UPDATE"
+    )
+    self.update_status_var.set("Checking for updates…")
 
-                  def report(message: str):
-                      def apply_report():
-                          self.update_status_var.set(message)
-                          if message.startswith("Pigeon Poker is up to date"):
-                              self._update_in_progress = False
-                              self.update_button.configure(
-                                  state="normal", style="Accent.TButton", text="CHECK / UPDATE"
-                              )
-                      try:
-                          self.after(0, apply_report)
-                      except tk.TclError:
-                          pass
+    def report(message: str):
+        def apply_report():
+            self.update_status_var.set(message)
+            if message.startswith("Pigeon Poker is up to date"):
+                self._update_in_progress = False
+                self.update_button.configure(
+                    state="normal", style="Accent.TButton", text="CHECK / UPDATE"
+                )
+        try:
+            self.after(0, apply_report)
+        except tk.TclError:
+            pass
 
-                  def close_for_update():
-                      def close_now():
-                          try:
-                              self.update_status_var.set("Applying update and restarting Pigeon Poker…")
-                          except tk.TclError:
-                              pass
-                          self.after(500, self._on_close)
-                      try:
-                          self.after(0, close_now)
-                      except tk.TclError:
-                          pass
+    def close_for_update():
+        def close_now():
+            try:
+                self.update_status_var.set("Applying update and restarting Pigeon Poker…")
+            except tk.TclError:
+                pass
+            self.after(500, self._on_close)
+        try:
+            self.after(0, close_now)
+        except tk.TclError:
+            pass
 
-                  def show_error(message: str):
-                      def display_error():
-                          self._update_in_progress = False
-                          try:
-                              self.update_button.configure(
-                                  state="normal", style="Accent.TButton", text="CHECK / UPDATE"
-                              )
-                              self.update_status_var.set(message)
-                              messagebox.showerror("Pigeon Poker Update", message, parent=self)
-                          except tk.TclError:
-                              pass
-                      try:
-                          self.after(0, display_error)
-                      except tk.TclError:
-                          pass
+    def show_error(message: str):
+        def display_error():
+            self._update_in_progress = False
+            try:
+                self.update_button.configure(
+                    state="normal", style="Accent.TButton", text="CHECK / UPDATE"
+                )
+                self.update_status_var.set(message)
+                messagebox.showerror("Pigeon Poker Update", message, parent=self)
+            except tk.TclError:
+                pass
+        try:
+            self.after(0, display_error)
+        except tk.TclError:
+            pass
 
-                  start_update_check(ROOT, os.getpid(), report, close_for_update, show_error)
-          '''
-          begin_method = begin_method.replace("                  ", "        ")
+    start_update_check(ROOT, os.getpid(), report, close_for_update, show_error)
+'''
+          begin_method = "\n".join(
+              "    " + line if line else "" for line in begin_method.rstrip().splitlines()
+          )
           main = main[:begin_start] + begin_method.rstrip() + main[begin_end:]
 
           # Make sure no updater-result path disables the global manual button.
