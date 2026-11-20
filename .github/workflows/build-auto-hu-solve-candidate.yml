@@ -107,17 +107,17 @@ jobs:
                   ("Run a reversible OOP=AA range commit/clear test and inspect the setup dialogs.",
                    "Run reversible OOP/IP weighted ranges, a three-card Board test, and inspect the Build Tree dialog."),
                   ("未知HU局面の自動Solve設定を診断（OOP AA可逆テスト）",
-                   "未知HU局面の自動Solve設定を診断（OOP/IP/Board/Build Tree/Player2検証）"),
+                   "未知HU局面の自動Solve設定を診断（OOP/IP/Board/Build Tree/Player2入力復旧）"),
                   ("OOPレンジが空の場合のみAAを一時確定してマトリクス反映を確認し、Clear＋完了で元に戻します。空でない場合は変更せず停止。Board/Pot/Stack/Rake・Tree・Solverは操作しません。",
-                   "OOP/IPレンジとBoard欄が空の場合のみテスト値を一時投入。Build Tree押下後の「プレイヤー2のレンジを入力してください」メッセージを識別し、既知のAA+AKs:40% Source値の場合だけPlayer2を再確定して再試行。拒否が続けば既知テスト値だけClearし、OOP/IP/Boardを復元します。Pot/Stack/Rake変更・Tree確定・Solver実行はしません。"),
+                   "OOP/IPレンジとBoard欄が空の場合のみテスト値を一時投入。Build Tree押下後の「プレイヤー2のレンジを入力してください」メッセージを識別し、OK後にPlayer2 Source欄をクリックしてネイティブEditを特定。PID/所有関係・Source文字列を再読取し、既知のAA+AKs:40%だけDoneで再試行。再度拒否された場合も同じ方法でSourceを特定し、既知テスト値だけClearしてIP/OOP/Boardを復元。Sourceを特定できない場合は手動対応を要求し、他の値を変更しません。Pot/Stack/Rake変更・Tree確定・Solver実行はしません。"),
                   ("未知局面Solve用のGTO+入力を可逆テスト中…（OOP AAを一時確定して復元）",
-                   "未知局面Solve用のGTO+入力を可逆テスト中…（Player2入力要求を判定しBuild Treeを再試行、設定を復元）"),
+                   "未知局面Solve用のGTO+入力を可逆テスト中…（Player2 Source欄を特定・再読取して復旧を試行、テスト設定を復元）"),
                   ("GTO+画面診断完了（OOP AAの反映・復元を確認。Tree/Solver未実行）",
                    "GTO+画面診断完了（Build Tree設定画面の採取・閉鎖・OOP/IPレンジとBoardの完全復元を確認。Tree構築/Solver未実行）"),
                   ("GTO+画面診断は安全停止しました。AAテストの反映・復元状態と手動対応フラグをログで確認してください。",
-                   "GTO+画面診断は安全停止しました。Player2入力要求の判定、Build Tree画面の閉鎖、OOP/IPレンジ・Boardの復元結果を確認してください。"),
+                   "GTO+画面診断は安全停止しました。Player2 Source欄の特定・再読取、Build Tree画面の閉鎖、OOP/IPレンジ・Boardの復元結果を確認してください。Source欄を特定できない場合は手動対応してください。"),
                   ("AAテストの復元に未達の可能性があります。診断ログを確認してください。Tree/Solverは未実行です。",
-                   "Player2の入力要求・Build Tree画面の検査、またはテスト設定の復元に未達です。診断JSONと画像を確認してください。Tree/Solverは未実行です。"),
+                   "Player2 Source欄の特定・再読取、Build Tree画面の検査、またはテスト設定の復元に未達です。診断JSONと画像を確認してください。Source欄が開いている場合は値を確認して手動対応してください。Tree/Solverは未実行です。"),
               ]
               for old_text,new_text in ui_replacements:
                   if old_text in main:
@@ -217,7 +217,7 @@ jobs:
               shutil.copy2(ui_target,out/"auto_solve_ui.py")
               shutil.copy2(probe_target,out/"ui_probe.py")
               shutil.copy2(preflop_target,out/"preflop_screenshot_ranges.py")
-              (out/"VERSION.txt").write_text("1.3.68\n",encoding="ascii")
+              (out/"VERSION.txt").write_text("1.3.69\n",encoding="ascii")
               print("Patched app queue: range reconstruction result will be attached to every unknown HU request.")
           PY
       - name: Test source and actual embedded chart compatibility
@@ -259,6 +259,14 @@ jobs:
           assert "_is_player2_range_validation_popup" in ui_source
           assert "_dismiss_exact_gto_message_with_ok" in ui_source
           assert "_commit_verified_player2_editor_after_prompt" in ui_source
+          assert "def _focus_and_read_player2_source_field(" in ui_source
+          assert 'user32, RECT, POINT, target_hwnd)' not in ui_source
+          assert 'label + "_focus"' in ui_source
+          assert 'source_probe.get("status") != "nonempty_source_field_preserved"' in ui_source
+          assert 'source_text in set(_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS)' in ui_source
+          assert 'probe._write_native_edit_text(user32, edit_hwnd, "")' in ui_source
+          assert 'player2_cleanup.get("range_restored")' in ui_source
+          assert 'or build_tree_dialog_probe.get("manual_close_required")' in ui_source
           assert "プレイヤー 2 のレンジを入力してください" in ui_source
           assert "player2_range_validation_seen" in ui_source
           assert "player2_range_validation_recovered" in ui_source
@@ -306,7 +314,7 @@ jobs:
           assert 'result["manual_close_required"] = not result["dialog_closed_verified"]' in ui_source
           assert "_board_card_center" in ui_source
           assert "_bmp_region_dark_pixel_ratio" in ui_source
-          assert '"schema_version": 21' in ui_source
+          assert '"schema_version": 22' in ui_source
           assert '"board_test_cards": list(_BOARD_TEST_CARDS)' in ui_source
           assert '"board_test_restored": bool(board_roundtrip and board_roundtrip.get("board_test_restored"))' in ui_source
           assert '"board_test_cards_reflection_verified": bool(board_roundtrip and board_roundtrip.get("board_cards_reflection_verified"))' in ui_source
@@ -427,7 +435,7 @@ jobs:
           assert '"done_button_clicked_for_ip_multi_range_test"' in ui_source
           assert "_temporary_source_field_window_adjustment" in ui_source
           assert "_source_field_occlusion_shift" in ui_source
-          assert '"probe": "verified_gto_plus_oop_ip_board_build_tree_player2_recovery_roundtrip_v21"' in ui_source
+          assert '"probe": "verified_gto_plus_oop_ip_board_build_tree_player2_source_focus_recovery_roundtrip_v22"' in ui_source
           assert "unique_captures" in ui_source
           assert "_source_field_underlay_is_verified_gto_view" in ui_source
           assert "_click_verified_gto_hit_target" in ui_source
@@ -644,7 +652,7 @@ jobs:
           python - <<'PY'
           import pathlib,zipfile,hashlib
           root=pathlib.Path("staging/auto_hu_solve_candidate")
-          out=pathlib.Path("staging/auto_hu_solve_v1.3.68.zip")
+          out=pathlib.Path("staging/auto_hu_solve_v1.3.69.zip")
           with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED,compresslevel=9) as z:
               z.write(root/"PigeonPoker.pyw","PigeonPoker.pyw")
               z.write(root/"pigeon_updater.py","pigeon_updater.py")
@@ -657,30 +665,30 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: auto-hu-solve-v1.3.68
-          path: staging/auto_hu_solve_v1.3.68.zip
+          name: auto-hu-solve-v1.3.69
+          path: staging/auto_hu_solve_v1.3.69.zip
 
-      - name: Queue the verified v1.3.68 stable release (main branch only)
+      - name: Queue the verified v1.3.69 stable release (main branch only)
         if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import base64, datetime, hashlib, io, json, pathlib, zipfile
-          payload_path = pathlib.Path("staging/auto_hu_solve_v1.3.68.zip")
+          payload_path = pathlib.Path("staging/auto_hu_solve_v1.3.69.zip")
           payload = payload_path.read_bytes()
           with zipfile.ZipFile(io.BytesIO(payload)) as z:
               if z.testzip() is not None:
-                  raise SystemExit("v1.3.68 update ZIP integrity failed")
+                  raise SystemExit("v1.3.69 update ZIP integrity failed")
               required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
                           "pigeon_gto_plus/live_range_builder.py",
                           "pigeon_gto_plus/auto_solve_ui.py",
                           "pigeon_gto_plus/ui_probe.py",
                           "pigeon_poker/preflop_screenshot_ranges.py"}
               if not required.issubset(set(z.namelist())):
-                  raise SystemExit("v1.3.68 update ZIP is missing required files")
-              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.68":
-                  raise SystemExit("v1.3.68 VERSION.txt mismatch")
+                  raise SystemExit("v1.3.69 update ZIP is missing required files")
+              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.69":
+                  raise SystemExit("v1.3.69 VERSION.txt mismatch")
               import ast
               ast.parse(z.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
               ast.parse(z.read("pigeon_gto_plus/live_range_builder.py").decode("utf-8"),
@@ -691,7 +699,7 @@ jobs:
                         filename="pigeon_gto_plus/ui_probe.py")
               ast.parse(z.read("pigeon_poker/preflop_screenshot_ranges.py").decode("utf-8"),
                         filename="pigeon_poker/preflop_screenshot_ranges.py")
-          release = pathlib.Path("releases/v1.3.68")
+          release = pathlib.Path("releases/v1.3.69")
           release.mkdir(parents=True, exist_ok=True)
           for old in release.glob("payload.part-*"):
               old.unlink()
@@ -706,17 +714,17 @@ jobs:
               "schema_version": 1,
               "product": "pigeon-poker",
               "channel": "stable",
-              "version": "1.3.68",
+              "version": "1.3.69",
               "published_at": datetime.datetime.now(datetime.timezone.utc).isoformat(
                   timespec="seconds").replace("+00:00", "Z"),
-              "release_notes": "Build Tree押下後のGTO+「プレイヤー2のレンジを入力してください」Program messageをBuild Tree設定画面と誤認しないよう修正。OKボタンとPlayer2 Source EditのPID/クラス/ID/所有関係を検証し、Sourceが既知のAA+AKs:40%テスト値と完全一致する場合のみDoneで一度再試行。再度拒否された場合は同じ既知テスト値だけClearし、IP/OOP/Boardの元状態を個別照合。異なるSourceは変更せず安全停止。Tree確定・Solver実行なし。",
+              "release_notes": "Build Tree押下後のGTO+「プレイヤー2のレンジを入力してください」Program messageを識別。OK後に表示されたPlayer2レンジ編集画面でSource欄をクリックし、ネイティブEditを生成・特定してからSource文字列を読み取るよう修正。PID/クラス/ID/所有関係と既知のAA+AKs:40%テスト値を再確認できた場合のみDoneで再試行。再度拒否された場合も同じフォーカス・特定手順を経て既知テスト値だけClearし、IP/OOP/Boardを復元。Source欄を特定できない場合は手動対応フラグを立て、後続のClearを止める。Tree確定・Solver実行なし。",
               "package_mode": "full"
           }
           (release/"release.json").write_text(
               json.dumps(metadata, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
           (release/"payload.parts.json").write_text(
               json.dumps({"parts": names}, indent=2) + chr(10), encoding="utf-8")
-          (release/"payload.ready").write_text("verified v1.3.68" + chr(10), encoding="ascii")
+          (release/"payload.ready").write_text("verified v1.3.69" + chr(10), encoding="ascii")
           # Publish stable.json here; GITHUB_TOKEN pushes do not trigger a second workflow.
           with zipfile.ZipFile(io.BytesIO(payload)) as z:
               zip_names = set(z.namelist())
@@ -730,7 +738,7 @@ jobs:
                       raise SystemExit("Non-allow-listed update file: " + name)
               if not allowed_roots.issubset(zip_names):
                   raise SystemExit("Missing required root update files")
-              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.68":
+              if z.read("VERSION.txt").decode("utf-8").strip() != "1.3.69":
                   raise SystemExit("Update VERSION mismatch")
           (release/"payload-updater.zip.b64").write_text(
               base64.b64encode(payload).decode("ascii"), encoding="ascii")
@@ -738,25 +746,25 @@ jobs:
               "schema_version": 1,
               "product": "pigeon-poker",
               "channel": "stable",
-              "version": "1.3.68",
+              "version": "1.3.69",
               "published_at": metadata["published_at"],
               "release_notes": metadata["release_notes"],
               "package_mode": "full",
               "payload_encoding": "base64",
-              "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.68/payload-updater.zip.b64",
+              "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.69/payload-updater.zip.b64",
               "payload_sha256": hashlib.sha256(payload).hexdigest(),
               "payload_size": len(payload),
           }
           pathlib.Path("stable.json").write_text(
               json.dumps(manifest, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8")
           print(json.dumps({
-              "version": "1.3.68", "payload_size": len(payload),
+              "version": "1.3.69", "payload_size": len(payload),
               "payload_sha256": manifest["payload_sha256"],
               "part_count": len(names), "zip_files": sorted(zip_names)
           }, ensure_ascii=False))
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stable.json releases/v1.3.68/
-          git commit -m "Queue verified Pigeon Poker v1.3.68 release"
+          git add stable.json releases/v1.3.69/
+          git commit -m "Queue verified Pigeon Poker v1.3.69 release"
           git push
