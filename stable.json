@@ -3,11 +3,11 @@
   "product": "pigeon-poker",
   "channel": "stable",
   "version": "1.3.68",
-  "published_at": "2026-11-20T06:24:29Z",
+  "published_at": "2026-11-20T06:24:48Z",
   "release_notes": "Build Tree押下後のGTO+「プレイヤー2のレンジを入力してください」Program messageをBuild Tree設定画面と誤認しないよう修正。OKボタンとPlayer2 Source EditのPID/クラス/ID/所有関係を検証し、Sourceが既知のAA+AKs:40%テスト値と完全一致する場合のみDoneで一度再試行。再度拒否された場合は同じ既知テスト値だけClearし、IP/OOP/Boardの元状態を個別照合。異なるSourceは変更せず安全停止。Tree確定・Solver実行なし。",
   "package_mode": "full",
   "payload_encoding": "base64",
   "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.68/payload-updater.zip.b64",
-  "payload_sha256": "de8933618d057476215de2fa0c9a668dc5b3bee64c18cdc923c7e71f3b8c7427",
-  "payload_size": 221357
+  "payload_sha256": "e03be86457776336e595f36e8630228fec9254e5f473df981e041dd9ae69f2a8",
+  "payload_size": 221417
 }
