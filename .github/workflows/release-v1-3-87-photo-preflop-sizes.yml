@@ -1,0 +1,443 @@
+name: Release Pigeon Poker v1.3.87 photo-derived preflop raise sizes
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.87/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build and test photo-derived preflop sizing from verified v1.3.86
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import importlib.util
+          import io
+          import json
+          import pathlib
+          import random
+          import sys
+          import time
+          import urllib.request
+          import zipfile
+
+          REPO = "MEGU612168/pigeon-poker-updates"
+          SOURCE_VERSION = "1.3.86"
+          TARGET_VERSION = "1.3.87"
+          SOURCE_SHA256 = "b27cb29a258e80aff91f3891e3962feddad9560dc0ce78c848fbf40f49b71d57"
+          SOURCE_SIZE = 224277
+          SOURCE_URL = (
+              f"https://raw.githubusercontent.com/{REPO}/main/releases/v{SOURCE_VERSION}/"
+              f"payload-updater.zip.b64?v={SOURCE_SHA256}"
+          )
+
+          request = urllib.request.Request(
+              SOURCE_URL,
+              headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+          )
+          with urllib.request.urlopen(request, timeout=90) as response:
+              transport = response.read().decode("ascii").strip()
+          payload = base64.b64decode(transport, validate=True)
+          if len(payload) != SOURCE_SIZE:
+              raise SystemExit("Pinned v1.3.86 package size mismatch.")
+          if hashlib.sha256(payload).hexdigest() != SOURCE_SHA256:
+              raise SystemExit("Pinned v1.3.86 package SHA-256 mismatch.")
+
+          EXPECTED_FILES = {
+              "PigeonPoker.pyw",
+              "pigeon_updater.py",
+              "VERSION.txt",
+              "pigeon_gto_plus/auto_solve_ui.py",
+              "pigeon_gto_plus/live_range_builder.py",
+              "pigeon_gto_plus/ui_probe.py",
+              "pigeon_poker/preflop_screenshot_ranges.py",
+          }
+          with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("v1.3.86 package ZIP CRC failure: " + bad)
+              files = {
+                  name: archive.read(name)
+                  for name in archive.namelist()
+              }
+          if set(files) != EXPECTED_FILES:
+              raise SystemExit("Unexpected v1.3.86 package file set.")
+          if files["VERSION.txt"].decode("ascii").strip() != SOURCE_VERSION:
+              raise SystemExit("v1.3.86 version marker mismatch.")
+
+          main = files["PigeonPoker.pyw"].decode("utf-8")
+          module_path = "pigeon_poker/preflop_screenshot_ranges.py"
+          source = files[module_path].decode("utf-8")
+
+          # The current runtime must already use the screenshot-derived policy.
+          if main.count("from pigeon_poker.preflop_screenshot_ranges import choose_preflop_action") != 1:
+              raise SystemExit("The current runtime import of choose_preflop_action is missing.")
+          if main.count("range_decision = choose_preflop_action(") != 1:
+              raise SystemExit("The current CPU decision path does not call choose_preflop_action.")
+
+          # Hand frequencies remain the 20-node / 3,380-row screenshot dataset.
+          # Only the target raise sizes below are transcribed directly from the
+          # user's supplied GTO Wizard screenshots; values are total target BB.
+          PHOTO_RAISE_SIZES_BB = {
+              "01_UTG_OPEN": 2.5,   # Screenshot (11).png
+              "02_HJ_OPEN": 2.5,    # Screenshot (12).png
+              "03_CO_OPEN": 2.5,    # Screenshot (13).png
+              "04_BTN_OPEN": 2.5,   # Screenshot (14).png
+              "05_SB_OPEN": 3.5,    # Screenshot (15).png
+              "06_HJ_VS_UTG": 7.0,  # Screenshot (16).png
+              "07_CO_VS_UTG": 7.5, # Screenshot (17).png
+              "08_BTN_VS_UTG": 8.0,# Screenshot (18).png
+              "09_SB_VS_UTG": 10.0,# Screenshot (19).png
+              "10_BB_VS_UTG": 11.0,# Screenshot (20).png
+              "11_CO_VS_HJ": 7.5,  # Screenshot (21).png
+              "12_BTN_VS_HJ": 8.0, # Screenshot (22).png
+              "13_SB_VS_HJ": 10.0, # Screenshot (24).png
+              "14_BB_VS_HJ": 11.0, # Screenshot (25).png
+              "15_BTN_VS_CO": 8.0, # Screenshot (26).png
+              "16_SB_VS_CO": 10.0, # Screenshot (27).png
+              "17_BB_VS_CO": 11.0, # Screenshot (28).png
+              "18_SB_VS_BTN": 9.5, # Screenshot (29).png
+              "19_BB_VS_BTN": 10.5,# Screenshot (30).png
+              "20_BB_VS_SB": 10.0, # Screenshot (31).png
+          }
+
+          anchor = (
+              "DEVIATION_BY_LEVEL = {1: 0.30, 2: 0.20, 3: 0.10, 4: 0.05, 5: 0.0}\n"
+          )
+          if source.count(anchor) != 1:
+              raise SystemExit("Could not uniquely locate the preflop policy constants.")
+          size_source = (
+              "\n# Authoritative raise targets transcribed from the supplied GTO Wizard "
+              "screenshots.\n"
+              "# These are total target sizes in big blinds, not incremental raise amounts.\n"
+              "PHOTO_RAISE_SIZES_BB = " + repr(PHOTO_RAISE_SIZES_BB) + "\n"
+          )
+          source = source.replace(anchor, anchor + size_source, 1)
+
+          old_amount = (
+              '        node = entry["nodes"].get(node_id, {})\n'
+              '        desired = int(round(float(node.get("raise_size", 0)) * int(getattr(hand, "big_blind", 1))))'
+          )
+          new_amount = (
+              '        raise_size_bb = PHOTO_RAISE_SIZES_BB.get(node_id)\n'
+              '        big_blind = int(getattr(hand, "big_blind", 0) or 0)\n'
+              '        if raise_size_bb is None or big_blind <= 0:\n'
+              '            return None\n'
+              '        desired = int(round(float(raise_size_bb) * big_blind))'
+          )
+          if source.count(old_amount) != 1:
+              raise SystemExit("Could not uniquely locate the CPU raise-size calculation.")
+          source = source.replace(old_amount, new_amount, 1)
+          ast.parse(source, filename=module_path)
+
+          # Load the actual policy module and validate the dataset before packaging.
+          temp_module = pathlib.Path("preflop_screenshot_ranges_test.py")
+          temp_module.write_text(source, encoding="utf-8")
+          spec = importlib.util.spec_from_file_location("preflop_screenshot_ranges_test", temp_module)
+          module = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = module
+          spec.loader.exec_module(module)
+          data = module._data()
+          if set(data.get("nodes", {})) != set(PHOTO_RAISE_SIZES_BB):
+              raise SystemExit("The screenshot node IDs do not match all 20 size entries.")
+          if len(data.get("rows", [])) != 3380:
+              raise SystemExit("Expected 3,380 preflop range rows.")
+          for node_id in PHOTO_RAISE_SIZES_BB:
+              if sum(1 for row in data["rows"] if row.get("node") == node_id) != 169:
+                  raise SystemExit("Incomplete 169-hand range node: " + node_id)
+
+          # Exercise every node through the same decision function used by the app.
+          # Force the RNG into the raise interval for a hand where raise frequency > 0.
+          POSITION_SEATS = {"BTN": 0, "SB": 1, "BB": 2, "UTG": 3, "HJ": 4, "CO": 5}
+          ACTION_ORDER = ("UTG", "HJ", "CO", "BTN", "SB", "BB")
+          OPEN_NODES = {
+              "01_UTG_OPEN": ("UTG", None),
+              "02_HJ_OPEN": ("HJ", None),
+              "03_CO_OPEN": ("CO", None),
+              "04_BTN_OPEN": ("BTN", None),
+              "05_SB_OPEN": ("SB", None),
+          }
+          DEFENSE_NODES = {
+              "06_HJ_VS_UTG": ("HJ", "UTG"),
+              "07_CO_VS_UTG": ("CO", "UTG"),
+              "08_BTN_VS_UTG": ("BTN", "UTG"),
+              "09_SB_VS_UTG": ("SB", "UTG"),
+              "10_BB_VS_UTG": ("BB", "UTG"),
+              "11_CO_VS_HJ": ("CO", "HJ"),
+              "12_BTN_VS_HJ": ("BTN", "HJ"),
+              "13_SB_VS_HJ": ("SB", "HJ"),
+              "14_BB_VS_HJ": ("BB", "HJ"),
+              "15_BTN_VS_CO": ("BTN", "CO"),
+              "16_SB_VS_CO": ("SB", "CO"),
+              "17_BB_VS_CO": ("BB", "CO"),
+              "18_SB_VS_BTN": ("SB", "BTN"),
+              "19_BB_VS_BTN": ("BB", "BTN"),
+              "20_BB_VS_SB": ("BB", "SB"),
+          }
+          SCENARIOS = {**OPEN_NODES, **DEFENSE_NODES}
+
+          def cards_for_hand_class(combo):
+              ranks = "23456789TJQKA"
+              if len(combo) == 2:
+                  return [combo[0] + "s", combo[1] + "h"]
+              if combo.endswith("s"):
+                  return [combo[0] + "s", combo[1] + "s"]
+              return [combo[0] + "s", combo[1] + "h"]
+
+          class FakePlayer:
+              def __init__(self, player_id, hole_cards):
+                  self.player_id = player_id
+                  self.name = player_id
+                  self.hole_cards = hole_cards
+
+          class FakeHand:
+              def __init__(self, actor_pos, opener_pos, hole_cards):
+                  self.players = [
+                      FakePlayer("p" + str(i), hole_cards if pos == actor_pos else [])
+                      for i, pos in enumerate(("BTN", "SB", "BB", "UTG", "HJ", "CO"))
+                  ]
+                  self.street = "preflop"
+                  self.big_blind = 10000
+                  self.dealer_index = 0
+                  self.events = []
+                  for pos in ACTION_ORDER:
+                      if pos == actor_pos:
+                          break
+                      action = "raise" if pos == opener_pos else "fold"
+                      self.events.append({
+                          "type": "action",
+                          "street": "preflop",
+                          "player_id": "p" + str(POSITION_SEATS[pos]),
+                          "action": action,
+                      })
+              def player(self, player_id):
+                  return self.players[int(str(player_id)[1:])]
+              def legal_actions(self, player_id):
+                  return {
+                      "actions": ["fold", "call", "raise", "allin"],
+                      "min_target": 1,
+                      "max_target": 1000000,
+                  }
+
+          class FakeTable:
+              dealer_index = 0
+
+          class FixedRandom:
+              def __init__(self, value):
+                  self.value = value
+              def random(self):
+                  return self.value
+
+          for node_id, (actor_pos, opener_pos) in SCENARIOS.items():
+              row = next(
+                  (r for r in data["rows"]
+                   if r["node"] == node_id and float(r["p"].get("raise", 0.0)) > 0.0),
+                  None,
+              )
+              if row is None:
+                  raise SystemExit("No raise-frequency hand exists in " + node_id)
+              legal = {"fold", "call", "raise", "allin"}
+              ordered = [
+                  (key, float(value))
+                  for key, value in row["p"].items()
+                  if key in legal and float(value) > 0.0
+              ]
+              total = sum(value for _, value in ordered)
+              before_raise = 0.0
+              raise_probability = 0.0
+              found_raise = False
+              for action, probability in ordered:
+                  if action == "raise":
+                      raise_probability = probability
+                      found_raise = True
+                      break
+                  before_raise += probability
+              if not found_raise or total <= 0:
+                  raise SystemExit("Could not construct a raise-frequency test for " + node_id)
+              rng_value = (before_raise + raise_probability / 2.0) / total
+
+              actor_id = "p" + str(POSITION_SEATS[actor_pos])
+              hand = FakeHand(actor_pos, opener_pos, cards_for_hand_class(row["hand"]))
+              cpu = type("FakeCPU", (), {
+                  "level": 5,
+                  "rng": FixedRandom(rng_value),
+              })()
+              decision = module.choose_preflop_action(
+                  FakeTable(), hand, actor_id, cpu, fallback_decision=None
+              )
+              expected_amount = int(round(PHOTO_RAISE_SIZES_BB[node_id] * hand.big_blind))
+              if decision is None or decision.node_id != node_id:
+                  raise SystemExit("CPU failed to resolve screenshot node " + node_id)
+              if decision.action != "raise" or decision.amount != expected_amount:
+                  raise SystemExit(
+                      "CPU raise-size test failed for " + node_id +
+                      ": expected " + str(expected_amount) +
+                      ", received " + repr(decision)
+                  )
+
+          # Confirm the unchanged action-frequency table still covers all 20 nodes.
+          if len({(r["node"], r["hand"]) for r in data["rows"]}) != 3380:
+              raise SystemExit("Duplicate or missing node/hand rows in the preflop dataset.")
+
+          files[module_path] = source.encode("utf-8")
+          files["VERSION.txt"] = (TARGET_VERSION + "\n").encode("ascii")
+          for name, content in files.items():
+              if name.endswith(".py") or name.endswith(".pyw"):
+                  ast.parse(content.decode("utf-8"), filename=name)
+
+          output = io.BytesIO()
+          with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+              for name in sorted(files):
+                  archive.writestr(name, files[name])
+          final_payload = output.getvalue()
+          with zipfile.ZipFile(io.BytesIO(final_payload), "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Final v1.3.87 package ZIP CRC failure.")
+              if set(archive.namelist()) != EXPECTED_FILES:
+                  raise SystemExit("Final v1.3.87 package file list changed.")
+              if archive.read("VERSION.txt").decode("ascii").strip() != TARGET_VERSION:
+                  raise SystemExit("Final v1.3.87 version marker mismatch.")
+              ast.parse(
+                  archive.read(module_path).decode("utf-8"),
+                  filename=module_path,
+              )
+
+          digest = hashlib.sha256(final_payload).hexdigest()
+          encoded = base64.b64encode(final_payload).decode("ascii")
+          release_dir = pathlib.Path("releases") / ("v" + TARGET_VERSION)
+          release_dir.mkdir(parents=True, exist_ok=True)
+          (release_dir / "payload-updater.zip.b64").write_text(encoded, encoding="ascii")
+
+          chunk_size = 48000
+          chunks = []
+          for index, offset in enumerate(range(0, len(encoded), chunk_size)):
+              name = f"payload.part-{index:03d}"
+              (release_dir / name).write_text(encoded[offset:offset + chunk_size], encoding="ascii")
+              chunks.append(name)
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": chunks}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          notes = (
+              "ユーザー提供のGTO Wizardスクリーンショット20局面から読み取ったオープン／3ベットのターゲットサイズを、"
+              "既存の6-maxプリフロップCPUレンジ表へ明示的に反映。169ハンドクラス×20ノードの頻度表は維持し、"
+              "全20ノードでCPUが写真由来サイズを返す自動テストを追加。既存のCPUレベル別頻度抽選と、"
+              "未対応局面の既存CPUフォールバック、Stable自動更新機能を維持。"
+          )
+          release = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "package_mode": "full",
+              "release_notes": notes,
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+              "source_version": SOURCE_VERSION,
+              "preflop_range_nodes": 20,
+              "preflop_hand_classes_per_node": 169,
+              "photo_derived_raise_sizes_bb": PHOTO_RAISE_SIZES_BB,
+              "photo_size_sources": {
+                  node: name for node, name in zip(
+                      PHOTO_RAISE_SIZES_BB.keys(),
+                      [
+                          "Screenshot (11).png", "Screenshot (12).png",
+                          "Screenshot (13).png", "Screenshot (14).png",
+                          "Screenshot (15).png", "Screenshot (16).png",
+                          "Screenshot (17).png", "Screenshot (18).png",
+                          "Screenshot (19).png", "Screenshot (20).png",
+                          "Screenshot (21).png", "Screenshot (22).png",
+                          "Screenshot (24).png", "Screenshot (25).png",
+                          "Screenshot (26).png", "Screenshot (27).png",
+                          "Screenshot (28).png", "Screenshot (29).png",
+                          "Screenshot (30).png", "Screenshot (31).png",
+                      ]
+                  )
+              },
+              "preflop_all_20_node_raise_size_tests_passed": True,
+              "files": sorted(files),
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(release, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          (release_dir / "payload.ready").write_text(
+              "verified " + TARGET_VERSION + "\n",
+              encoding="ascii",
+          )
+
+          stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "release_notes": notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": (
+                  f"https://raw.githubusercontent.com/{REPO}/main/releases/v{TARGET_VERSION}/"
+                  f"payload-updater.zip.b64?v={digest}"
+              ),
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+          }
+          pathlib.Path("stable.json").write_text(
+              json.dumps(stable, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          dist = pathlib.Path("dist")
+          dist.mkdir(exist_ok=True)
+          artifact = dist / f"PigeonPoker_{TARGET_VERSION}_Improved.zip"
+          artifact.write_bytes(final_payload)
+          with zipfile.ZipFile(artifact, "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Installable ZIP CRC validation failed.")
+
+          (release_dir / "build.request").unlink(missing_ok=True)
+          print(json.dumps({
+              "published_version": TARGET_VERSION,
+              "source_version": SOURCE_VERSION,
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+              "photo_raise_size_nodes": len(PHOTO_RAISE_SIZES_BB),
+              "range_rows": len(data["rows"]),
+              "all_20_runtime_raise_tests": "passed",
+          }, ensure_ascii=False))
+          PY
+
+      - name: Upload installable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: PigeonPoker_1.3.87_Photo_Preflop_Sizes
+          path: dist/PigeonPoker_1.3.87_Improved.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish stable v1.3.87 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+users.noreply.github.com"
+          git add stable.json releases/v1.3.87/
+          git commit -m "Release Pigeon Poker v1.3.87 photo-derived preflop sizes"
+          git push
