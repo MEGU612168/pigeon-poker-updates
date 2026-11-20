@@ -1,1 +1,0 @@
-Retry v1.3.71 package build with corrected startup anchor; include automatic GTO+ startup/connect and owned-process shutdown.
