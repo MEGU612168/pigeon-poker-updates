@@ -1,0 +1,80 @@
+name: Diagnose Stable updater payload
+
+on:
+  push:
+    paths:
+      - "staging/verify-stable-updater.trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download stable manifest and verify the payload using Pigeon updater logic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import hashlib
+          import importlib.util
+          import json
+          import pathlib
+          import tempfile
+          import urllib.request
+          import zipfile
+          from io import BytesIO
+
+          repo = "MEGU612168/pigeon-poker-updates"
+          manifest_url = f"https://raw.githubusercontent.com/{repo}/main/stable.json?diagnose=1"
+          with urllib.request.urlopen(manifest_url, timeout=30) as response:
+              manifest = json.loads(response.read().decode("utf-8"))
+          assert manifest["version"] == "1.3.92", manifest.get("version")
+          assert manifest["payload_encoding"] == "base64"
+          url = manifest["payload_url"]
+          assert url.startswith(f"https://raw.githubusercontent.com/{repo}/main/releases/v1.3.92/")
+          with urllib.request.urlopen(url, timeout=60) as response:
+              transport = response.read()
+          encoded = transport.decode("ascii")
+          payload = base64.b64decode(encoded, validate=True)
+          assert base64.b64encode(payload).decode("ascii") == encoded
+          assert len(payload) == manifest["payload_size"], (len(payload), manifest["payload_size"])
+          digest = hashlib.sha256(payload).hexdigest()
+          assert digest == manifest["payload_sha256"], (digest, manifest["payload_sha256"])
+          with zipfile.ZipFile(BytesIO(payload), "r") as archive:
+              assert archive.testzip() is None
+              names = archive.namelist()
+              assert {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"} <= set(names)
+              updater_bytes = archive.read("pigeon_updater.py")
+              version = archive.read("VERSION.txt").decode("utf-8").strip()
+              assert version == "1.3.92", version
+          spec = importlib.util.spec_from_file_location("pigeon_updater_test", BytesIO(updater_bytes))
+          # Load source using a temporary Python file so the actual updater implementation is exercised.
+          with tempfile.TemporaryDirectory() as tmp:
+              updater_path = pathlib.Path(tmp) / "pigeon_updater.py"
+              updater_path.write_bytes(updater_bytes)
+              spec = importlib.util.spec_from_file_location("pigeon_updater_test", updater_path)
+              updater = importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(updater)
+              with tempfile.TemporaryDirectory() as extracted:
+                  files = updater._validate_and_extract(payload, manifest, pathlib.Path(extracted))
+                  assert "PigeonPoker.pyw" in files
+                  assert "pigeon_updater.py" in files
+                  assert "VERSION.txt" in files
+                  assert (pathlib.Path(extracted) / "VERSION.txt").read_text().strip() == "1.3.92"
+          print(json.dumps({
+              "version": manifest["version"],
+              "payload_bytes": len(payload),
+              "sha256": digest,
+              "archive_members": names,
+              "updater_validation": "PASS",
+              "zip_crc": "PASS",
+              "canonical_base64": "PASS"
+          }, ensure_ascii=False, indent=2))
+          PY
