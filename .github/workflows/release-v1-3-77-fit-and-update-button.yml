@@ -334,24 +334,25 @@ jobs:
           error_end = main.find("        start_update_check(ROOT, os.getpid(), report, close_for_update, show_error)", error_start)
           if error_start < 0 or error_end < 0:
               raise SystemExit("Could not locate updater error callback.")
-          error_callback = """        def show_error(message: str):
-              def display_error():
-                  self._update_in_progress = False
-                  try:
-                      self.update_button.configure(
-                          state="normal", style="RetryUpdate.TButton",
-                          text="RETRY CHECK", command=self._refresh_update_button_state,
-                      )
-                      self.update_status_var.set(message)
-                      messagebox.showerror("Pigeon Poker Update", message, parent=self)
-                  except tk.TclError:
-                      pass
-              try:
-                  self.after(0, display_error)
-              except tk.TclError:
-                  pass
-
-          """
+          error_callback = "\n".join([
+              "        def show_error(message: str):",
+              "            def display_error():",
+              "                self._update_in_progress = False",
+              "                try:",
+              "                    self.update_button.configure(",
+              "                        state=\"normal\", style=\"RetryUpdate.TButton\",",
+              "                        text=\"RETRY CHECK\", command=self._refresh_update_button_state,",
+              "                    )",
+              "                    self.update_status_var.set(message)",
+              "                    messagebox.showerror(\"Pigeon Poker Update\", message, parent=self)",
+              "                except tk.TclError:",
+              "                    pass",
+              "            try:",
+              "                self.after(0, display_error)",
+              "            except tk.TclError:",
+              "                pass",
+              ""
+          ]) + "\n"
           main = main[:error_start] + error_callback + main[error_end:]
 
           updater = files["pigeon_updater.py"].decode("utf-8")
