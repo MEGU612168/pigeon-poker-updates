@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.76",
+  "published_at": "2026-11-20T08:43:45Z",
+  "package_mode": "full",
+  "release_notes": "GTO+ WORKSPACEをサイドバーと横並びにせず、ページの全幅で表示。通常時は操作パネルを折りたたみ、インポート済みレンジツリーを含むGTO+本体の右端を切らずに表示する。Pigeon起動時にGTO+ Engineを開き、Socket設定・既存GTO+の再接続または新規起動・自動接続を実行。Pigeonが管理するGTO+プロセスはPigeon終了・更新時に同時終了。GTO+のWindows権限昇格を要求するアプリ内ダイアログは撤去。v1.3.69のレンジデータと生成ロジックは維持。",
+  "payload_sha256": "c0bb40967ac620c6e3b162eaa2df7d1b769faa4539d0d4e2a3712817fa50cdae",
+  "payload_size": 222367,
+  "source_version": "1.3.75",
+  "range_baseline": "1.3.69",
+  "full_width_gto_workspace": true,
+  "auto_socket_setup": true,
+  "auto_launch_and_connect": true,
+  "close_owned_gto_on_exit": true,
+  "app_elevation_prompt_removed": true,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/preflop_screenshot_ranges.py",
+    "pigeon_updater.py"
+  ]
+}
