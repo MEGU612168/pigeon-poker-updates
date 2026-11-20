@@ -4,83 +4,74 @@ import ast
 from pathlib import Path
 
 SOURCE = Path(__file__).with_name("source_1_3_101") / "PigeonPoker.pyw"
-source_text = SOURCE.read_text(encoding="utf-8")
-tree = ast.parse(source_text, filename=str(SOURCE))
+SOURCE_TEXT = SOURCE.read_text(encoding="utf-8")
+TREE = ast.parse(SOURCE_TEXT, filename=str(SOURCE))
 
 
-def find_method(name: str) -> ast.FunctionDef:
-    for node in ast.walk(tree):
+def method(name: str) -> ast.FunctionDef:
+    for node in ast.walk(TREE):
         if isinstance(node, ast.FunctionDef) and node.name == name:
             return node
     raise AssertionError(f"Missing method: {name}")
 
 
-def contains_call(node: ast.AST, attr_name: str) -> bool:
-    return any(
-        isinstance(item, ast.Call)
-        and isinstance(item.func, ast.Attribute)
-        and item.func.attr == attr_name
-        for item in ast.walk(node)
-    )
+def text_of(name: str) -> str:
+    return ast.get_source_segment(SOURCE_TEXT, method(name)) or ""
 
 
-def test_postflop_legal_controls_are_not_inside_preflop_only_branch() -> None:
-    method = find_method("_refresh_table_windows")
-    parents: dict[ast.AST, ast.AST] = {}
-    for parent in ast.walk(method):
-        for child in ast.iter_child_nodes(parent):
-            parents[child] = parent
-
-    generic_tries = []
-    for node in ast.walk(method):
-        if not isinstance(node, ast.Try):
-            continue
-        has_legal_lookup = any(
-            isinstance(item, ast.Call)
-            and isinstance(item.func, ast.Attribute)
-            and item.func.attr == "legal_actions"
-            and isinstance(item.func.value, ast.Name)
-            and item.func.value.id == "hand"
-            for item in ast.walk(node)
-        )
-        has_action_buttons = contains_call(node, "_compact_action_button")
-        has_bet_slider = any(
-            isinstance(item, ast.Call)
-            and isinstance(item.func, ast.Attribute)
-            and item.func.attr == "Scale"
-            for item in ast.walk(node)
-        )
-        if has_legal_lookup and has_action_buttons and has_bet_slider:
-            generic_tries.append(node)
-
-    assert generic_tries, (
-        "The normal CHECK/CALL/FOLD and BET/RAISE controls were not found."
-    )
-
-    for node in generic_tries:
-        ancestor = parents.get(node)
-        while ancestor is not None and ancestor is not method:
-            if isinstance(ancestor, ast.If):
-                test_text = ast.get_source_segment(source_text, ancestor.test) or ""
-                if "hand.street" in test_text and "preflop" in test_text:
-                    raise AssertionError(
-                        "Generic legal-action UI is nested inside a preflop-only branch."
-                    )
-            ancestor = parents.get(ancestor)
+def test_every_street_reaches_one_shared_hero_action_renderer() -> None:
+    source = text_of("_refresh_table_windows")
+    assert 'legal = hand.legal_actions("hero")' in source
+    assert 'if hand.next_to_act != "hero":' in source
+    assert "PREFLOP CHART ACTIONS ONLY" not in source
+    assert "YOUR TURN • PREFLOP RAISE SIZE FIXED" not in source
+    assert 'if hand.street == "preflop"' not in source[
+        source.index('if hand.next_to_act != "hero":') + 1:
+        source.index('legal = hand.legal_actions("hero")')
+    ]
 
 
-def test_only_preflop_raise_sizing_uses_the_chart() -> None:
-    method = find_method("_cash_human_action")
-    method_source = ast.get_source_segment(source_text, method) or ""
-    assert 'hand.street == "preflop"' in method_source
-    assert "_fixed_preflop_raise_target" in method_source
-    assert "PREFLOP CHART LINE NOT COVERED" not in method_source
-    assert "USE THE CHART ACTIONS AND BB SIZE ONLY" not in method_source
+def test_postflop_fold_check_call_bet_raise_controls_are_rebuilt() -> None:
+    source = text_of("_refresh_table_windows")
+    assert 'fold_button.configure(text="FOLD"' in source
+    assert '"check" in action_names' in source
+    assert '"call" in action_names' in source
+    assert '"bet" in action_names or "raise" in action_names' in source
+    assert "tk.Scale(" in source
+    assert 'self._floating_table_bet_action(tid, var)' in source
+    assert "self._set_table_pot_preset" in source
+
+
+def test_preflop_chart_is_only_used_to_seed_an_editable_default() -> None:
+    refresh = text_of("_refresh_table_windows")
+    helper = text_of("_preflop_initial_raise_target")
+    assert 'if hand.street == "preflop"' in refresh
+    assert "self._preflop_initial_raise_target(" in refresh
+    assert 'chart_controls.get("raise_amount")' in helper
+    assert 'record["bet_target"].set(' in refresh
+    assert 'record["bet_slider"].set(target)' in refresh
+    assert 'record["bet_target_cents"].set(target)' in refresh
+    # All amount-editing widgets remain part of the same common UI.
+    assert "ttk.Entry(sizes_frame" in refresh
+    assert "command=lambda value, tid=slot.table_id: self._on_table_bet_slider" in refresh
+
+
+def test_submitted_hero_action_and_amount_are_not_rewritten() -> None:
+    action = text_of("_cash_human_action")
+    assert "preflop_chart_options" not in action
+    assert "_preflop_initial_raise_target" not in action
+    assert "self.cash_table.act(\"hero\", action, amount)" in action
+    assert "amount = " not in action
 
 
 if __name__ == "__main__":
-    test_postflop_legal_controls_are_not_inside_preflop_only_branch()
-    print("PASS postflop controls are generated outside the preflop-only branch")
-    test_only_preflop_raise_sizing_uses_the_chart()
-    print("PASS preflop chart gate remains in place")
-    print("ALL PASS 2 postflop UI regression tests")
+    tests = [
+        test_every_street_reaches_one_shared_hero_action_renderer,
+        test_postflop_fold_check_call_bet_raise_controls_are_rebuilt,
+        test_preflop_chart_is_only_used_to_seed_an_editable_default,
+        test_submitted_hero_action_and_amount_are_not_rewritten,
+    ]
+    for test in tests:
+        test()
+        print("PASS", test.__name__)
+    print("ALL PASS", len(tests), "shared action UI tests")
