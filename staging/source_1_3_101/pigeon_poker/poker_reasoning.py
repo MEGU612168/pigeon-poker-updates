@@ -21,6 +21,7 @@ class OpponentRange:
     source: str
     confidence: float
     participation_probability: float = 1.0
+    archetype: str = "balanced"
 
 
 @dataclass(frozen=True)
@@ -284,22 +285,28 @@ def _board_metrics_cached(
 
 
 def _action_likelihood(action: str, made: float, draw: float,
-                       size_fraction: float, street: str) -> float:
-    """Likelihood used for Bayesian range updates; large sizing is more value-heavy."""
+                       size_fraction: float, street: str,
+                       archetype: str = "balanced") -> float:
+    """Posterior likelihood for an observed action, with a conservative player-style prior."""
     value = action.lower()
+    style = str(archetype or "balanced").lower()
     made = max(0.0, min(1.0, float(made)))
     draw = 0.0 if street == "river" else max(0.0, min(1.0, float(draw)))
     size = max(0.0, float(size_fraction))
     if value == "check":
         likelihood = 0.90 - 0.58 * made + 0.10 * draw
-        return max(0.12, min(1.0, likelihood))
-    if value in {"call", "allin_call", "all_in_call"}:
+    elif value in {"call", "allin_call", "all_in_call"}:
         support = max(0.025, min(1.0, 0.05 + 0.82 * made + 0.34 * draw))
         # An expensive call is more selective: marginal combos lose weight
         # faster than top-pair, set and draw-heavy combos.
         likelihood = support ** (1.0 + 0.30 * min(2.0, size))
-        return max(0.015, min(1.0, likelihood))
-    if value in {"raise", "bet", "allin", "all_in", "jam", "shove"}:
+        if style == "calling_station":
+            likelihood *= 1.0 + 0.55 * (1.0 - made) + 0.18 * draw
+        elif style == "overfolder":
+            likelihood *= 0.76 + 0.34 * made + 0.10 * draw
+        elif style == "aggressive":
+            likelihood *= 1.0 + 0.16 * (1.0 - made)
+    elif value in {"raise", "bet", "allin", "all_in", "jam", "shove"}:
         if size <= 0.33:
             likelihood = 0.16 + 0.48 * made + 0.26 * draw
         elif size <= 0.75:
@@ -308,8 +315,21 @@ def _action_likelihood(action: str, made: float, draw: float,
             likelihood = 0.012 + 0.96 * (made ** 1.35) + 0.48 * draw
         if street == "river":
             likelihood *= 0.94 + 0.08 * made
-        return max(0.012, min(1.0, likelihood))
-    return 0.5
+        if style == "aggressive":
+            # Aggressive profiles arrive with more weak bets and semi-bluffs.
+            likelihood *= 1.0 + 0.90 * (1.0 - made) + 0.35 * draw
+        elif style == "calling_station":
+            # The profile is less likely to turn weak hands into raises.
+            likelihood *= 0.58 + 0.42 * made + 0.12 * draw
+        elif style == "overfolder":
+            # Tight profiles select stronger hands when choosing to bet/raise.
+            likelihood *= 0.62 + 0.48 * made + 0.08 * draw
+        elif style == "underbluffer":
+            # Reduce weak no-showdown bets much more than value bets.
+            likelihood *= 0.24 + 0.76 * made + 0.10 * draw
+    else:
+        return 0.5
+    return max(0.008, min(1.0, likelihood))
 
 
 def _response_continue_probability(made: float, draw: float,
@@ -361,6 +381,12 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
         if not pid or pid == str(hero_id) or not bool(getattr(opponent, "eligible", False)):
             continue
         row = estimated_rows.get(pid, {}) if isinstance(estimated_rows, dict) else {}
+        archetype = (
+            str(row.get("archetype", "balanced")).lower()
+            if isinstance(row, dict) else "balanced"
+        )
+        if archetype not in {"aggressive", "calling_station", "overfolder", "underbluffer"}:
+            archetype = "balanced"
         raw_options: list[tuple[tuple[str, str], float]] = []
         source = "uniform-prior"
         confidence = 0.12
@@ -413,7 +439,9 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
                 if set(combo) & set(running_board):
                     continue
                 made, draw = _board_metrics(combo, running_board)
-                likelihood = _action_likelihood(action, made, draw, size_fraction, street)
+                likelihood = _action_likelihood(
+                    action, made, draw, size_fraction, street, archetype
+                )
                 weighted = weight * likelihood
                 if weighted > 0:
                     updated.append((combo, weighted))
@@ -450,7 +478,7 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
                 size_factor = max(0.55, min(1.0, anchor / max(1.0, target_bb)))
                 participation *= size_factor
         ranges[pid] = OpponentRange(
-            pid, normalised, source, confidence, participation
+            pid, normalised, source, confidence, participation, archetype
         )
     return ranges
 
