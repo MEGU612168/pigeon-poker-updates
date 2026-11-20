@@ -400,6 +400,7 @@ jobs:
           assert "def _matrix_signature_matches_selected_cells(" in ui_source
           assert "def _probe_source_field_readback_restore_at_current_position(" in ui_source
           assert "def _temporary_source_field_window_adjustment(" in ui_source
+          assert "def _source_field_occlusion_shift(" in ui_source
           assert "_append_stage_summary_lines" in ui_source
           assert "_IP_MATRIX_RECT = (27, 160, 79, 212)" in ui_source
           assert '"ip_matrix_cell_sample_centers": {"first": [29, 161], "step": [4, 4], "rows": 13, "columns": 13}' in ui_source
