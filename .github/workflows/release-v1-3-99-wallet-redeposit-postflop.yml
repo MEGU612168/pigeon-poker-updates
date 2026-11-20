@@ -89,7 +89,7 @@ jobs:
           hero_indent = ""
           search_pos = refresh_start
           while search_pos < len(main):
-              line_end = main.find("\\n", search_pos)
+              line_end = main.find("\n", search_pos)
               if line_end < 0:
                   line_end = len(main)
               line = main[search_pos:line_end]
@@ -102,9 +102,9 @@ jobs:
               raise SystemExit("Could not locate complete HERO action branch.")
           status_marker = 'record["status"].set("YOUR TURN")'
           status_pos = main.index(status_marker, hero_start)
-          status_line_start = main.rfind("\\n", hero_start, status_pos) + 1
+          status_line_start = main.rfind("\n", hero_start, status_pos) + 1
           status_indent = main[status_line_start:status_pos]
-          status_line_end = main.find("\\n", status_pos)
+          status_line_end = main.find("\n", status_pos)
           if status_line_end < 0:
               raise SystemExit("HERO status line is not newline terminated.")
           insert_at = status_line_end + 1
