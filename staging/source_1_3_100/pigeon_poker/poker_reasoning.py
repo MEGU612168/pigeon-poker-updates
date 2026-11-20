@@ -19,6 +19,7 @@ class OpponentRange:
     combos: tuple[tuple[tuple[str, str], float], ...]
     source: str
     confidence: float
+    participation_probability: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -252,6 +253,16 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
     estimated_rows = estimate.get("players", {}) if isinstance(estimate, dict) else {}
 
     ranges: dict[str, OpponentRange] = {}
+    current_street = str(getattr(hand, "street", "preflop")).lower()
+    all_preflop_events = [
+        event for event in list(getattr(hand, "events", ()) or ())
+        if isinstance(event, dict) and event.get("type") == "action"
+        and str(event.get("street", "preflop")).lower().replace("-", "") == "preflop"
+    ]
+    raises_seen = sum(
+        1 for event in all_preflop_events
+        if _event_action(event) in {"raise", "allin"}
+    )
     for opponent in list(getattr(hand, "players", ()) or ()):
         pid = str(getattr(opponent, "player_id", ""))
         if not pid or pid == str(hero_id) or not bool(getattr(opponent, "eligible", False)):
@@ -325,7 +336,14 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
             source = "recovered-uniform-prior"
             confidence = 0.08
         normalised = tuple((combo, weight / total) for combo, weight in raw_options)
-        ranges[pid] = OpponentRange(pid, normalised, source, confidence)
+        participation = 1.0
+        if source == "unacted-conditional-response" and current_street == "preflop":
+            participation = {0: 0.42, 1: 0.29, 2: 0.17, 3: 0.10}.get(
+                min(3, raises_seen), 0.07
+            )
+        ranges[pid] = OpponentRange(
+            pid, normalised, source, confidence, participation
+        )
     return ranges
 
 
@@ -366,6 +384,10 @@ def _equity_vs_ranges(hand: Any, hero_id: str, ranges: dict[str, OpponentRange],
         used = set(hero_cards + board)
         hands: list[tuple[str, str]] = []
         for opponent_range in opponents:
+            # A player who has not acted yet is not forced to continue.
+            # Sample their entry into the pot separately from their conditional range.
+            if float(rng.random()) > float(opponent_range.participation_probability):
+                continue
             picked = _weighted_sample(opponent_range.combos, used, rng)
             if picked is None:
                 available = [card for card in deck if card not in used]
@@ -375,7 +397,9 @@ def _equity_vs_ranges(hand: Any, hero_id: str, ranges: dict[str, OpponentRange],
                 picked = tuple(rng.sample(available, 2))
             hands.append(picked)
             used.update(picked)
-        if len(hands) != len(opponents):
+        if not hands:
+            wins += 1.0
+            completed += 1
             continue
         available_board = [card for card in deck if card not in used]
         if len(available_board) < remaining:
@@ -411,7 +435,11 @@ def _fold_probability(ranges: dict[str, OpponentRange], board: list[str],
             folds += weight * fold_rate
             total += weight
         if total > 0:
-            all_fold *= max(0.0, min(1.0, folds / total))
+            conditional_fold = max(0.0, min(1.0, folds / total))
+            actual_fold = 1.0 - (
+                float(opponent_range.participation_probability) * (1.0 - conditional_fold)
+            )
+            all_fold *= max(0.0, min(1.0, actual_fold))
     return all_fold
 
 
@@ -563,7 +591,8 @@ def choose_range_aware_action(
             required_bluff = required_success
             # When called, an additional raise receives a larger pot; this is
             # an approximation, not a solver-exact future-game EV.
-            called_pot = pot + 2 * risk if to_call else pot + risk
+            raise_increment = max(0, risk - to_call) if to_call else risk
+            called_pot = pot + risk + raise_increment
             raise_ev = (
                 fold_probability * pot
                 + (1.0 - fold_probability) * (equity * max(0, called_pot - estimated_rake) - risk)
@@ -576,7 +605,20 @@ def choose_range_aware_action(
                 fold_probability >= required_success + 0.04 + uncertainty_margin
                 and equity < 0.48
             )
-            if value_gate or bluff_gate:
+            premium_preflop = False
+            if street == "preflop":
+                try:
+                    premium_preflop = _cards_to_class(tuple(
+                        str(card) for card in list(getattr(player, "hole_cards", ()) or ())
+                    )) in {"AA", "KK", "AKs"}
+                except Exception:
+                    premium_preflop = False
+            raise_probability = aggression * (0.60 + 0.40 * max(0.0, min(1.0, equity)))
+            if premium_preflop:
+                raise_probability = min(0.95, raise_probability + 0.24)
+            if bluff_gate:
+                raise_probability *= 0.72
+            if (value_gate or bluff_gate) and float(getattr(getattr(cpu, "rng", None), "random", lambda: 0.0)()) < raise_probability:
                 action_name = "raise" if to_call else "bet"
                 action_key = action_name
                 if action_key in actions and raise_ev > best_ev + 0.01:
