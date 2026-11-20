@@ -185,68 +185,9 @@ jobs:
           )
           main = replace_once(main, timer_old, timer_new, "GTO+ and update startup timers")
 
-          find_existing_lines = [
-              "    def _find_existing_gto_process_id(self) -> int | None:",
-              '        """Find the exact configured GTO+ process so startup never creates a duplicate."""',
-              "        if os.name != \"nt\":",
-              "            return None",
-              "        expected = Path(self.executable_var.get().strip()).expanduser().resolve()",
-              "        if not expected.is_file():",
-              '            raise FileNotFoundError(f"GTO+ executable not found: {expected}")',
-              "        listed = subprocess.run(",
-              '            ["tasklist", "/FI", f"IMAGENAME eq {expected.name}", "/FO", "CSV", "/NH"],',
-              "            check=False, capture_output=True, text=True, encoding=\"utf-8\",",
-              '            errors="replace", timeout=10,',
-              '            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),',
-              "        )",
-              "        candidate_pids: set[int] = set()",
-              "        for line in (listed.stdout or \"\").splitlines():",
-              "            fields = line.strip().strip(chr(34)).split(chr(34) + chr(44) + chr(34))",
-              "            if len(fields) >= 2 and fields[1].isdigit():",
-              "                candidate_pids.add(int(fields[1]))",
-              "        if not candidate_pids:",
-              "            return None",
-              '        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)',
-              "        open_process = kernel32.OpenProcess",
-              "        open_process.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]",
-              "        open_process.restype = ctypes.c_void_p",
-              "        query_image = kernel32.QueryFullProcessImageNameW",
-              "        query_image.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_wchar), ctypes.POINTER(ctypes.c_uint32)]",
-              "        query_image.restype = ctypes.c_int",
-              "        close_handle = kernel32.CloseHandle",
-              "        close_handle.argtypes = [ctypes.c_void_p]",
-              "        close_handle.restype = ctypes.c_int",
-              "        expected_key = os.path.normcase(str(expected))",
-              "        matches: list[int] = []",
-              "        unverified: list[int] = []",
-              "        for pid in sorted(candidate_pids):",
-              "            handle = open_process(0x1000, 0, int(pid))",
-              "            if not handle:",
-              "                unverified.append(pid)",
-              "                continue",
-              "            try:",
-              "                image_path = ctypes.create_unicode_buffer(32768)",
-              "                image_size = ctypes.c_uint32(len(image_path))",
-              "                if not query_image(handle, 0, image_path, ctypes.byref(image_size)):",
-              "                    unverified.append(pid)",
-              "                    continue",
-              "                actual_key = os.path.normcase(str(Path(image_path.value).resolve()))",
-              "                if actual_key == expected_key:",
-              "                    matches.append(pid)",
-              "            except (OSError, ValueError):",
-              "                unverified.append(pid)",
-              "            finally:",
-              "                close_handle(handle)",
-              "        if len(matches) > 1:",
-              '            raise RuntimeError("同じGTO+実行ファイルが複数起動しています。重複起動を防ぐため自動起動を停止しました。")',
-              "        if unverified:",
-              '            raise RuntimeError("既存GTO+の実行ファイルを確認できません。重複起動を防ぐため自動起動を停止しました。")',
-              "        return matches[0] if matches else None",
-          ]
-
           auto_start_lines = [
               "    def _auto_start_gto_plus(self):",
-              '        """Show GTO+ inside Pigeon automatically at app/update restart."""',
+              '        """Start GTO+ inside Pigeon at app launch and after update restart."""',
               "        if self._gto_auto_start_started:",
               "            return",
               "        try:",
@@ -258,17 +199,14 @@ jobs:
               "                return",
               "            self._save_connection_config()",
               "            self._gto_auto_start_started = True",
-              "            existing_pid = self._find_existing_gto_process_id()",
-              "            if existing_pid is not None:",
-              "                self._attach_existing_gto(existing_pid, automatic=True)",
-              "            else:",
-              "                try:",
-              "                    self.integration.enable_socket_connection()",
-              "                except Exception as socket_exc:",
-              '                    self.status_var.set(f"GTO+ソケット設定: {socket_exc}")',
-              "                self._launch_gto(automatic=True)",
+              "            try:",
+              "                self.integration.enable_socket_connection()",
+              "            except Exception as socket_exc:",
+              '                self.status_var.set(f"GTO+ソケット設定: {socket_exc}")',
+              "            self._launch_gto(automatic=True)",
               "        except Exception as exc:",
               '            self.status_var.set(f"GTO+自動起動準備失敗: {type(exc).__name__}: {exc}")',
+              "",
           ]
 
           auto_connect_lines = [
@@ -365,29 +303,19 @@ jobs:
               '                messagebox.showerror("GTO+ launch error", str(exc), parent=self)',
           ]
 
-          main = replace_once(
-              main,
-              '        self.gto_embedded = False\n        self.cpu_last_action',
-              '        self.gto_embedded = False\n        self.gto_owned_process_pid: int | None = None\n        self._gto_auto_start_started = False\n        self._gto_auto_connect_busy = False\n        self.cpu_last_action',
-              "lifecycle fields",
-          ) if False else main
-
           # Insert the three automatic process-management methods before the
           # existing manual socket configuration method.
           insertion_anchor = "    def _enable_socket(self):"
           if main.count(insertion_anchor) != 1:
               raise SystemExit("Could not locate the manual socket setup method.")
           new_methods = (
-              "\n".join(find_existing_lines) + "\n\n"
-              + "\n".join(auto_start_lines) + "\n\n"
+              "\n".join(auto_start_lines) + "\n\n"
               + "\n".join(auto_connect_lines) + "\n\n"
           )
           main = main.replace(insertion_anchor, new_methods + insertion_anchor, 1)
 
-          # Replace the launch and existing-process attach methods with versions
-          # that record the owned PID and never show an app-generated UAC prompt.
+          # Replace only the launcher; leave v1.3.69's existing attach method intact.
           main = replace_method(main, "    def _launch_gto(self):", launch_lines, "GTO+ process launch")
-          main = replace_method(main, "    def _attach_existing_gto(self, process_id: int):", attach_lines, "GTO+ existing process attach")
 
           # Remove the old UAC self-restart helper. Windows security prompts are
           # left to Windows; Pigeon does not ask to elevate itself.
@@ -598,14 +526,12 @@ jobs:
               'self.gto_host.pack(fill="both", expand=True, padx=8, pady=8)',
               'controls_outer = tk.Frame(row, bg=COLORS["bg"], width=320)',
               "width=302, yscrollincrement=24,",
-              "def _find_existing_gto_process_id(self) -> int | None:",
               "def _auto_start_gto_plus(self):",
               "def _auto_connect_gto_plus(self, attempt: int = 0):",
               "def _launch_gto(self, automatic: bool = False):",
-              "def _attach_existing_gto(self, process_id: int, automatic: bool = False):",
               "self.integration.enable_socket_connection()",
+              "self._launch_gto(automatic=True)",
               "self.integration.launch_and_dock(host_hwnd, startup_timeout=25)",
-              "self.integration.attach_existing_and_dock(",
               "self.integration.connect(timeout=10.0)",
               'elif kind == "auto_gto_connect_retry":',
               '["taskkill", "/PID", str(owned_pid), "/T", "/F"]',
@@ -623,10 +549,12 @@ jobs:
               "scale = min(",
               "place_configure(width=",
               "def _restart_pigeon_elevated_for_gto(",
-              "messagebox.askyesno(",
+              "Windows permissions required",
           ):
               if forbidden in main:
-                  raise SystemExit("An unwanted experimental/UAC path remains: " + forbidden)
+                  raise SystemExit("An unwanted experimental/GTO elevation path remains: " + forbidden)
+          if "ShellExecuteW(" in main and '"runas"' in main:
+              raise SystemExit("An app-generated GTO+ UAC elevation path remains.")
 
           if 'controls_outer.pack(side="right", fill="y", padx=(12, 0))' not in main:
               raise SystemExit("Original left/right frame arrangement changed.")
