@@ -231,12 +231,20 @@ def test_unsupported_preflop_fallback_call_is_blocked():
         'actions': ['fold', 'call', 'raise'], 'min_target': 200, 'max_target': 10000
     }
     legacy = SimpleNamespace(action='call', amount=None, equity_estimate=0.42, source='legacy')
+    cpu = FakeCPU()
     decision = module.choose_preflop_action(
-        FakeTable(), hand, hand.actor_id, FakeCPU(), legacy
+        FakeTable(), hand, hand.actor_id, cpu, legacy
     )
-    # Unsupported histories return no chart action; runtime must pause rather
-    # than substitute any legacy action.
-    assert decision is None
+    # Unmodelled action history must not stop the hand or use legacy aggression.
+    assert decision is not None
+    assert decision.source == "preflop-guardrail"
+    assert decision.action == "fold"
+    assert decision.amount is None
+    assert decision.policy_penalty == 100
+    assert cpu._preflop_policy_penalty == 100
+    again = module.choose_preflop_action(FakeTable(), hand, hand.actor_id, cpu, legacy)
+    assert again is not None and again.source == "preflop-guardrail"
+    assert again.policy_penalty == 200
 
 
 def test_unmodelled_call_becomes_check_when_check_is_legal():
@@ -253,7 +261,19 @@ def test_unmodelled_call_becomes_check_when_check_is_legal():
     decision = module.choose_preflop_action(
         FakeTable(), hand, hand.actor_id, FakeCPU(), legacy
     )
-    assert decision is None
+    assert decision is not None
+    assert decision.source == "preflop-guardrail"
+    assert decision.action == "check"
+
+
+def test_history_size_matching_uses_five_percent_only_for_lookup():
+    # 5% is an observation-matching tolerance; it does not rewrite chart amounts.
+    assert module._history_size_matches(2.625, 2.5, 100, "raise") is True
+    assert module._history_size_matches(2.63, 2.5, 100, "raise") is False
+    # All-in keeps the established 0.75 BB matching window.
+    assert module._history_size_matches(100.5, 100.0, 100, "allin") is True
+    assert module._history_size_matches(100.76, 100.0, 100, "allin") is False
+
 
 
 def test_chart_authorized_heads_up_call_is_preserved():
