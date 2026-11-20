@@ -268,8 +268,8 @@ jobs:
           assert 'report_safety.get("board_test_cards_reflection_verified")' in main
           assert 'report_safety.get("board_test_restored")' in main
           assert 'report_safety.get("board_test_may_remain_set")' in main
-          assert "未知HU局面の自動Solve設定を診断（OOP/IP複数ハンド重み可逆テスト）" in main
-          assert "OOPとIPの両レンジが空の場合のみ、両方へAA,AKs:0.4" in main
+          assert "未知HU局面の自動Solve設定を診断（OOP/IP/Board可逆テスト）" in main
+          assert "OOP/IPの両レンジとBoard欄が空の場合のみ" in main
           assert "oop_expected_matrix_cells_reflection_verified" in main
           assert "oop_restore_source_text_accepted" in main
           assert "oop_weight_display_capture_saved" in main
@@ -287,7 +287,7 @@ jobs:
           assert '_GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS = (' in ui_source
           assert 'expected_test_source_texts = set(report["expected_gto_plus_source_texts"])' in ui_source
           assert '"restore_source_text_readback"' in ui_source
-          assert '"schema_version": 18' in ui_source
+          assert '"schema_version": 19' in ui_source
           assert '"pixels_per_cell": 4' in ui_source
           assert '"sampling": "2x2_inner_patch_channel_max"' in ui_source
           assert '"weight_display_capture_saved"' in ui_source
@@ -333,7 +333,7 @@ jobs:
           assert '"done_button_clicked_for_ip_multi_range_test"' in ui_source
           assert "_temporary_source_field_window_adjustment" in ui_source
           assert "_source_field_occlusion_shift" in ui_source
-          assert '"probe": "verified_gto_plus_oop_ip_multi_hand_ak_s40_weighted_commit_roundtrip_v18_ip_roi_null_safe_summary"' in ui_source
+          assert '"probe": "verified_gto_plus_oop_ip_weighted_range_and_board_card_selector_roundtrip_v19"' in ui_source
           assert "unique_captures" in ui_source
           assert "_source_field_underlay_is_verified_gto_view" in ui_source
           assert "_click_verified_gto_hit_target" in ui_source
@@ -363,6 +363,7 @@ jobs:
               (pkg/"auto_solve_ui.py").write_text(ui_source,encoding="utf-8")
               sys.path.insert(0,td)
               from probe_pkg.auto_solve_ui import (_bmp_region_difference_ratio,
+                  _bmp_region_dark_pixel_ratio, _board_card_center,
                   _OOP_MATRIX_RECT, _IP_MATRIX_RECT, _RANGE_EDITOR_VERIFY_ROI,
                   _bmp_matrix_center_signature, _matrix_signature_is_empty,
                   _matrix_signature_is_aa_only, _matrix_signature_matches_selected_cells,
@@ -373,6 +374,15 @@ jobs:
                   _source_field_underlay_is_verified_edit)
               assert _GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS == _GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS
               assert _GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS == ("AA,[40%]AKs[/40%]", "[40%]AKs[/40%],AA")
+              assert _board_card_center("As") == (193,108)
+              assert _board_card_center("Kd") == (170,130)
+              assert _board_card_center("7c") == (147,268)
+              try:
+                  _board_card_center("1x")
+              except ValueError:
+                  pass
+              else:
+                  raise AssertionError("invalid Board card was accepted")
               skipped_summary=[]
               _append_stage_summary_lines(skipped_summary,[{"stage":"ip_range_editor","status":"skipped_initial_ip_range_not_empty","open_overlay_difference":None,"visible_overlay_difference":None,"baseline_difference_after_x":None}])
               assert skipped_summary == ["ip_range_editor: skipped_initial_ip_range_not_empty"]
@@ -411,6 +421,21 @@ jobs:
               bmp(pathlib.Path(td)/"base.bmp",False)
               bmp(pathlib.Path(td)/"same.bmp",False)
               bmp(pathlib.Path(td)/"overlay.bmp",True)
+              def white_board_bmp(path, dark=False):
+                  w,h=665,570
+                  px=bytearray(bytes((255,255,255,0))*(w*h))
+                  if dark:
+                      for y in range(236,241):
+                          for x in range(40,68):
+                              i=(y*w+x)*4
+                              px[i:i+4]=bytes((15,15,15,0))
+                  header=b"BM"+struct.pack("<IHHI",54+len(px),0,0,54)
+                  dib=struct.pack("<IiiHHIIiiII",40,w,-h,1,32,0,len(px),0,0,0,0)
+                  pathlib.Path(path).write_bytes(header+dib+px)
+              white_board_bmp(pathlib.Path(td)/"board_blank.bmp",False)
+              white_board_bmp(pathlib.Path(td)/"board_text.bmp",True)
+              assert _bmp_region_dark_pixel_ratio(pathlib.Path(td)/"board_blank.bmp",(26,233,83,245)) == 0.0
+              assert _bmp_region_dark_pixel_ratio(pathlib.Path(td)/"board_text.bmp",(26,233,83,245)) > 0.01
               assert _bmp_region_difference_ratio(pathlib.Path(td)/"base.bmp",pathlib.Path(td)/"same.bmp")["ratio"]==0.0
               assert _bmp_region_difference_ratio(pathlib.Path(td)/"base.bmp",pathlib.Path(td)/"overlay.bmp")["ratio"]>0.05
               def tooltip_bmp(path, rect):
