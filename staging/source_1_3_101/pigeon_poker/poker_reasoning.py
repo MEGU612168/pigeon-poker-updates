@@ -469,6 +469,68 @@ def _weighted_sample(options: tuple[tuple[tuple[str, str], float], ...],
     return available[-1][0]
 
 
+def _sample_joint_opponent_hands(
+    opponents: list[OpponentRange],
+    blocked: set[str],
+    deck: list[str],
+    rng: Any,
+    *,
+    max_retries: int = 24,
+) -> list[tuple[str, str]]:
+    """Sample opponent combos jointly, conditioning on physical card uniqueness.
+
+    Independent sequential weighted draws distort earlier seats whenever two
+    ranges overlap. Rejection sampling preserves each range's relative weights
+    conditional on a collision-free deal. A sequential recovery path keeps the
+    game moving in degenerate / near-identical range cases.
+    """
+    active = [
+        opponent for opponent in opponents
+        if float(rng.random()) <= max(
+            0.0, min(1.0, float(opponent.participation_probability))
+        )
+    ]
+    if not active:
+        return []
+
+    for _ in range(max(1, int(max_retries))):
+        picked_hands: list[tuple[str, str]] = []
+        used_cards = set(blocked)
+        collision = False
+        for opponent in active:
+            picked = _weighted_sample(opponent.combos, blocked, rng)
+            if picked is None or set(picked) & used_cards:
+                collision = True
+                break
+            picked_hands.append(picked)
+            used_cards.update(picked)
+        if not collision and len(picked_hands) == len(active):
+            return picked_hands
+
+    # Rare recovery: process the most constrained ranges first, preserving
+    # every available conditioned combo and using random legal cards only if
+    # a range has become physically impossible after blockers.
+    picked_hands = []
+    used_cards = set(blocked)
+    ordered = sorted(
+        active,
+        key=lambda item: sum(
+            1 for cards, weight in item.combos
+            if weight > 0 and not (set(cards) & blocked)
+        ),
+    )
+    for opponent in ordered:
+        picked = _weighted_sample(opponent.combos, used_cards, rng)
+        if picked is None:
+            available = [card for card in deck if card not in used_cards]
+            if len(available) < 2:
+                break
+            picked = tuple(rng.sample(available, 2))
+        picked_hands.append(picked)
+        used_cards.update(picked)
+    return picked_hands
+
+
 def _equity_vs_ranges(hand: Any, hero_id: str, ranges: dict[str, OpponentRange],
                       cpu: Any) -> tuple[float, int]:
     hero = hand.player(hero_id)
@@ -489,25 +551,17 @@ def _equity_vs_ranges(hand: Any, hero_id: str, ranges: dict[str, OpponentRange],
     completed = 0
     for _ in range(runs):
         used = set(hero_cards + board)
-        hands: list[tuple[str, str]] = []
-        for opponent_range in opponents:
-            # A player who has not acted yet is not forced to continue.
-            # Sample their entry into the pot separately from their conditional range.
-            if float(rng.random()) > float(opponent_range.participation_probability):
-                continue
-            picked = _weighted_sample(opponent_range.combos, used, rng)
-            if picked is None:
-                available = [card for card in deck if card not in used]
-                if len(available) < 2:
-                    hands = []
-                    break
-                picked = tuple(rng.sample(available, 2))
-            hands.append(picked)
-            used.update(picked)
+        # Participation is sampled first; then card combinations are drawn
+        # jointly to avoid order-biased blockers between independent ranges.
+        hands = _sample_joint_opponent_hands(
+            opponents, used, deck, rng
+        )
         if not hands:
             wins += 1.0
             completed += 1
             continue
+        for cards in hands:
+            used.update(cards)
         available_board = [card for card in deck if card not in used]
         if len(available_board) < remaining:
             continue
