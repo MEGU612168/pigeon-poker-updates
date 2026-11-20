@@ -69,17 +69,18 @@ def test_postflop_legal_controls_are_not_inside_preflop_only_branch() -> None:
             ancestor = parents.get(ancestor)
 
 
-def test_preflop_chart_gate_remains_separate() -> None:
+def test_only_preflop_raise_sizing_uses_the_chart() -> None:
     method = find_method("_cash_human_action")
     method_source = ast.get_source_segment(source_text, method) or ""
     assert 'hand.street == "preflop"' in method_source
-    assert "preflop_chart_options" in method_source
-    assert "USE THE CHART ACTIONS AND BB SIZE ONLY" in method_source
+    assert "_fixed_preflop_raise_target" in method_source
+    assert "PREFLOP CHART LINE NOT COVERED" not in method_source
+    assert "USE THE CHART ACTIONS AND BB SIZE ONLY" not in method_source
 
 
 if __name__ == "__main__":
     test_postflop_legal_controls_are_not_inside_preflop_only_branch()
     print("PASS postflop controls are generated outside the preflop-only branch")
-    test_preflop_chart_gate_remains_separate()
+    test_only_preflop_raise_sizing_uses_the_chart()
     print("PASS preflop chart gate remains in place")
     print("ALL PASS 2 postflop UI regression tests")
