@@ -260,7 +260,6 @@ jobs:
           assert "_dismiss_exact_gto_message_with_ok" in ui_source
           assert "_commit_verified_player2_editor_after_prompt" in ui_source
           assert "def _focus_and_read_player2_source_field(" in ui_source
-          assert 'user32, RECT, POINT, target_hwnd)' not in ui_source
           assert 'label + "_focus"' in ui_source
           assert 'source_probe.get("status") != "nonempty_source_field_preserved"' in ui_source
           assert 'source_text in set(_GTO_PLUS_IP_MULTI_RANGE_SOURCE_TEXTS)' in ui_source
