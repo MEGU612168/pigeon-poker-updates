@@ -510,10 +510,6 @@ def _commit_verified_player2_editor_after_prompt(
         actions.append(retry)
         time.sleep(0.45)
         remaining = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
-    windows = _capture_related_windows(
-        user32, probe.EnumWindowsProc if hasattr(probe, "EnumWindowsProc") else None,
-        None, RECT, POINT, target_hwnd, target_pid, output_dir, stem, label
-    ) if False else []
     result["done_native_retry"] = retry
     result["editor_closed_verified"] = not remaining
     result["remaining_source_edits"] = len(remaining)
@@ -802,7 +798,8 @@ def _run_build_tree_dialog_probe(
 
                 retry_edits = probe._batch_visible_source_edits(user32, RECT, target_hwnd)
                 result["dialog_opened"] = False
-                result["dialog_closed_verified"] = not retry_edits and not retry_popups
+                result["dialog_closed_verified"] = False
+                result["safe_to_cleanup"] = not retry_edits and not retry_popups
                 result["status"] = "build_tree_setup_dialog_not_identified_after_player2_done"
                 result["manual_close_required"] = bool(retry_edits or retry_popups)
                 return result
