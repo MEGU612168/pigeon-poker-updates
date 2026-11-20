@@ -657,7 +657,7 @@ jobs:
           files["PigeonPoker.pyw"] = main.encode("utf-8")
           files["VERSION.txt"] = (TARGET_VERSION + "\n").encode("ascii")
           out = io.BytesIO()
-          with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+          with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_STORED) as z:
               for name in sorted(files):
                   z.writestr(name, files[name])
           final_payload = out.getvalue()
