@@ -130,7 +130,8 @@ jobs:
                    "GTO+画面診断は安全停止しました。Build Tree設定ダイアログの状態とテスト設定の復元、手動対応フラグを確認してください。"),
                   ("OOPまたはIPのAA+AKs:40%テストの復元に未達の可能性があります。診断JSONの両方の最終状態を確認してください。Tree/Solverは未実行です。",
                    "Build Treeダイアログの閉鎖またはテスト設定の復元に未達です。診断JSONと画像を確認してください。Tree構築/Solver未実行です。"),
-              ]              for old_text,new_text in ui_replacements:
+              ]
+              for old_text,new_text in ui_replacements:
                   if old_text in main:
                       main=main.replace(old_text,new_text)
                   elif new_text not in main:
