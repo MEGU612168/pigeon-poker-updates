@@ -470,9 +470,9 @@ jobs:
           assert '_GTO_PLUS_OOP_MULTI_RANGE_SOURCE_TEXTS = (' in ui_source
           assert 'expected_test_source_texts = set(report["expected_gto_plus_source_texts"])' in ui_source
           assert '"restore_source_text_readback"' in ui_source
-          assert '"schema_version": 22' in ui_source
-          assert '"pixels_per_cell": 4' in ui_source
-          assert '"sampling": "2x2_inner_patch_channel_max"' in ui_source
+          assert '"schema_version": 23' in ui_source
+          assert '"pixels_per_cell": len(patch_dx) * len(patch_dy)' in ui_source
+          assert '"sampling": "scaled_inner_patch_channel_max"' in ui_source
           assert '"weight_display_capture_saved"' in ui_source
           assert '"original_text_restore_readback_required": True' in ui_source
           assert '"range_committed": False' in ui_source
