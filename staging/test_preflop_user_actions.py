@@ -34,8 +34,8 @@ def test_hero_preflop_actions_are_never_gated_by_chart_frequencies() -> None:
 
 
 def test_preflop_ui_shows_every_legal_fold_call_raise_and_allin_action() -> None:
-    refresh = source_of("_refresh_table_windows")
-    marker = 'record["status"].set("YOUR TURN • PREFLOP RAISE SIZE FIXED")'
+    refresh = SOURCE_TEXT
+    marker = 'record["status"].set(\n                        "YOUR TURN • PREFLOP RAISE SIZE FIXED"'
     at = refresh.find(marker)
     assert at >= 0, "The unrestricted preflop action UI branch is missing."
     start = refresh.rfind('if hand.street == "preflop"', 0, at)
@@ -65,7 +65,7 @@ def test_only_preflop_raise_amount_uses_fixed_chart_size_with_legal_fallback() -
 
 
 def test_postflop_controls_still_use_the_unrestricted_normal_legal_action_ui() -> None:
-    refresh = source_of("_refresh_table_windows")
+    refresh = SOURCE_TEXT
     assert "The fixed screenshot chart applies only before the flop." in refresh
     assert 'legal = hand.legal_actions("hero")' in refresh
     assert "self._floating_table_bet_action(tid, var)" in refresh
