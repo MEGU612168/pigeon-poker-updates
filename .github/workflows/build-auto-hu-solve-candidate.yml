@@ -702,7 +702,7 @@ jobs:
               assert not _matrix_signature_matches_selected_cells(aa_sig,empty_sig,[0,1])
               # A 40% AKs marker at x=32 is detected even though old center x=33 is black.
               assert aa_aks_sig["samples"][1] != empty_sig["samples"][1]
-              assert aa_aks_sig["sampling"] == "2x2_inner_patch_channel_max"
+              assert aa_aks_sig["sampling"] == "scaled_inner_patch_channel_max"
               def ip_matrix_bmp(path, active_cells=()):
                   w,h=665,570
                   px=bytearray(bytes((80,80,80,0))*(w*h))
