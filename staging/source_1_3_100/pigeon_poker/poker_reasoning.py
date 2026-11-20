@@ -111,21 +111,18 @@ def _fallback_preflop_range(hand: Any, player_id: str,
                             blockers: set[str]) -> tuple[list[tuple[tuple[str, str], float]], str, float]:
     events = _player_events(hand, player_id, street="preflop")
     voluntary = [event for event in events if _event_action(event) != "fold"]
-    if not voluntary:
-        return _uniform_combos(blockers), "unacted-uniform", 0.15
-
-    latest = voluntary[-1]
-    action = _event_action(latest)
     all_preflop = [
         event for event in list(getattr(hand, "events", ()) or ())
         if isinstance(event, dict) and event.get("type") == "action"
         and str(event.get("street", "preflop")).lower().replace("-", "") == "preflop"
     ]
+    latest = voluntary[-1] if voluntary else None
+    action = _event_action(latest) if latest is not None else "unacted"
     latest_pos = max(
         (index for index, event in enumerate(all_preflop) if event is latest),
         default=-1,
-    )
-    if latest_pos < 0:
+    ) if latest is not None else len(all_preflop)
+    if latest is not None and latest_pos < 0:
         actor_names = {str(player_id)}
         player = next((p for p in list(getattr(hand, "players", ()) or ())
                        if str(getattr(p, "player_id", "")) == str(player_id)), None)
@@ -134,16 +131,24 @@ def _fallback_preflop_range(hand: Any, player_id: str,
         latest_pos = max(
             (index for index, event in enumerate(all_preflop)
              if str(event.get("player_id") or event.get("player") or "") in actor_names),
-            default=-1,
+            default=len(all_preflop),
         )
     prior_raises = sum(
         1 for event in all_preflop[:max(0, latest_pos)]
         if _event_action(event) in {"raise", "allin"}
     )
-    if action in {"raise", "allin"}:
+    if action == "unacted":
+        # Model an unacted seat's conditional continue-range rather than
+        # pretending every unseen hand always calls. More raises in front
+        # tighten that hypothetical continue-range substantially.
+        cutoff = {0: 0.34, 1: 0.55, 2: 0.73, 3: 0.84}.get(min(3, prior_raises), 0.88)
+        unacted_source = True
+    elif action in {"raise", "allin"}:
         cutoff = {0: 0.57, 1: 0.72, 2: 0.83, 3: 0.90}.get(min(3, prior_raises), 0.92)
+        unacted_source = False
     elif action == "call":
         cutoff = {0: 0.28, 1: 0.46, 2: 0.60, 3: 0.72}.get(min(3, prior_raises), 0.78)
+        unacted_source = False
     else:
         return _uniform_combos(blockers), "unsupported-action-uniform", 0.10
 
@@ -169,8 +174,9 @@ def _fallback_preflop_range(hand: Any, player_id: str,
     if not weighted:
         weighted = _uniform_combos(blockers)
         return weighted, "fallback-wide", 0.10
-    confidence = max(0.20, 0.56 - 0.08 * prior_raises)
-    return weighted, "action-inferred-prior", confidence
+    confidence = 0.22 if unacted_source else max(0.20, 0.56 - 0.08 * prior_raises)
+    source = "unacted-conditional-response" if unacted_source else "action-inferred-prior"
+    return weighted, source, confidence
 
 
 def _uniform_combos(blockers: set[str]) -> list[tuple[tuple[str, str], float]]:
