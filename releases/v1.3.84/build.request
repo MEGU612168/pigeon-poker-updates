@@ -1,0 +1,1 @@
+Build Pigeon Poker v1.3.84 from verified v1.3.83. Make GTO+ page a fixed non-scroll viewport, remove workspace margins, compensate the measured 42px top reservation by overscanning GTO+ upward and extending its child window, so the visible client fills the entire viewport without bottom clipping. Keep overlay drawer default collapsed and preserve automatic-only update checks.
