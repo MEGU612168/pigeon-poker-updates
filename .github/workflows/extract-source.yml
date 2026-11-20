@@ -21,7 +21,9 @@ jobs:
           import base64, hashlib, json, pathlib, urllib.request, zipfile, io
           root = pathlib.Path(".")
           manifest = json.loads((root / "stable.json").read_text(encoding="utf-8"))
-          url = manifest["payload_url"]
+          url = str(manifest["payload_url"])
+          separator = "&" if "?" in url else "?"
+          url = url + separator + "v=" + str(manifest["payload_sha256"])
           raw = urllib.request.urlopen(url, timeout=60).read()
           payload = base64.b64decode(raw, validate=True)
           digest = hashlib.sha256(payload).hexdigest()
