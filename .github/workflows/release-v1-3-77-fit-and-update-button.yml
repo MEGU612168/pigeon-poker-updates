@@ -1,0 +1,534 @@
+name: Release Pigeon Poker v1.3.77 fit GTO+ inside fixed frame and disable no-update button
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.77/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build v1.3.77 from verified v1.3.76 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import time
+          import urllib.request
+          import zipfile
+
+          repo = "MEGU612168/pigeon-poker-updates"
+          source_version = "1.3.76"
+          target_version = "1.3.77"
+          source_sha256 = "c0bb40967ac620c6e3b162eaa2df7d1b769faa4539d0d4e2a3712817fa50cdae"
+          source_size = 222367
+          source_url = (
+              f"https://raw.githubusercontent.com/{repo}/main/releases/v{source_version}/"
+              f"payload-updater.zip.b64?v={source_sha256}"
+          )
+          with urllib.request.urlopen(source_url, timeout=90) as response:
+              encoded = response.read().decode("ascii").strip()
+          source_payload = base64.b64decode(encoded, validate=True)
+          if len(source_payload) != source_size:
+              raise SystemExit("Pinned v1.3.76 package size mismatch.")
+          if hashlib.sha256(source_payload).hexdigest() != source_sha256:
+              raise SystemExit("Pinned v1.3.76 package SHA-256 mismatch.")
+
+          with zipfile.ZipFile(io.BytesIO(source_payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("Pinned v1.3.76 ZIP CRC failure: " + bad)
+              files = {name: archive.read(name) for name in archive.namelist()}
+          expected_files = {
+              "PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt",
+              "pigeon_gto_plus/auto_solve_ui.py",
+              "pigeon_gto_plus/live_range_builder.py",
+              "pigeon_gto_plus/ui_probe.py",
+              "pigeon_poker/preflop_screenshot_ranges.py",
+          }
+          if set(files) != expected_files:
+              raise SystemExit("Unexpected v1.3.76 package file set.")
+          if files["VERSION.txt"].decode("ascii").strip() != source_version:
+              raise SystemExit("Pinned v1.3.76 VERSION.txt mismatch.")
+
+          range_blobs = {
+              "pigeon_gto_plus/live_range_builder.py": "4b8d0c287acce64cce98562313ea63f73cfb3b60",
+              "pigeon_gto_plus/ui_probe.py": "6984be9b528ce4f463d8f0bf7ce72d95038ed1fd",
+              "pigeon_poker/preflop_screenshot_ranges.py": "5a816dc1a2a07d686c6fe83b7e04155549ac4818",
+          }
+          for name, expected_blob in range_blobs.items():
+              data = files[name]
+              actual_blob = hashlib.sha1(
+                  b"blob " + str(len(data)).encode("ascii") + bytes([0]) + data
+              ).hexdigest()
+              if actual_blob != expected_blob:
+                  raise SystemExit("v1.3.69 range baseline mismatch: " + name)
+
+          main = files["PigeonPoker.pyw"].decode("utf-8")
+
+          def replace_once(source: str, old: str, new: str, label: str) -> str:
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one exact match, found {count}.")
+              return source.replace(old, new, 1)
+
+          # Restore the original left-workspace/right-controls frame geometry.
+          main = replace_once(
+              main,
+              '        row.pack(fill="both", expand=True, padx=22, pady=(0, 8))',
+              '        row.pack(fill="both", expand=True, padx=22, pady=(0, 20))',
+              "fixed outer workspace frame padding",
+          )
+          main = replace_once(
+              main,
+              '        host_col.pack(fill="both", expand=True)',
+              '        host_col.pack(side="left", fill="both", expand=True)',
+              "fixed left workspace frame placement",
+          )
+
+          old_host = '''        self.gto_host = tk.Frame(host_col, bg="#080f18", height=570)
+                  self.gto_host.pack(fill="both", expand=True, padx=8, pady=8)
+                  self.gto_host.bind("<Configure>", self._resize_embedded)'''
+          new_host = '''        self.gto_viewport = tk.Frame(host_col, bg="#080f18")
+                  self.gto_viewport.pack(fill="both", expand=True, padx=8, pady=8)
+                  self.gto_host = tk.Frame(
+                      self.gto_viewport, bg="#080f18", width=665, height=570,
+                  )
+                  self.gto_host.place(
+                      relx=0.5, rely=0.5, anchor="center", width=665, height=570,
+                  )
+                  self.gto_viewport.bind("<Configure>", self._resize_embedded)'''
+          main = replace_once(main, old_host, new_host, "fixed host inner scale viewport")
+
+          old_controls = '''        # The right-side GTO+ controls contain more panels than fit in the
+                  # available vertical space. Keep the column fixed-width but make its
+                  # contents scrollable instead of silently clipping panels below the fold.
+                  controls_outer = tk.Frame(page, bg=COLORS["bg"], height=300)
+                  controls_outer.pack_propagate(False)
+                  controls_toggle = ttk.Button(page, text="GTO+操作パネルを表示")
+                  controls_toggle.pack(fill="x", padx=22, pady=(0, 6), before=row)'''
+          new_controls = '''        # Keep the original right-side control column and its width.
+                  controls_outer = tk.Frame(row, bg=COLORS["bg"], width=350)
+                  controls_outer.pack(side="right", fill="y", padx=(12, 0))
+                  controls_outer.pack_propagate(False)'''
+          main = replace_once(main, old_controls, new_controls, "restore right-side controls column")
+
+          main = replace_once(
+              main,
+              '            height=280, yscrollincrement=24,',
+              '            width=332, yscrollincrement=24,',
+              "restore right panel scroll canvas width",
+          )
+
+          toggle_block = '''        def _toggle_gto_controls():
+                      if controls_outer.winfo_manager():
+                          controls_outer.pack_forget()
+                          controls_toggle.configure(text="GTO+操作パネルを表示")
+                      else:
+                          controls_outer.pack(fill="x", padx=22, pady=(0, 16))
+                          controls_toggle.configure(text="GTO+操作パネルを閉じる")
+                      self.after_idle(lambda: self._sync_embedded_gto_geometry("controls-toggle"))
+
+                  controls_toggle.configure(command=_toggle_gto_controls)
+          '''
+          main = replace_once(main, toggle_block, "", "remove bottom controls toggle")
+
+          # Preserve the outer Pigeon frame unchanged. Only the native GTO+
+          # client child is fitted to the 665:570 reference viewport.
+          sync_start = main.find("    def _sync_embedded_gto_geometry(self, reason: str = "") -> bool:\n")
+          schedule_start = main.find("    def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:\n", sync_start)
+          if sync_start < 0 or schedule_start < 0:
+              raise SystemExit("Could not locate embedded GTO+ geometry methods.")
+          geometry_methods = '''    def _layout_embedded_gto_host(self) -> bool:
+              """Uniformly fit the complete 665x570 GTO+ surface inside the unchanged frame."""
+              try:
+                  self.update_idletasks()
+                  viewport_width = int(self.gto_viewport.winfo_width())
+                  viewport_height = int(self.gto_viewport.winfo_height())
+                  if viewport_width < 2 or viewport_height < 2:
+                      return False
+                  scale = min(viewport_width / 665.0, viewport_height / 570.0, 1.0)
+                  if scale <= 0:
+                      return False
+                  target_width = max(2, int(round(665 * scale)))
+                  target_height = max(2, int(round(570 * scale)))
+                  current_size = (
+                      int(self.gto_host.winfo_width()),
+                      int(self.gto_host.winfo_height()),
+                  )
+                  if current_size != (target_width, target_height):
+                      self.gto_host.place_configure(
+                          width=target_width, height=target_height,
+                      )
+                  self._gto_display_scale = scale
+                  return True
+              except (tk.TclError, ZeroDivisionError, ValueError):
+                  return False
+
+          def _sync_embedded_gto_geometry(self, reason: str = "") -> bool:
+              """Resize GTO+ to the fitted inner viewport without resizing the Pigeon frame."""
+              if not self.gto_embedded or not getattr(self.integration, "embedder", None):
+                  return False
+              try:
+                  self.update_idletasks()
+                  if not self._layout_embedded_gto_host():
+                      raise RuntimeError("GTO+ viewport has no usable client area")
+                  host_width = int(self.gto_host.winfo_width())
+                  host_height = int(self.gto_host.winfo_height())
+                  if host_width < 2 or host_height < 2:
+                      raise RuntimeError(f"invalid GTO+ host client geometry: {host_width}x{host_height}")
+                  self.integration.resize_docked_window(host_width, host_height)
+                  self.update_idletasks()
+                  return True
+              except Exception as exc:
+                  try:
+                      suffix = f" ({reason})" if reason else ""
+                      self.status_var.set(f"GTO+表示位置・サイズの再同期に失敗{suffix}: {exc}")
+                  except Exception:
+                      pass
+                  return False
+
+          '''
+          main = main[:sync_start] + geometry_methods + main[schedule_start:]
+
+          schedule_old = '''    def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:
+                  """Sync now and again after Tk completes pending layout work."""
+                  if not self.gto_embedded:
+                      return
+                  self._sync_embedded_gto_geometry(reason)'''
+          schedule_new = '''    def _schedule_embedded_gto_geometry_sync(self, reason: str) -> None:
+                  """Fit the inner GTO+ viewport and sync after Tk layout completes."""
+                  if not self.gto_embedded:
+                      return
+                  self._layout_embedded_gto_host()
+                  self._sync_embedded_gto_geometry(reason)'''
+          main = replace_once(main, schedule_old, schedule_new, "schedule fitted viewport")
+
+          resize_old = '''    def _resize_embedded(self, _event=None):
+                  self._sync_embedded_gto_geometry("host-configure")'''
+          resize_new = '''    def _resize_embedded(self, _event=None):
+                  self._layout_embedded_gto_host()
+                  self._sync_embedded_gto_geometry("viewport-configure")'''
+          main = replace_once(main, resize_old, resize_new, "viewport resize callback")
+
+          # Keep automatic GTO+ startup/connection/shutdown from v1.3.76.
+          # The geometry methods above still resize the same HWND used for docking.
+
+          # Add a non-downloading update availability check so the button is
+          # enabled/green only when an update is actually available.
+          main = replace_once(
+              main,
+              "from pigeon_updater import start_update_check",
+              "from pigeon_updater import start_update_check, start_update_availability_check",
+              "updater availability import",
+          )
+
+          old_update_style = '''        style.configure("Accent.TButton", background=COLORS["green"], foreground="#071b14")
+                  style.map("Accent.TButton", background=[("active", "#35c78e")])'''
+          new_update_style = '''        style.configure("Accent.TButton", background=COLORS["green"], foreground="#071b14")
+                  style.map("Accent.TButton", background=[("active", "#35c78e")])
+                  style.configure(
+                      "MutedUpdate.TButton", background="#354255", foreground="#aab5c5",
+                  )
+                  style.map(
+                      "MutedUpdate.TButton",
+                      background=[("disabled", "#354255")],
+                      foreground=[("disabled", "#8997aa")],
+                  )
+                  style.configure(
+                      "RetryUpdate.TButton", background="#64748b", foreground="#f2f6fc",
+                  )'''
+          main = replace_once(main, old_update_style, new_update_style, "disabled update button style")
+
+          old_button = '''        self.update_button = ttk.Button(
+                      header, text="UPDATE NOW", style="Accent.TButton",
+                      command=self._begin_app_update,
+                  )'''
+          new_button = '''        self.update_button = ttk.Button(
+                      header, text="CHECKING…", style="MutedUpdate.TButton",
+                      command=self._begin_app_update, state="disabled",
+                  )'''
+          main = replace_once(main, old_button, new_button, "initial update button state")
+
+          # Auto-check stable manifest after the main widgets exist.
+          startup_anchor = '        self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)\n'
+          startup_insert = startup_anchor + '        self.after(1200, self._refresh_update_button_state)\n'
+          main = replace_once(main, startup_anchor, startup_insert, "startup update availability check")
+
+          update_method_anchor = "    def _begin_app_update(self):\n"
+          update_method = '''    def _refresh_update_button_state(self):
+              """Check only the stable manifest; do not download when no update exists."""
+              if getattr(self, "_update_check_active", False) or getattr(self, "_update_in_progress", False):
+                  return
+              self._update_check_active = True
+              try:
+                  self.update_button.configure(
+                      state="disabled", style="MutedUpdate.TButton", text="CHECKING…",
+                  )
+              except tk.TclError:
+                  return
+
+              def on_result(available: bool, current: str, candidate: str):
+                  def apply_result():
+                      self._update_check_active = False
+                      if available:
+                          self.update_button.configure(
+                              state="normal", style="Accent.TButton", text="UPDATE NOW",
+                              command=self._begin_app_update,
+                          )
+                          self.update_status_var.set(f"Update {candidate} available (current {current}).")
+                      else:
+                          self.update_button.configure(
+                              state="disabled", style="MutedUpdate.TButton", text="UP TO DATE",
+                          )
+                          self.update_status_var.set(f"Pigeon Poker is up to date ({current}).")
+                  try:
+                      self.after(0, apply_result)
+                  except tk.TclError:
+                      pass
+
+              def on_error(error: str):
+                  def apply_error():
+                      self._update_check_active = False
+                      self.update_button.configure(
+                          state="normal", style="RetryUpdate.TButton", text="RETRY CHECK",
+                          command=self._refresh_update_button_state,
+                      )
+                      self.update_status_var.set(f"Update check failed: {error}")
+                  try:
+                      self.after(0, apply_error)
+                  except tk.TclError:
+                      pass
+
+              start_update_availability_check(ROOT, on_result, on_error)
+
+          '''
+          if main.count(update_method_anchor) != 1:
+              raise SystemExit("Could not uniquely locate the app update handler.")
+          main = main.replace(update_method_anchor, update_method + update_method_anchor, 1)
+
+          main = replace_once(
+              main,
+              '        self.update_button.configure(state="disabled")\n        self.update_status_var.set("Checking for updates…")',
+              '        self.update_button.configure(state="disabled", style="MutedUpdate.TButton", text="CHECKING…")\n        self.update_status_var.set("Checking for updates…")',
+              "manual update checking state",
+          )
+          main = replace_once(
+              main,
+              '''                if message.startswith("Pigeon Poker is up to date"):
+                              self._update_in_progress = False
+                              self.update_button.configure(state="normal")''',
+              '''                if message.startswith("Pigeon Poker is up to date"):
+                              self._update_in_progress = False
+                              self.update_button.configure(
+                                  state="disabled", style="MutedUpdate.TButton", text="UP TO DATE",
+                              )''',
+              "no-update state after manual check",
+          )
+          main = replace_once(
+              main,
+              '''                    self.update_button.configure(state="normal")
+                                  self.update_status_var.set(message)''',
+              '''                    self.update_button.configure(
+                                      state="normal", style="RetryUpdate.TButton",
+                                      text="RETRY CHECK", command=self._refresh_update_button_state,
+                                  )
+                                  self.update_status_var.set(message)''',
+              "update error retry state",
+          )
+
+          updater = files["pigeon_updater.py"].decode("utf-8")
+          availability_function = '''
+
+          def start_update_availability_check(
+              app_root: Path,
+              on_result: Callable[[bool, str, str], None],
+              on_error: StatusCallback,
+          ) -> None:
+              """Check only whether a newer stable version exists; never download a package."""
+              root = Path(app_root).resolve()
+
+              def worker() -> None:
+                  try:
+                      manifest = _fetch_manifest()
+                      current = _read_current_version(root)
+                      candidate = str(manifest["version"])
+                      available = _version_tuple(candidate) > _version_tuple(current)
+                      on_result(available, current, candidate)
+                  except Exception as exc:
+                      on_error(f"{type(exc).__name__}: {exc}")
+
+              threading.Thread(
+                  target=worker,
+                  name="PigeonPokerUpdateAvailability",
+                  daemon=True,
+              ).start()
+          '''
+          if "def start_update_availability_check(" in updater:
+              raise SystemExit("Update availability helper already exists in source.")
+          updater = updater.rstrip() + availability_function + "\n"
+
+          files["PigeonPoker.pyw"] = main.encode("utf-8")
+          files["pigeon_updater.py"] = updater.encode("utf-8")
+          files["VERSION.txt"] = (target_version + chr(10)).encode("ascii")
+
+          # Syntax checks for every packaged Python source.
+          for name, data in files.items():
+              if name.endswith(".py") or name.endswith(".pyw"):
+                  ast.parse(data.decode("utf-8"), filename=name)
+
+          # Verify the inner viewport geometry and the fixed 1.3.69-era outer frame.
+          required_main = (
+              'host_col.pack(side="left", fill="both", expand=True)',
+              'controls_outer.pack(side="right", fill="y", padx=(12, 0))',
+              'self.gto_viewport = tk.Frame(host_col, bg="#080f18")',
+              'self.gto_viewport.bind("<Configure>", self._resize_embedded)',
+              "scale = min(viewport_width / 665.0, viewport_height / 570.0, 1.0)",
+              "place_configure(",
+              "self.integration.resize_docked_window(host_width, host_height)",
+              "self.after(1200, self._refresh_update_button_state)",
+              "def _refresh_update_button_state(self):",
+              'text="UP TO DATE"',
+              'state="disabled", style="MutedUpdate.TButton"',
+              'text="RETRY CHECK"',
+              "start_update_availability_check(ROOT, on_result, on_error)",
+              'self.after(350, self._auto_start_gto_plus)',
+              'self.integration.enable_socket_connection()',
+              'self.integration.launch_and_dock(host_hwnd, startup_timeout=25)',
+              '["taskkill", "/PID", str(self.gto_owned_pid), "/T", "/F"]',
+          )
+          for item in required_main:
+              if item not in main:
+                  raise SystemExit("Missing v1.3.77 app requirement: " + item)
+          if 'controls_outer.pack(fill="x"' in main:
+              raise SystemExit("The right control panel was moved below the workspace.")
+          if "controls_toggle" in main:
+              raise SystemExit("The full-width workspace toggle remains in source.")
+          for name, expected_blob in range_blobs.items():
+              actual_blob = hashlib.sha1(
+                  b"blob " + str(len(files[name])).encode("ascii") + bytes([0]) + files[name]
+              ).hexdigest()
+              if actual_blob != expected_blob:
+                  raise SystemExit("v1.3.69 range file changed in v1.3.77: " + name)
+
+          output = io.BytesIO()
+          with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+              for name in sorted(files):
+                  archive.writestr(name, files[name])
+          final_payload = output.getvalue()
+          with zipfile.ZipFile(io.BytesIO(final_payload), "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Final v1.3.77 ZIP CRC check failed.")
+              if set(archive.namelist()) != expected_files:
+                  raise SystemExit("Final v1.3.77 package file set changed.")
+              if archive.read("VERSION.txt").decode("ascii").strip() != target_version:
+                  raise SystemExit("Final v1.3.77 version marker mismatch.")
+              ast.parse(archive.read("PigeonPoker.pyw").decode("utf-8"), filename="PigeonPoker.pyw")
+              ast.parse(archive.read("pigeon_updater.py").decode("utf-8"), filename="pigeon_updater.py")
+
+          digest = hashlib.sha256(final_payload).hexdigest()
+          encoded_payload = base64.b64encode(final_payload).decode("ascii")
+          release_dir = pathlib.Path("releases") / ("v" + target_version)
+          release_dir.mkdir(parents=True, exist_ok=True)
+          (release_dir / "payload-updater.zip.b64").write_text(encoded_payload, encoding="ascii")
+          chunk_size = 48000
+          chunks = []
+          for index, offset in enumerate(range(0, len(encoded_payload), chunk_size)):
+              name = f"payload.part-{index:03d}"
+              (release_dir / name).write_text(encoded_payload[offset:offset + chunk_size], encoding="ascii")
+              chunks.append(name)
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": chunks}, indent=2) + chr(10), encoding="utf-8"
+          )
+
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          notes = (
+              "Pigeonの左右フレーム配置は従来のまま維持し、GTO+表示枠の内側だけに665:570の均等縮小viewportを追加。"
+              "GTO+画面・右側のインポート済みレンジ一覧を枠内へ縮小表示し、中央配置。自動診断の座標は実client倍率に追従。"
+              "起動時にstable manifestだけを確認し、更新が無ければUPDATEボタンを灰色のUP TO DATE表示で無効化。"
+              "更新があるときだけ緑色のUPDATE NOWを有効化。確認失敗時はRETRY CHECKを表示。"
+              "v1.3.76のGTO+自動起動・ソケット自動設定・自動接続・所有PID終了を維持。"
+              "v1.3.69のプリフロップ/HUレンジ本体はバイト単位で維持。"
+          )
+          release = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": target_version,
+              "published_at": now,
+              "package_mode": "full",
+              "release_notes": notes,
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+              "source_version": source_version,
+              "range_baseline": "1.3.69",
+              "fixed_outer_frame": True,
+              "inner_uniform_scale": True,
+              "scale_reference": [665, 570],
+              "startup_update_availability_check": True,
+              "disable_update_button_when_current": True,
+              "automatic_gto_lifecycle": True,
+              "files": sorted(files),
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(release, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8"
+          )
+          (release_dir / "payload.ready").write_text(
+              "verified " + target_version + chr(10), encoding="ascii"
+          )
+          stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": target_version,
+              "published_at": now,
+              "release_notes": notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": (
+                  f"https://raw.githubusercontent.com/{repo}/main/releases/v{target_version}/"
+                  f"payload-updater.zip.b64?v={digest}"
+              ),
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+          }
+          pathlib.Path("stable.json").write_text(
+              json.dumps(stable, ensure_ascii=False, indent=2) + chr(10), encoding="utf-8"
+          )
+          (release_dir / "build.request").unlink(missing_ok=True)
+          print(json.dumps({
+              "published_version": target_version,
+              "source_version": source_version,
+              "range_baseline": "1.3.69",
+              "fixed_outer_frame": True,
+              "inner_665x570_fit": True,
+              "startup_update_check": True,
+              "disable_update_button_when_current": True,
+              "automatic_gto_lifecycle_preserved": True,
+              "payload_size": len(final_payload),
+              "payload_sha256": digest,
+          }, ensure_ascii=False))
+          PY
+      - name: Publish v1.3.77 full package
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+users.noreply.github.com"
+          git add stable.json releases/v1.3.77/
+          git commit -m "Release Pigeon Poker v1.3.77 fit GTO+ viewport and disable no-update action"
+          git push
