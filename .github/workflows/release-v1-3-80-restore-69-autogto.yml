@@ -611,7 +611,7 @@ jobs:
           notes = (
               "v1.3.69のPigeon内GTO+ネイティブ埋め込み方式を復元。画面倍率・別viewport・レスポンシブ枠変更は不使用。"
               "CONNECTION右カラム幅を350から320へ、Canvasを332から302へ変更し、GTO+ WORKSPACEに30pxを戻す。"
-              "起動時はGTO+ Engineページを表示し、GTO+の既存プロセスを正確な実行パスで検索して再接続、無ければソケット設定後にPigeon内へ起動。"
+              "起動時はGTO+ Engineページを表示し、ソケット設定後にGTO+をPigeon内へ自動起動。"
               "起動後のsocket接続は最大10回自動再試行。Pigeon終了・更新時は管理対象のGTO+ PIDだけを終了。"
               "更新helperは新しいPigeonPoker.pywを再起動するため、更新後も同じGTO+自動起動フローを実行。"
               "UP TO DATE時の更新ボタン無効化を維持。GTO+ UI probeは+30px workspaceに合わせて中心ダイアログ座標のみ補正。"
