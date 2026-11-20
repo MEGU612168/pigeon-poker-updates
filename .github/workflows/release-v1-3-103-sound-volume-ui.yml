@@ -1,0 +1,214 @@
+name: Release Pigeon Poker v1.3.103 effect volume settings
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.103/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate restored postflop controls, effect volume settings and preflop chart
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
+          python staging/test_sound_volume_settings.py
+          python staging/test_postflop_controls.py
+          cp staging/source_1_3_101/pigeon_poker/preflop_screenshot_ranges.py staging/preflop_screenshot_ranges_75.py
+          python staging/test_preflop_ranges_75.py
+          python staging/test_poker_reasoning.py
+
+      - name: Build minimal in-app Stable update v1.3.103
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import subprocess
+          import time
+          import urllib.request
+          import zipfile
+
+          REPO = "MEGU612168/pigeon-poker-updates"
+          SOURCE_VERSION = "1.3.102"
+          TARGET_VERSION = "1.3.103"
+
+          request = urllib.request.Request(
+              f"https://raw.githubusercontent.com/{REPO}/main/stable.json",
+              headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+          )
+          with urllib.request.urlopen(request, timeout=45) as response:
+              manifest = json.loads(response.read().decode("utf-8"))
+          if manifest.get("version") != SOURCE_VERSION:
+              raise SystemExit(
+                  f"Expected Stable {SOURCE_VERSION}; found {manifest.get('version')}"
+              )
+          source_url = str(manifest["payload_url"])
+          separator = "&" if "?" in source_url else "?"
+          source_url += separator + "v=" + str(manifest["payload_sha256"])
+          request = urllib.request.Request(
+              source_url, headers={"Cache-Control": "no-cache", "Pragma": "no-cache"}
+          )
+          with urllib.request.urlopen(request, timeout=90) as response:
+              encoded = response.read().decode("ascii").strip()
+          source_payload = base64.b64decode(encoded, validate=True)
+          if len(source_payload) != int(manifest["payload_size"]):
+              raise SystemExit("Pinned v1.3.102 payload size mismatch.")
+          if hashlib.sha256(source_payload).hexdigest() != manifest["payload_sha256"]:
+              raise SystemExit("Pinned v1.3.102 payload SHA-256 mismatch.")
+
+          with zipfile.ZipFile(io.BytesIO(source_payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("Pinned v1.3.102 ZIP CRC failure: " + bad)
+              files = {name: archive.read(name) for name in archive.namelist()}
+          expected = {"PigeonPoker.pyw", "VERSION.txt"}
+          if set(files) != expected:
+              raise SystemExit("Unexpected pinned v1.3.102 package contents.")
+          if files["VERSION.txt"].decode("ascii").strip() != SOURCE_VERSION:
+              raise SystemExit("Pinned v1.3.102 VERSION.txt mismatch.")
+
+          staged = pathlib.Path("staging/source_1_3_101/PigeonPoker.pyw")
+          main = staged.read_bytes()
+          source_text = main.decode("utf-8")
+          ast.parse(source_text, filename="PigeonPoker.pyw")
+          for required in (
+              "The fixed screenshot chart applies only before the flop.",
+              "legal = hand.legal_actions(\"hero\")",
+              "効果音音量 / EFFECT VOLUME",
+              "_preview_master_sound_volume",
+              "self._save_sound_settings(), add=\"+\"",
+          ):
+              if required not in source_text:
+                  raise SystemExit("Required app behavior is missing: " + required)
+          files["PigeonPoker.pyw"] = main
+          files["VERSION.txt"] = (TARGET_VERSION + "\n").encode("ascii")
+
+          output = io.BytesIO()
+          with zipfile.ZipFile(
+              output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
+          ) as archive:
+              for name in sorted(files):
+                  archive.writestr(name, files[name])
+          payload = output.getvalue()
+          with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("Final update ZIP CRC failure: " + bad)
+              if set(archive.namelist()) != expected:
+                  raise SystemExit("Unexpected update payload contents.")
+              ast.parse(archive.read("PigeonPoker.pyw").decode("utf-8"))
+
+          digest = hashlib.sha256(payload).hexdigest()
+          encoded = base64.b64encode(payload).decode("ascii")
+          release_dir = pathlib.Path("releases") / ("v" + TARGET_VERSION)
+          release_dir.mkdir(parents=True, exist_ok=True)
+          (release_dir / "payload-updater.zip.b64").write_text(encoded, encoding="ascii")
+          (release_dir / "payload.part-000").write_text(encoded, encoding="ascii")
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": ["payload.part-000"]}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          notes = (
+              "Settingsに効果音音量スライダーを追加し、0〜100%の数値表示と試聴ボタンを実装。"
+              "スライダー操作後は自動保存し、全体音量とカード・チップ・アラート・祝賀音の"
+              "個別音量も保存。既存のMaster sound、個別効果音ON/OFFと手動保存も維持。"
+              "ポストフロップのCHECK/CALL/FOLD、BET/RAISE、サイズ入力・スライダー・"
+              "ポット割合プリセットはv1.3.102の修正を維持。プリフロップ75局面・"
+              "12,675行・頻度・固定BBサイズは変更なし。"
+          )
+          release = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "package_mode": "full",
+              "release_notes": notes,
+              "payload_sha256": digest,
+              "payload_size": len(payload),
+              "source_version": SOURCE_VERSION,
+              "files": sorted(files),
+              "preflop_75_node_policy_immutable": True,
+              "preflop_12675_hand_rows_immutable": True,
+              "preflop_chart_frequencies_immutable": True,
+              "preflop_chart_bb_sizes_immutable": True,
+              "postflop_controls_restored": True,
+              "postflop_bet_raise_slider_entry_presets": True,
+              "sound_master_volume_slider": True,
+              "sound_master_volume_percent_display": True,
+              "sound_master_volume_preview": True,
+              "sound_master_and_group_volumes_auto_saved_on_release": True,
+              "sound_group_volumes_preserved": True,
+              "sound_settings_persistent": True,
+              "sound_volume_ui_regression_tests": "passed",
+              "postflop_ui_regression_tests": "passed",
+              "preflop_regression_tests": "passed",
+              "package_ast_and_zip_crc": "passed",
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(release, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "release_notes": notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": (
+                  f"https://raw.githubusercontent.com/{REPO}/main/releases/v{TARGET_VERSION}/"
+                  f"payload-updater.zip.b64?v={digest}"
+              ),
+              "payload_sha256": digest,
+              "payload_size": len(payload),
+          }
+          pathlib.Path("stable.json").write_text(
+              json.dumps(stable, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          (release_dir / "build.request").unlink(missing_ok=True)
+          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
+          subprocess.run(
+              ["git", "config", "user.email", "41898282+users.noreply.github.com"],
+              check=True,
+          )
+          subprocess.run(["git", "add", "stable.json", str(release_dir)], check=True)
+          subprocess.run(
+              ["git", "commit", "-m", "Release Pigeon Poker v1.3.103 effect volume settings"],
+              check=True,
+          )
+          subprocess.run(["git", "push"], check=True)
+          print(json.dumps({
+              "version": TARGET_VERSION,
+              "source_version": SOURCE_VERSION,
+              "files": sorted(files),
+              "payload_sha256": digest,
+              "effect_volume_control": True,
+              "slider_auto_save": True,
+              "preview": True,
+              "preflop_policy_modified": False,
+              "postflop_controls_preserved": True,
+              "tests": "passed",
+          }, ensure_ascii=False, indent=2))
+          PY
