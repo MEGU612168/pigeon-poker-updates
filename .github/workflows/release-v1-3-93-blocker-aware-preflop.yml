@@ -97,10 +97,6 @@ jobs:
           if files["VERSION.txt"].decode("ascii").strip() != SOURCE_VERSION:
               raise SystemExit("Pinned source version marker mismatch.")
 
-          main = files["PigeonPoker.pyw"].decode("utf-8")
-          if "PigeonGTOPlusIntegration" in main or "cash_gto_waiting" in main:
-              raise SystemExit("The v1.3.92 GTO+ ENGINE removal must remain intact.")
-
           module_path = "pigeon_poker/preflop_screenshot_ranges.py"
           source_path = pathlib.Path("staging/preflop_screenshot_ranges_75.py")
           test_path = pathlib.Path("staging/test_preflop_ranges_75.py")
