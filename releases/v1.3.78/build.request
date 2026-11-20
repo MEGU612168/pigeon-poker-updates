@@ -1,1 +1,1 @@
-Retry v1.3.78 with a stable launch API marker; geometry, syntax, range, and package checks previously passed.
+Retry v1.3.78 using the app-level GTO launch handler assertion; the reference-ratio, viewport, syntax, fit, and range checks are unchanged.
