@@ -8030,8 +8030,32 @@ class PigeonPokerApp(tk.Tk):
             setattr(self, f"sound_{name}_var", variable)
             ttk.Checkbutton(sound_grid, text=label, variable=variable).grid(
                 row=index // 3, column=index % 3, sticky="w", padx=(0, 9), pady=1)
-        tk.Label(sound, text="Master volume", bg=COLORS["panel"], fg=COLORS["muted"]).pack(anchor="w")
-        ttk.Scale(sound, from_=0, to=100, variable=self.sound_volume_var, orient="horizontal").pack(fill="x")
+        volume_heading = tk.Frame(sound, bg=COLORS["panel"])
+        volume_heading.pack(fill="x", pady=(2, 0))
+        tk.Label(volume_heading, text="効果音音量 / EFFECT VOLUME",
+                 bg=COLORS["panel"], fg=COLORS["muted"]).pack(side="left")
+        self.sound_volume_percent_var = tk.StringVar(value=f"{self.sound_volume}%")
+        tk.Label(volume_heading, textvariable=self.sound_volume_percent_var,
+                 bg=COLORS["panel"], fg=COLORS["gold"],
+                 font=("Segoe UI", 9, "bold")).pack(side="right")
+        volume_row = tk.Frame(sound, bg=COLORS["panel"])
+        volume_row.pack(fill="x")
+        volume_scale = ttk.Scale(
+            volume_row, from_=0, to=100, variable=self.sound_volume_var,
+            orient="horizontal", command=self._on_sound_master_volume_change)
+        volume_scale.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        volume_scale.bind(
+            "<ButtonRelease-1>",
+            lambda _event: self._save_sound_settings(), add="+")
+        volume_scale.bind(
+            "<KeyRelease>",
+            lambda _event: self._save_sound_settings(), add="+")
+        ttk.Button(
+            volume_row, text="PREVIEW", width=8,
+            command=self._preview_master_sound_volume).pack(side="right")
+        tk.Label(sound, text="0% = mute     100% = maximum",
+                 bg=COLORS["panel"], fg=COLORS["muted"],
+                 font=("Segoe UI", 7)).pack(anchor="w", pady=(0, 3))
         tk.Label(sound, text="Individual sound buses", bg=COLORS["panel"], fg=COLORS["gold"],
                  font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(5, 1))
         self.sound_group_vars = {}
@@ -8041,10 +8065,22 @@ class PigeonPokerApp(tk.Tk):
                      width=22, anchor="w").pack(side="left")
             variable = tk.IntVar(value=int(self.sound_group_levels.get(group, 100)))
             self.sound_group_vars[group] = variable
-            ttk.Scale(row, from_=0, to=100, variable=variable, orient="horizontal").pack(
-                side="left", fill="x", expand=True, padx=(5, 4))
+            group_scale = ttk.Scale(
+                row, from_=0, to=100, variable=variable, orient="horizontal")
+            group_scale.pack(side="left", fill="x", expand=True, padx=(5, 4))
+            group_scale.bind(
+                "<ButtonRelease-1>",
+                lambda _event: self._save_sound_settings(), add="+")
+            group_scale.bind(
+                "<KeyRelease>",
+                lambda _event: self._save_sound_settings(), add="+")
             ttk.Button(row, text="PREVIEW", width=8,
                        command=lambda selected_group=group: self._preview_sound_group(selected_group)).pack(side="right")
+        self.sound_settings_status_var = tk.StringVar(
+            value="音量スライダーは操作後に自動保存されます。")
+        tk.Label(sound, textvariable=self.sound_settings_status_var,
+                 bg=COLORS["panel"], fg=COLORS["muted"],
+                 font=("Segoe UI", 7)).pack(anchor="w", pady=(4, 0))
         ttk.Button(sound, text="SAVE SOUND SETTINGS", command=self._save_sound_settings).pack(fill="x", pady=(6, 0))
 
         hud_box, hud = self._panel(left, "TABLE HUD FIELDS")
@@ -8264,6 +8300,40 @@ class PigeonPokerApp(tk.Tk):
         except Exception as exc:
             messagebox.showerror("Hotkeys", str(exc))
 
+    def _on_sound_master_volume_change(self, value: str):
+        try:
+            level = max(0, min(100, int(round(float(value)))))
+        except (TypeError, ValueError):
+            level = max(0, min(100, int(self.sound_volume_var.get())))
+        self.sound_volume_var.set(level)
+        label = getattr(self, "sound_volume_percent_var", None)
+        if label is not None:
+            label.set(f"{level}%")
+
+    def _preview_master_sound_volume(self):
+        """Preview the pending master and per-group levels without saving first."""
+        old_master = self.sound_master
+        old_volume = self.sound_volume
+        old_groups = dict(self.sound_group_levels)
+        old_sounds = dict(self.sound_settings)
+        try:
+            self.sound_master = bool(self.sound_master_var.get())
+            self.sound_volume = max(0, min(100, int(self.sound_volume_var.get())))
+            self.sound_group_levels = {
+                name: max(0, min(100, int(variable.get())))
+                for name, variable in self.sound_group_vars.items()
+            }
+            self.sound_settings = {
+                name: bool(getattr(self, f"sound_{name}_var").get())
+                for name in SOUND_KEYS
+            }
+            self._play_sound("your_turn")
+        finally:
+            self.sound_master = old_master
+            self.sound_volume = old_volume
+            self.sound_group_levels = old_groups
+            self.sound_settings = old_sounds
+
     def _preview_sound_group(self, group: str):
         """Audition one representative event using the current unsaved bus controls."""
         sample_by_group = {
@@ -8308,6 +8378,11 @@ class PigeonPokerApp(tk.Tk):
         self.config_data["sounds"] = dict(self.sound_settings)
         self.config_data["sound_group_volumes"] = dict(self.sound_group_levels)
         save_config(self.config_data)
+        if hasattr(self, "sound_volume_percent_var"):
+            self.sound_volume_percent_var.set(f"{self.sound_volume}%")
+        status = getattr(self, "sound_settings_status_var", None)
+        if status is not None:
+            status.set("効果音の音量設定を保存しました。")
 
     def _save_hud_fields(self):
         self.hud_fields = {key: bool(var.get()) for key, var in self.hud_field_vars.items()}
