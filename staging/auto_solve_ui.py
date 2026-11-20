@@ -565,6 +565,49 @@ def _commit_verified_player2_editor_after_prompt(
     return result
 
 
+def _source_field_underlay_is_verified_edit(observation: dict[str, Any] | None,
+                                             target_pid: int) -> bool:
+    """True only when WindowFromPoint resolves to the expected Edit owned by this GTO+."""
+    if not isinstance(observation, dict):
+        return False
+    try:
+        return (
+            int(observation.get("pid", -1)) == int(target_pid)
+            and str(observation.get("class", "")) == "Edit"
+            and observation.get("related_to_exact_host") is True
+            and observation.get("visible") is True
+            and observation.get("enabled") is True
+            and isinstance(observation.get("rect_screen"), list)
+            and len(observation["rect_screen"]) == 4
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _source_field_underlay_is_verified_gto_view(observation: dict[str, Any] | None,
+                                                 target_pid: int,
+                                                 source_point_screen: tuple[int, int]) -> bool:
+    """Permit a single focus-only click when the measured field is drawn by GTO's own view."""
+    if not isinstance(observation, dict):
+        return False
+    try:
+        rect = observation.get("rect_screen")
+        x, y = map(int, source_point_screen)
+        return (
+            int(observation.get("pid", -1)) == int(target_pid)
+            and str(observation.get("class", "")) == "AfxFrameOrView140su"
+            and int(observation.get("control_id", -1)) == 59648
+            and observation.get("related_to_exact_host") is True
+            and observation.get("visible") is True
+            and observation.get("enabled") is True
+            and isinstance(rect, list) and len(rect) == 4
+            and int(rect[0]) <= x < int(rect[2])
+            and int(rect[1]) <= y < int(rect[3])
+        )
+    except (TypeError, ValueError):
+        return False
+
+
 def _source_field_occlusion_shift(source_rect_screen: list[int],
                                     occluder_rect_screen: list[int],
                                     margin: int = 5) -> int:
