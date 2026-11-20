@@ -220,7 +220,7 @@ def _action_likelihood(action: str, made: float, draw: float,
     if value in {"check"}:
         likelihood = 0.88 - 0.48 * made + 0.12 * draw
         return max(0.18, min(1.0, likelihood))
-    if value in {"call", "allin_call"}:
+    if value in {"call", "allin_call", "all_in_call"}:
         likelihood = 0.12 + 0.82 * made + 0.30 * draw
         return max(0.04, min(1.0, likelihood))
     if value in {"raise", "bet", "allin", "all_in", "jam", "shove"}:
