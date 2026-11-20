@@ -618,6 +618,11 @@ jobs:
           main = main.replace('self._cashier_withdraw, "SIMULATE WITHDRAWAL"',
                               'self._cashier_withdraw, "MOVE TO WITHDRAWABLE"')
 
+          for marker in ('elif kind == "cash_cpu_timeout":', 'elif kind == "cash_cpu_done":'):
+              pos = main.index(marker)
+              line_no = main.count("\\n", 0, pos) + 1
+              print("DEBUG", marker, "line", line_no)
+              print("\\n".join(main.splitlines()[line_no - 4:line_no + 10]))
           for name, content in files.items():
               if name.endswith((".py", ".pyw")):
                   ast.parse(content.decode("utf-8"), filename=name)
