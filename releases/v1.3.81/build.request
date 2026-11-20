@@ -1,1 +1,1 @@
-Retry v1.3.81 after rebuilding the handoff state anchor from explicit constructor lines; run all syntax, source, ZIP and recovery checks.
+Retry v1.3.81 preserving the original _attach_existing_gto(self, process_id: int) signature and storing host-map retries internally.
