@@ -2742,7 +2742,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             build_tree_dialog_probe = {
                 "stage": "build_tree_dialog_probe",
                 "status": "skipped_test_setup_not_fully_verified",
-                "build_tree_clicked": False,
+                "build_tree_clicked": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("build_tree_clicked")),
                 "dialog_opened": False,
                 "dialog_closed_verified": False,
                 "tree_built": False,
@@ -2850,9 +2850,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     all_captures = unique_captures
 
     report = {
-        "schema_version": 19,
+        "schema_version": 20,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_ip_weighted_range_and_board_card_selector_roundtrip_v19",
+        "probe": "verified_gto_plus_oop_ip_board_and_build_tree_dialog_roundtrip_v20",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -2896,6 +2896,17 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "board_test_cards_reflection_verified": bool(board_roundtrip and board_roundtrip.get("board_cards_reflection_verified")),
             "board_test_restored": bool(board_roundtrip and board_roundtrip.get("board_test_restored")),
             "board_test_may_remain_set": bool(board_roundtrip and board_roundtrip.get("board_test_may_remain_set")),
+            "build_tree_button_clicked_for_dialog_probe": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("build_tree_clicked")),
+            "build_tree_dialog_opened": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_opened")),
+            "build_tree_dialog_closed_verified": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_closed_verified")),
+            "build_tree_probe_oop_range_restored": bool(build_tree_sequence.get("oop_test_range_restored")),
+            "build_tree_probe_ip_range_restored": bool(build_tree_sequence.get("ip_test_range_restored")),
+            "build_tree_probe_board_restored": bool(build_tree_sequence.get("board_test_restored")),
+            "build_tree_probe_inputs_restored": bool(build_tree_sequence.get("all_test_inputs_restored")),
+            "build_tree_probe_may_remain_configured": bool(
+                build_tree_sequence.get("test_setup_committed")
+                and not build_tree_sequence.get("all_test_inputs_restored")
+            ),
             "temporary_window_position_restore_required": True,
         },
         "coordinate_reference": {
@@ -2920,6 +2931,14 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "board_selector_test_card_centers": {card: list(_board_card_center(card)) for card in _BOARD_TEST_CARDS},
             "board_selector_clear_center": list(_BOARD_CLEAR_CENTER),
             "board_selector_done_center": list(_BOARD_DONE_CENTER),
+            "build_tree_probe_test_range": "AA,AKs:0.4",
+            "build_tree_probe_test_board": list(_BOARD_TEST_CARDS),
+            "build_tree_dialog_opened": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_opened")),
+            "build_tree_dialog_closed_verified": bool(build_tree_dialog_probe and build_tree_dialog_probe.get("dialog_closed_verified")),
+            "build_tree_probe_inputs_restored": bool(build_tree_sequence.get("all_test_inputs_restored")),
+            "build_tree_probe_sequence_status": build_tree_sequence.get("status"),
+            "build_tree_dialog_popup_windows": build_tree_dialog_probe.get("popup_windows", []) if build_tree_dialog_probe else [],
+            "build_tree_dialog_native_controls": build_tree_dialog_probe.get("dialog_controls_main", []) if build_tree_dialog_probe else [],
             "build_tree_button_rect": list(_BUILD_TREE_RECT),
             "build_tree_button_center": list(_BUILD_TREE_CENTER),
             "visual_verification_roi": list(_DIALOG_ROI),
@@ -2983,7 +3002,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "The OOP and IP Source Edits are each tested with a temporary AA+AKs:40% multi-hand range. Exactly two matrix cells must change in the relevant 13x13 mini-matrix, GTO+ normalized Source text must match the exact allowlist, and Clear plus Done must restore the exact baseline signature.",
             "The OOP/IP range editor is dismissed with its measured X button; when the overlay remains, one direct WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP retry is sent only to the verified GTO drawing view and visually rechecked.",
             "The Board selector is tested with three measured rank/suit buttons (As, Kd, 7c), Done commits the temporary flop, then Clear plus Done must restore the original empty Board field. If the starting Board field is not empty, no card selection or Clear action is sent.",
-            "The OOP and IP multi-hand tests are temporary. Both final 13x13 matrices must match their empty baselines before the report marks restoration successful. Board/Pot/Stack/Rake are not changed; Build Tree and Solver are not run.",
+            "After the initial reversible range and Board tests pass, the exact AA+AKs:40% OOP/IP test ranges and As/Kd/7c Board are committed a second time only to inspect the Build Tree setup dialog. The dialog is closed without confirming a tree build; guarded exact-text/matrix/Board-image cleanup then restores the initial empty state. Pot/Stack/Rake are not changed and Solver is not run.",
             "Escape is sent only when the detected selector belongs to the exact GTO process and that process owns keyboard focus.",
         ],
     }
@@ -3028,6 +3047,12 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
         f"Board selector three-card commit/clear: {board_roundtrip.get('status') if board_roundtrip else 'not_attempted'}",
         f"Board cards reflected in main field: {bool(board_roundtrip and board_roundtrip.get('board_cards_reflection_verified'))}",
         f"Board original empty field restored: {bool(board_roundtrip and board_roundtrip.get('board_test_restored'))}",
+        f"Build Tree dialog: {build_tree_dialog_probe.get('status') if build_tree_dialog_probe else 'not_attempted'}",
+        f"Build Tree dialog opened: {bool(build_tree_dialog_probe and build_tree_dialog_probe.get('dialog_opened'))}",
+        f"Build Tree dialog closed: {bool(build_tree_dialog_probe and build_tree_dialog_probe.get('dialog_closed_verified'))}",
+        f"Build Tree probe OOP range restored: {bool(build_tree_sequence.get('oop_test_range_restored'))}",
+        f"Build Tree probe IP range restored: {bool(build_tree_sequence.get('ip_test_range_restored'))}",
+        f"Build Tree probe Board restored: {bool(build_tree_sequence.get('board_test_restored'))}",
         f"Source click sent: {bool(oop_source_probe.get('click_sent', False))}",
         f"Temporary GTO window move: {oop_source_probe.get('temporary_window_adjustment', {}).get('status', 'not_reported')}",
         f"Temporary GTO window move restored: {bool(oop_source_probe.get('window_position_restore_verified', True))}",
