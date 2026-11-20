@@ -86,10 +86,10 @@ jobs:
               if source.count(signature) != 1:
                   raise SystemExit(f"{label}: method signature must occur exactly once.")
               start = source.find(signature)
-              end = source.find("\\n    def ", start + len(signature))
+              end = source.find("\n    def ", start + len(signature))
               if start < 0 or end < 0:
                   raise SystemExit(f"{label}: could not find the next method boundary.")
-              replacement = "\\n".join(replacement_lines).rstrip()
+              replacement = "\n".join(replacement_lines).rstrip()
               if not replacement.startswith(signature):
                   raise SystemExit(f"{label}: replacement signature mismatch.")
               return source[:start] + replacement + source[end:]
@@ -97,7 +97,7 @@ jobs:
           # 1) Keep v1.3.69's original embedded-child layout. Only narrow the
           # right control column by 30px so the left GTO+ WORKSPACE gains 30px.
           gto_start = main.find("    def _build_gto_page(self):")
-          gto_end = main.find("\\n    def ", gto_start + 5)
+          gto_end = main.find("\n    def ", gto_start + 5)
           if gto_start < 0 or gto_end < 0:
               raise SystemExit("Could not isolate the v1.3.69 GTO+ page builder.")
           gto_page = main[gto_start:gto_end]
@@ -145,28 +145,28 @@ jobs:
           # 2) Make the GTO+ Engine page the first page so the native child host
           # is visible before automatic launch. Keep the v1.3.69 host itself.
           startup_old = (
-              '        self._build_pokercraft_page()\\n'
-              '        self.show_page("lobby")\\n'
-              '        self.protocol("WM_DELETE_WINDOW", self._on_close)\\n'
+              '        self._build_pokercraft_page()\n'
+              '        self.show_page("lobby")\n'
+              '        self.protocol("WM_DELETE_WINDOW", self._on_close)\n'
           )
           startup_new = (
-              '        self._build_pokercraft_page()\\n'
-              '        self.show_page("gto")\\n'
-              '        self.protocol("WM_DELETE_WINDOW", self._on_close)\\n'
+              '        self._build_pokercraft_page()\n'
+              '        self.show_page("gto")\n'
+              '        self.protocol("WM_DELETE_WINDOW", self._on_close)\n'
           )
           main = replace_once(main, startup_old, startup_new, "startup GTO+ page")
 
           # Track only the exact GTO+ PID launched or adopted by this Pigeon.
           state_old = (
-              "        self.gto_embedded = False\\n"
-              '        self.cpu_last_action = tk.StringVar(value="CPUはまだGTO+の戦略を使っていません")\\n'
+              "        self.gto_embedded = False\n"
+              '        self.cpu_last_action = tk.StringVar(value="CPUはまだGTO+の戦略を使っていません")\n'
           )
           state_new = (
-              "        self.gto_embedded = False\\n"
-              "        self.gto_owned_process_pid: int | None = None\\n"
-              "        self._gto_auto_start_started = False\\n"
-              "        self._gto_auto_connect_busy = False\\n"
-              '        self.cpu_last_action = tk.StringVar(value="CPUはまだGTO+の戦略を使っていません")\\n'
+              "        self.gto_embedded = False\n"
+              "        self.gto_owned_process_pid: int | None = None\n"
+              "        self._gto_auto_start_started = False\n"
+              "        self._gto_auto_connect_busy = False\n"
+              '        self.cpu_last_action = tk.StringVar(value="CPUはまだGTO+の戦略を使っていません")\n'
           )
           main = replace_once(main, state_old, state_new, "GTO+ lifecycle state")
 
@@ -174,34 +174,34 @@ jobs:
           # launches the new PigeonPoker.pyw after every successful update, so
           # this same constructor hook also runs after updates.
           timer_old = (
-              "        self._job_drain_after_id = self.after(120, self._drain_jobs)\\n"
-              "        self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)\\n"
+              "        self._job_drain_after_id = self.after(120, self._drain_jobs)\n"
+              "        self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)\n"
           )
           timer_new = (
-              "        self._job_drain_after_id = self.after(120, self._drain_jobs)\\n"
-              "        self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)\\n"
-              "        self.after(1200, self._auto_start_gto_plus)\\n"
-              "        self.after(1200, self._refresh_update_button_state)\\n"
+              "        self._job_drain_after_id = self.after(120, self._drain_jobs)\n"
+              "        self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)\n"
+              "        self.after(1200, self._auto_start_gto_plus)\n"
+              "        self.after(1200, self._refresh_update_button_state)\n"
           )
           main = replace_once(main, timer_old, timer_new, "GTO+ and update startup timers")
 
           find_existing_lines = [
               "    def _find_existing_gto_process_id(self) -> int | None:",
               '        """Find the exact configured GTO+ process so startup never creates a duplicate."""',
-              "        if os.name != \\"nt\\":",
+              "        if os.name != \"nt\":",
               "            return None",
               "        expected = Path(self.executable_var.get().strip()).expanduser().resolve()",
               "        if not expected.is_file():",
               '            raise FileNotFoundError(f"GTO+ executable not found: {expected}")',
               "        listed = subprocess.run(",
               '            ["tasklist", "/FI", f"IMAGENAME eq {expected.name}", "/FO", "CSV", "/NH"],',
-              "            check=False, capture_output=True, text=True, encoding=\\"utf-8\\",",
+              "            check=False, capture_output=True, text=True, encoding=\"utf-8\",",
               '            errors="replace", timeout=10,',
               '            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),',
               "        )",
               "        candidate_pids: set[int] = set()",
-              "        for line in (listed.stdout or \\"\\").splitlines():",
-              "            fields = line.strip().strip('\\\\"').split('\\",\\"')",
+              "        for line in (listed.stdout or \"\").splitlines():",
+              "            fields = line.strip().strip(chr(34)).split(chr(34) + chr(44) + chr(34))",
               "            if len(fields) >= 2 and fields[1].isdigit():",
               "                candidate_pids.add(int(fields[1]))",
               "        if not candidate_pids:",
@@ -334,7 +334,7 @@ jobs:
               "            self.update_idletasks()",
               "            host_hwnd = int(self.gto_host.winfo_id())",
               "            hwnd = self.integration.launch_and_dock(host_hwnd, startup_timeout=25)",
-              "            process = getattr(self.integration, \\"process\\", None)",
+              "            process = getattr(self.integration, \"process\", None)",
               "            if process is not None:",
               "                try:",
               "                    self.gto_owned_process_pid = int(process.pid)",
@@ -367,8 +367,8 @@ jobs:
 
           main = replace_once(
               main,
-              '        self.gto_embedded = False\\n        self.cpu_last_action',
-              '        self.gto_embedded = False\\n        self.gto_owned_process_pid: int | None = None\\n        self._gto_auto_start_started = False\\n        self._gto_auto_connect_busy = False\\n        self.cpu_last_action',
+              '        self.gto_embedded = False\n        self.cpu_last_action',
+              '        self.gto_embedded = False\n        self.gto_owned_process_pid: int | None = None\n        self._gto_auto_start_started = False\n        self._gto_auto_connect_busy = False\n        self.cpu_last_action',
               "lifecycle fields",
           ) if False else main
 
@@ -378,9 +378,9 @@ jobs:
           if main.count(insertion_anchor) != 1:
               raise SystemExit("Could not locate the manual socket setup method.")
           new_methods = (
-              "\\n".join(find_existing_lines) + "\\n\\n"
-              + "\\n".join(auto_start_lines) + "\\n\\n"
-              + "\\n".join(auto_connect_lines) + "\\n\\n"
+              "\n".join(find_existing_lines) + "\n\n"
+              + "\n".join(auto_start_lines) + "\n\n"
+              + "\n".join(auto_connect_lines) + "\n\n"
           )
           main = main.replace(insertion_anchor, new_methods + insertion_anchor, 1)
 
@@ -394,22 +394,22 @@ jobs:
           restart_signature = "    def _restart_pigeon_elevated_for_gto(self, process_id: int):"
           if restart_signature in main:
               start = main.find(restart_signature)
-              end = main.find("\\n    def ", start + len(restart_signature))
+              end = main.find("\n    def ", start + len(restart_signature))
               if end < 0:
                   raise SystemExit("Could not find the end of the old elevation helper.")
               main = main[:start] + main[end + 1:]
 
           # Add a bounded automatic connect retry branch. Successful connection
           # still flows through v1.3.69's normal connect_ok handler.
-          connect_ok_anchor = '                elif kind == "connect_ok":\\n'
+          connect_ok_anchor = '                elif kind == "connect_ok":\n'
           if main.count(connect_ok_anchor) != 1:
               raise SystemExit("Could not uniquely locate the connect_ok queue handler.")
           main = main.replace(
               connect_ok_anchor,
-              connect_ok_anchor + "                    self._gto_auto_connect_busy = False\\n",
+              connect_ok_anchor + "                    self._gto_auto_connect_busy = False\n",
               1,
           )
-          tree_loaded_anchor = '                elif kind == "tree_loaded":\\n'
+          tree_loaded_anchor = '                elif kind == "tree_loaded":\n'
           if main.count(tree_loaded_anchor) != 1:
               raise SystemExit("Could not uniquely locate the tree_loaded queue handler.")
           retry_event = [
@@ -426,34 +426,34 @@ jobs:
           ]
           main = main.replace(
               tree_loaded_anchor,
-              "\\n".join(retry_event) + "\\n" + tree_loaded_anchor,
+              "\n".join(retry_event) + "\n" + tree_loaded_anchor,
               1,
           )
 
           # Pigeon shutdown closes only the exact PID that this instance launched
           # or adopted. It never kills GTO+ processes by image name.
           close_old = (
-              "        try:\\n"
-              "            self.integration.stop(detach=True, terminate=False)\\n"
-              "        except Exception:\\n"
-              "            pass\\n"
+              "        try:\n"
+              "            self.integration.stop(detach=True, terminate=False)\n"
+              "        except Exception:\n"
+              "            pass\n"
               "        self.destroy()"
           )
           close_new = (
-              "        try:\\n"
-              "            self.integration.stop(detach=True, terminate=False)\\n"
-              "        except Exception:\\n"
-              "            pass\\n"
-              "        owned_pid = int(getattr(self, \\"gto_owned_process_pid\\", 0) or 0)\\n"
-              "        if owned_pid > 0 and os.name == \\"nt\\":\\n"
-              "            try:\\n"
-              "                subprocess.run(\\n"
-              '                    ["taskkill", "/PID", str(owned_pid), "/T", "/F"],\\n'
-              "                    check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,\\n"
-              "                    timeout=8, creationflags=getattr(subprocess, \\"CREATE_NO_WINDOW\\", 0),\\n"
-              "                )\\n"
-              "            except Exception:\\n"
-              "                pass\\n"
+              "        try:\n"
+              "            self.integration.stop(detach=True, terminate=False)\n"
+              "        except Exception:\n"
+              "            pass\n"
+              "        owned_pid = int(getattr(self, \"gto_owned_process_pid\", 0) or 0)\n"
+              "        if owned_pid > 0 and os.name == \"nt\":\n"
+              "            try:\n"
+              "                subprocess.run(\n"
+              '                    ["taskkill", "/PID", str(owned_pid), "/T", "/F"],\n'
+              "                    check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,\n"
+              "                    timeout=8, creationflags=getattr(subprocess, \"CREATE_NO_WINDOW\", 0),\n"
+              "                )\n"
+              "            except Exception:\n"
+              "                pass\n"
               "        self.destroy()"
           )
           main = replace_once(main, close_old, close_new, "close owned GTO+ with Pigeon")
@@ -469,23 +469,23 @@ jobs:
 
           style_anchor = '        style.map("Accent.TButton", background=[("active", "#35c78e")])'
           style_insert = (
-              style_anchor + "\\n"
-              '        style.configure("MutedUpdate.TButton", background="#354255", foreground="#aab5c5")\\n'
-              '        style.map("MutedUpdate.TButton", background=[("disabled", "#354255")], foreground=[("disabled", "#8997aa")])\\n'
+              style_anchor + "\n"
+              '        style.configure("MutedUpdate.TButton", background="#354255", foreground="#aab5c5")\n'
+              '        style.map("MutedUpdate.TButton", background=[("disabled", "#354255")], foreground=[("disabled", "#8997aa")])\n'
               '        style.configure("RetryUpdate.TButton", background="#64748b", foreground="#f2f6fc")'
           )
           main = replace_once(main, style_anchor, style_insert, "update button styles")
 
           old_button = (
-              "        self.update_button = ttk.Button(\\n"
-              '            header, text="UPDATE NOW", style="Accent.TButton",\\n'
-              "            command=self._begin_app_update,\\n"
+              "        self.update_button = ttk.Button(\n"
+              '            header, text="UPDATE NOW", style="Accent.TButton",\n'
+              "            command=self._begin_app_update,\n"
               "        )"
           )
           new_button = (
-              "        self.update_button = ttk.Button(\\n"
-              '            header, text="CHECKING…", style="MutedUpdate.TButton",\\n'
-              "            command=self._begin_app_update, state=\\"disabled\\",\\n"
+              "        self.update_button = ttk.Button(\n"
+              '            header, text="CHECKING…", style="MutedUpdate.TButton",\n'
+              "            command=self._begin_app_update, state=\"disabled\",\n"
               "        )"
           )
           main = replace_once(main, old_button, new_button, "initial update button state")
@@ -528,12 +528,12 @@ jobs:
           update_anchor = "    def _begin_app_update(self):"
           if main.count(update_anchor) != 1:
               raise SystemExit("Could not uniquely locate the update action method.")
-          main = main.replace(update_anchor, "\\n".join(update_method_lines) + "\\n\\n" + update_anchor, 1)
+          main = main.replace(update_anchor, "\n".join(update_method_lines) + "\n\n" + update_anchor, 1)
 
           # Update button visual state during a manual update check and restore
           # the no-update/failed-check states appropriately.
           update_start = main.find("    def _begin_app_update(self):")
-          update_end = main.find("\\n    def ", update_start + 5)
+          update_end = main.find("\n    def ", update_start + 5)
           if update_start < 0 or update_end < 0:
               raise SystemExit("Could not isolate the manual update method.")
           update_method = main[update_start:update_end]
@@ -638,7 +638,7 @@ jobs:
           # Confirm update restart semantics: the packaged helper waits for the
           # old PID to close, applies files, then relaunches the new PigeonPoker.pyw.
           updater = files["pigeon_updater.py"].decode("utf-8")
-          if "subprocess.Popen([executable, str(app_root / \\"PigeonPoker.pyw\\")], **kwargs)" not in updater:
+          if "subprocess.Popen([executable, str(app_root / \"PigeonPoker.pyw\")], **kwargs)" not in updater:
               raise SystemExit("The update helper does not relaunch PigeonPoker.pyw.")
           if "while _pid_is_running(parent_pid)" not in updater:
               raise SystemExit("The update helper does not wait for the previous Pigeon process to exit.")
