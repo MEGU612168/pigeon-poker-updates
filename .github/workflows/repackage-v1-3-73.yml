@@ -124,6 +124,62 @@ jobs:
           if start < 0 or end < 0 or main.count("    def _auto_start_gto_plus(self):\n") != 1:
               raise SystemExit("Could not uniquely locate _auto_start_gto_plus().")
           auto_start = "\n".join([
+              "    def _find_existing_gto_process_id(self) -> int | None:",
+              "        \"\"\"Find one exact running GTO+ executable; never choose by process name alone.\"\"\"",
+              "        if os.name != \"nt\":",
+              "            return None",
+              "        expected = Path(self.executable_var.get()).expanduser().resolve()",
+              "        if not expected.is_file():",
+              "            return None",
+              "        listed = subprocess.run(",
+              "            [\"tasklist\", \"/FI\", f\"IMAGENAME eq {expected.name}\", \"/FO\", \"CSV\", \"/NH\"],",
+              "            check=False, capture_output=True, text=True, encoding=\"utf-8\", errors=\"replace\",",
+              "            creationflags=getattr(subprocess, \"CREATE_NO_WINDOW\", 0),",
+              "        )",
+              "        candidate_pids = set()",
+              "        for line in (listed.stdout or \"\").splitlines():",
+              "            fields = line.strip().strip('\"').split('\",\"')",
+              "            if len(fields) >= 2 and fields[1].isdigit():",
+              "                candidate_pids.add(int(fields[1]))",
+              "        if not candidate_pids:",
+              "            return None",
+              "        kernel32 = ctypes.WinDLL(\"kernel32\", use_last_error=True)",
+              "        open_process = kernel32.OpenProcess",
+              "        open_process.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]",
+              "        open_process.restype = ctypes.c_void_p",
+              "        query_image = kernel32.QueryFullProcessImageNameW",
+              "        query_image.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_wchar), ctypes.POINTER(ctypes.c_uint32)]",
+              "        query_image.restype = ctypes.c_int",
+              "        close_handle = kernel32.CloseHandle",
+              "        close_handle.argtypes = [ctypes.c_void_p]",
+              "        close_handle.restype = ctypes.c_int",
+              "        expected_key = os.path.normcase(str(expected))",
+              "        matches = []",
+              "        unverified = []",
+              "        for pid in sorted(candidate_pids):",
+              "            handle = open_process(0x1000, 0, int(pid))",
+              "            if not handle:",
+              "                unverified.append(pid)",
+              "                continue",
+              "            try:",
+              "                image_path = ctypes.create_unicode_buffer(32768)",
+              "                image_size = ctypes.c_uint32(len(image_path))",
+              "                if not query_image(handle, 0, image_path, ctypes.byref(image_size)):",
+              "                    unverified.append(pid)",
+              "                    continue",
+              "                actual_key = os.path.normcase(str(Path(image_path.value).resolve()))",
+              "                if actual_key == expected_key:",
+              "                    matches.append(pid)",
+              "            except (OSError, ValueError):",
+              "                unverified.append(pid)",
+              "            finally:",
+              "                close_handle(handle)",
+              "        if len(matches) > 1:",
+              "            raise RuntimeError(\"同じGTO+実行ファイルが複数起動しています。重複起動を防ぐため自動接続を停止しました。\")",
+              "        if unverified:",
+              "            raise RuntimeError(\"同名GTO.exeの実行ファイルを確認できません。重複起動を防ぐため自動起動を停止しました。\")",
+              "        return matches[0] if matches else None",
+              "",
               "    def _auto_start_gto_plus(self):",
               "        \"\"\"Dock GTO+ only after the GTO page and its native host are actually visible.\"\"\"",
               "        if self._gto_attach_requested or self._active_page_key != \"gto\":",
@@ -160,12 +216,20 @@ jobs:
               "        except Exception:",
               "            process_is_alive = process is not None",
               "        if process_is_alive:",
-              "            # Reattach the exact process left by a previous failed docking attempt.",
               "            process_id = getattr(process, \"pid\", None)",
               "            if process_id:",
               "                self._attach_existing_gto(int(process_id))",
               "            else:",
               "                self.status_var.set(\"起動済みGTO+のPIDを確認できません。\")",
+              "            return",
+              "        try:",
+              "            external_pid = self._find_existing_gto_process_id()",
+              "        except Exception as exc:",
+              "            self.status_var.set(f\"GTO+既存プロセス確認失敗: {exc}\")",
+              "            return",
+              "        if external_pid is not None:",
+              "            # Reattach a leftover exact-path GTO+ instance from v1.3.72.",
+              "            self._attach_existing_gto(int(external_pid))",
               "            return",
               "        self._launch_gto()",
               "        if self.gto_embedded:",
@@ -212,6 +276,22 @@ jobs:
           if main.count(attach_anchor) != 1:
               raise SystemExit("Could not uniquely locate the GTO+ existing-process attach block.")
           main = main.replace(attach_anchor, attach_replacement, 1)
+
+          launch_error_anchor = (
+              "            if still_running:\n"
+              "                self.gto_embedded = False\n"
+          )
+          launch_error_replacement = (
+              "            if still_running:\n"
+              "                try:\n"
+              "                    self.gto_owned_process_pid = int(process.pid)\n"
+              "                except Exception:\n"
+              "                    pass\n"
+              "                self.gto_embedded = False\n"
+          )
+          if main.count(launch_error_anchor) != 1:
+              raise SystemExit("Could not uniquely locate the launch failure ownership block.")
+          main = main.replace(launch_error_anchor, launch_error_replacement, 1)
 
           # Keep the placeholder only until a real GTO+ child has docked.
           placeholder_old = (
@@ -263,13 +343,16 @@ jobs:
               "self.gto_host.winfo_ismapped()",
               "self._layout_embedded_gto_host()",
               "self._attach_existing_gto(int(process_id))",
+              "def _find_existing_gto_process_id(self) -> int | None:",
+              "QueryFullProcessImageNameW",
+              "self._find_existing_gto_process_id()",
               "self._launch_gto()",
               "def _hide_gto_placeholder(self):",
               "self._hide_gto_placeholder()",
           ):
               if required_text not in main:
                   raise SystemExit("Missing GTO+ docking guard: " + required_text)
-          if 'if self._active_page_key != "gto":' not in main:
+          if 'self._active_page_key != "gto"' not in main:
               raise SystemExit("GTO+ auto-start is not protected by the active page check.")
 
           files["PigeonPoker.pyw"] = main.encode("utf-8")
@@ -335,6 +418,7 @@ jobs:
               "responsive_gto_workspace": True,
               "gto_docking_requires_mapped_host": True,
               "existing_process_reattach": True,
+              "existing_external_process_detection": True,
           }
           (release_dir / "release.json").write_text(
               json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -368,6 +452,7 @@ jobs:
               "files": sorted(files),
               "auto_start_after_gto_page_mapped": True,
               "existing_process_reattach": True,
+              "existing_external_process_detection": True,
               "aspect_preserving_workspace": True,
           }, ensure_ascii=False))
           PY
