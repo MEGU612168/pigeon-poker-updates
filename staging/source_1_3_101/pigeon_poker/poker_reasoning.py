@@ -214,35 +214,40 @@ def _board_metrics(cards: tuple[str, str], board: list[str]) -> tuple[float, flo
 
     highest_suit_count = max(suit_counts.values(), default=0)
     flush_draw = 0.0
-    if highest_suit_count < 5 and len(board) < 5:
-        if highest_suit_count >= 4:
-            flush_draw = 0.84
-        elif highest_suit_count == 3 and len(board) == 3:
-            flush_draw = 0.16
+    straight_draw = 0.0
+    overcard_draw = 0.0
+    # No future cards remain on the river: never classify a made river hand
+    # as a live draw.
+    if len(board) < 5:
+        if highest_suit_count < 5:
+            if highest_suit_count >= 4:
+                flush_draw = 0.84
+            elif highest_suit_count == 3 and len(board) == 3:
+                flush_draw = 0.16
 
-    completion_ranks: set[int] = set()
-    backdoor_straight = False
-    for high in range(5, 15):
-        window = set(range(high - 4, high + 1))
-        missing = window - rank_values
-        if len(missing) == 1:
-            completion_ranks.update(missing)
-        elif len(missing) == 2 and len(board) == 3:
-            backdoor_straight = True
-    straight_draw = min(0.88, len(completion_ranks) * 0.40)
-    if straight_draw <= 0 and backdoor_straight:
-        straight_draw = 0.14
+        completion_ranks: set[int] = set()
+        backdoor_straight = False
+        for high in range(5, 15):
+            window = set(range(high - 4, high + 1))
+            missing = window - rank_values
+            if len(missing) == 1:
+                completion_ranks.update(missing)
+            elif len(missing) == 2 and len(board) == 3:
+                backdoor_straight = True
+        straight_draw = min(0.88, len(completion_ranks) * 0.40)
+        if straight_draw <= 0 and backdoor_straight:
+            straight_draw = 0.14
 
-    board_ranks = {
-        14 if card[0] == "A" else RANKS.index(card[0]) + 2
-        for card in board
-    }
-    board_high = max(board_ranks, default=14)
-    overcards = sum(
-        1 for card in cards
-        if (14 if card[0] == "A" else RANKS.index(card[0]) + 2) > board_high
-    )
-    overcard_draw = min(0.18, overcards * (0.075 if len(board) == 3 else 0.035))
+        board_ranks = {
+            14 if card[0] == "A" else RANKS.index(card[0]) + 2
+            for card in board
+        }
+        board_high = max(board_ranks, default=14)
+        overcards = sum(
+            1 for card in cards
+            if (14 if card[0] == "A" else RANKS.index(card[0]) + 2) > board_high
+        )
+        overcard_draw = min(0.18, overcards * (0.075 if len(board) == 3 else 0.035))
     draw = min(1.0, flush_draw + straight_draw + overcard_draw)
     return made, draw
 
@@ -475,7 +480,7 @@ def _fold_probability(ranges: dict[str, OpponentRange], board: list[str],
                       bet_fraction: float) -> float:
     """Estimate joint all-fold probability using each player's weighted range."""
     all_fold = 1.0
-    street = "postflop" if len(board) >= 3 else "preflop"
+    street = {3: "flop", 4: "turn", 5: "river"}.get(len(board), "preflop")
     for opponent_range in ranges.values():
         total = sum(max(0.0, float(weight)) for _, weight in opponent_range.combos)
         if total <= 0:
@@ -503,7 +508,7 @@ def _bet_response_metrics(
     cpu: Any,
 ) -> tuple[float, float, float, int]:
     """Condition ranges on calling; return all-fold, callers, called equity and samples."""
-    street = "postflop" if len(board) >= 3 else "preflop"
+    street = {3: "flop", 4: "turn", 5: "river"}.get(len(board), "preflop")
     response_ranges: dict[str, OpponentRange] = {}
     expected_callers = 0.0
     all_fold = 1.0
