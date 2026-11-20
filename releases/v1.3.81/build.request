@@ -1,1 +1,1 @@
-Build v1.3.81: start from verified v1.3.80, restore v1.3.69 WindowPermissionError recovery, automatic runas handoff without app yes/no, preserve GTO PID during handoff, reattach same PID and suppress duplicate auto launch.
+Retry v1.3.81 after rebuilding the handoff state anchor from explicit constructor lines; run all syntax, source, ZIP and recovery checks.
