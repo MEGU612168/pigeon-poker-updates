@@ -1,0 +1,248 @@
+name: Release Pigeon Poker v1.3.94 mechanical preflop chart
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.94/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify complete preflop chart, opponent range estimates and chart-only action
+        shell: bash
+        run: |
+          set -euo pipefail
+          python staging/test_preflop_ranges_75.py
+          python - <<'PY'
+          import ast
+          import pathlib
+          module = pathlib.Path("staging/preflop_screenshot_ranges_75.py").read_text(encoding="utf-8")
+          tests = pathlib.Path("staging/test_preflop_ranges_75.py").read_text(encoding="utf-8")
+          tree = ast.parse(module, filename="preflop_screenshot_ranges_75.py")
+          test_tree = ast.parse(tests, filename="test_preflop_ranges_75.py")
+          test_count = sum(
+              1 for item in test_tree.body
+              if isinstance(item, ast.FunctionDef) and item.name.startswith("test_")
+          )
+          if test_count < 21:
+              raise SystemExit(f"Expected >=21 tests, found {test_count}")
+          if "DEVIATION_BY_LEVEL" in module or "deviation_rate" in module:
+              raise SystemExit("Legacy preflop deviation logic remains in chart module.")
+          chooser = module[module.index("def choose_preflop_action"):module.index("def coverage_summary")]
+          if "_choose_preflop_action_from_chart(table, hand, actor_id, cpu, None)" not in chooser:
+              raise SystemExit("Preflop chooser is not mechanical chart-only.")
+          if "Execute only the supplied screenshot chart" not in chooser:
+              raise SystemExit("Chart-only policy marker missing.")
+          required = {
+              "_available_combos_for_class",
+              "_known_public_blockers",
+              "estimate_preflop_opponent_ranges",
+          }
+          if not all(name in module for name in required):
+              raise SystemExit("Opponent range blocker API missing.")
+          print(f"Preflop AST: PASS; mechanical chart: PASS; tests: {test_count}")
+          PY
+
+      - name: Build Stable package from exact v1.3.93
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import time
+          import urllib.request
+          import zipfile
+          import subprocess
+
+          REPO = "MEGU612168/pigeon-poker-updates"
+          SOURCE_VERSION = "1.3.93"
+          TARGET_VERSION = "1.3.94"
+          SOURCE_SHA256 = "c1cddfa516956a71d880893d91769ab23da6fdd2a456706af437d04b8d83e881"
+          SOURCE_SIZE = 266076
+          source_url = (
+              f"https://raw.githubusercontent.com/{REPO}/main/releases/v{SOURCE_VERSION}/"
+              f"payload-updater.zip.b64?v={SOURCE_SHA256}"
+          )
+          request = urllib.request.Request(
+              source_url, headers={"Cache-Control": "no-cache", "Pragma": "no-cache"}
+          )
+          with urllib.request.urlopen(request, timeout=90) as response:
+              transport = response.read().decode("ascii").strip()
+          payload = base64.b64decode(transport, validate=True)
+          if len(payload) != SOURCE_SIZE:
+              raise SystemExit("Pinned v1.3.93 package size mismatch.")
+          if hashlib.sha256(payload).hexdigest() != SOURCE_SHA256:
+              raise SystemExit("Pinned v1.3.93 package SHA-256 mismatch.")
+
+          expected_files = {
+              "PigeonPoker.pyw",
+              "pigeon_updater.py",
+              "VERSION.txt",
+              "pigeon_gto_plus/auto_solve_ui.py",
+              "pigeon_gto_plus/live_range_builder.py",
+              "pigeon_gto_plus/ui_probe.py",
+              "pigeon_poker/preflop_screenshot_ranges.py",
+          }
+          with zipfile.ZipFile(io.BytesIO(payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("v1.3.93 ZIP CRC failure: " + bad)
+              files = {name: archive.read(name) for name in archive.namelist()}
+          if set(files) != expected_files:
+              raise SystemExit("Unexpected v1.3.93 package file layout.")
+          if files["VERSION.txt"].decode("ascii").strip() != SOURCE_VERSION:
+              raise SystemExit("Pinned source version marker mismatch.")
+
+          module_path = "pigeon_poker/preflop_screenshot_ranges.py"
+          strategy_source = pathlib.Path("staging/preflop_screenshot_ranges_75.py").read_text(encoding="utf-8")
+          test_source = pathlib.Path("staging/test_preflop_ranges_75.py").read_text(encoding="utf-8")
+          ast.parse(strategy_source, filename=module_path)
+          test_tree = ast.parse(test_source, filename="test_preflop_ranges_75.py")
+          test_count = sum(
+              1 for item in test_tree.body
+              if isinstance(item, ast.FunctionDef) and item.name.startswith("test_")
+          )
+          if test_count < 21:
+              raise SystemExit("Preflop regression suite unexpectedly reduced.")
+          if "DEVIATION_BY_LEVEL" in strategy_source:
+              raise SystemExit("Legacy CPU deviation still present.")
+
+          files[module_path] = strategy_source.encode("utf-8")
+          files["VERSION.txt"] = (TARGET_VERSION + "\n").encode("ascii")
+          for name, content in files.items():
+              if name.endswith((".py", ".pyw")):
+                  ast.parse(content.decode("utf-8"), filename=name)
+
+          out = io.BytesIO()
+          with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+              for name in sorted(files):
+                  archive.writestr(name, files[name])
+          final_payload = out.getvalue()
+          with zipfile.ZipFile(io.BytesIO(final_payload), "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Final package ZIP CRC validation failed.")
+              if set(archive.namelist()) != expected_files:
+                  raise SystemExit("Final package file set changed.")
+              if archive.read("VERSION.txt").decode("ascii").strip() != TARGET_VERSION:
+                  raise SystemExit("Final version marker mismatch.")
+              packaged_module = archive.read(module_path).decode("utf-8")
+              ast.parse(packaged_module, filename=module_path)
+              if "Execute only the supplied screenshot chart" not in packaged_module:
+                  raise SystemExit("Mechanical preflop chart implementation missing from package.")
+              if "_available_combos_for_class" not in packaged_module:
+                  raise SystemExit("Blocker-aware opponent range estimator missing from package.")
+
+          digest = hashlib.sha256(final_payload).hexdigest()
+          encoded = base64.b64encode(final_payload).decode("ascii")
+          release_dir = pathlib.Path("releases") / ("v" + TARGET_VERSION)
+          release_dir.mkdir(parents=True, exist_ok=True)
+          (release_dir / "payload-updater.zip.b64").write_text(encoded, encoding="ascii")
+          parts = []
+          for index, offset in enumerate(range(0, len(encoded), 48000)):
+              name = f"payload.part-{index:03d}"
+              (release_dir / name).write_text(encoded[offset:offset + 48000], encoding="ascii")
+              parts.append(name)
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": parts}, indent=2) + "\n", encoding="utf-8"
+          )
+
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          notes = (
+              "プリフロップ75局面・12,675ハンドクラスを維持し、対応局面ではCPUレベルごとの旧ランダム逸脱を使わず、"
+              "スクリーンショット由来チャートをそのまま実行。50局面のレイズ先額、20局面のオールイン分岐、"
+              "100BB・6人配札の適用条件、未対応履歴の安全なフォールバック、ブロッカー補正付き相手レンジ推定を維持。"
+              "GTO+ ENGINEを通常利用経路から外した状態も維持。頻度はスクリーンショットの169ハンドクラス近似であり、"
+              "ソルバーの生コンボ頻度やスート別戦略ではない。"
+          )
+          release = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "package_mode": "full",
+              "release_notes": notes,
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+              "source_version": SOURCE_VERSION,
+              "preflop_node_count": 75,
+              "hand_classes_per_node": 169,
+              "preflop_hand_rows": 12675,
+              "nodes_with_raise_actions": 50,
+              "nodes_with_allin_actions": 20,
+              "preflop_chart_mechanical": True,
+              "legacy_cpu_deviations_on_preflop": False,
+              "opponent_range_blocker_adjustment": True,
+              "gto_plus_engine_removed_from_runtime": True,
+              "regression_test_count": test_count,
+              "regression_tests": "Passed in GitHub Actions",
+              "frequency_method": "screenshot-colour-area estimated hand-class frequencies calibrated to displayed action totals; not solver-exact combo frequencies",
+              "files": sorted(files),
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(release, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+          )
+          stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "release_notes": notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": (
+                  f"https://raw.githubusercontent.com/{REPO}/main/releases/v{TARGET_VERSION}/"
+                  f"payload-updater.zip.b64?v={digest}"
+              ),
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+          }
+          pathlib.Path("stable.json").write_text(
+              json.dumps(stable, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+          )
+          pathlib.Path("dist").mkdir(exist_ok=True)
+          artifact = pathlib.Path("dist") / f"PigeonPoker_{TARGET_VERSION}.zip"
+          artifact.write_bytes(final_payload)
+          with zipfile.ZipFile(artifact, "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Installable ZIP verification failed.")
+          (release_dir / "build.request").unlink(missing_ok=True)
+          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
+          subprocess.run(
+              ["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"],
+              check=True,
+          )
+          subprocess.run(["git", "add", "stable.json", str(release_dir)], check=True)
+          subprocess.run(
+              ["git", "commit", "-m", "Release Pigeon Poker v1.3.94 mechanical preflop chart"],
+              check=True,
+          )
+          subprocess.run(["git", "push"], check=True)
+          print(json.dumps({
+              "published_version": TARGET_VERSION,
+              "source_version": SOURCE_VERSION,
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+              "preflop_nodes": 75,
+              "hand_classes_per_node": 169,
+              "hand_rows": 12675,
+              "regression_tests": test_count,
+              "mechanical_chart": True,
+              "opponent_blockers": True,
+          }, ensure_ascii=False, indent=2))
+          PY
