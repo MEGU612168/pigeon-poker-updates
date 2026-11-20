@@ -418,6 +418,20 @@ def _cards_to_class(cards: tuple[str, str]) -> str:
     return high[0] + low[0] + ("s" if first[1] == second[1] else "o")
 
 
+def required_call_equity(pot_before_call: int, call_amount: int, rake_amount: int = 0) -> float:
+    """Minimum equity to call, after estimated rake, as a fraction of the final pot."""
+    pot = max(0, int(pot_before_call))
+    call = max(0, int(call_amount))
+    rake = max(0, int(rake_amount))
+    return min(1.0, call / max(1, pot + call - rake))
+
+
+def required_bluff_success(pot_before_bet: int, risk_amount: int) -> float:
+    """Pure-bluff break-even fold frequency: risk / (pot + risk)."""
+    pot = max(0, int(pot_before_bet))
+    risk = max(0, int(risk_amount))
+    return min(1.0, risk / max(1, pot + risk))
+
 def _best_passive_action(legal_actions: set[str]) -> str:
     for action in ("check", "fold", "call"):
         if action in legal_actions:
@@ -467,8 +481,8 @@ def choose_range_aware_action(
     rake_cap = max(0, int(getattr(hand, "rake_cap", 0) or 0))
     call_pot = pot + to_call
     estimated_rake = min(rake_cap, int(call_pot * rake_bps / 10000)) if rake_bps else 0
-    required_call = min(0.99, to_call / max(1, call_pot - estimated_rake))
-    required_bluff = 0.0
+    required_call = required_call_equity(pot, to_call, estimated_rake)
+    required_bluff = required_bluff_success(pot, max(1, int(round(max(1, pot) * 0.50))))
     fold_probability = 0.0
 
     if street == "preflop":
@@ -539,7 +553,7 @@ def choose_range_aware_action(
             risk = target - street_contribution
             bet_fraction = risk / max(1, pot)
             fold_probability = _fold_probability(ranges, board, bet_fraction)
-            required_success = risk / max(1, pot + risk)
+            required_success = required_bluff_success(pot, risk)
             required_bluff = required_success
             # When called, an additional raise receives a larger pot; this is
             # an approximation, not a solver-exact future-game EV.
