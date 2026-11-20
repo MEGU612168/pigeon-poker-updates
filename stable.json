@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.57",
-  "published_at": "2026-11-20T02:43:31Z",
-  "release_notes": "OOPの2セル判定を各セルの2x2内側画素のRGB最大値で評価。GTO+が40%のAKsに描画する細い青いマーカーを検出し、AA+AKsだけの反映確認後にClear＋完了で復元。想定外テキストは変更せず停止。Build Tree・Solver実行なし。",
+  "version": "1.3.58",
+  "published_at": "2026-11-20T03:01:29Z",
+  "release_notes": "複数ハンド可逆テストの実機成功判定を1回に統一。旧AA単独テストの二重判定を削除し、AA+AKs:40%の2セル反映・Source正規化・完全復元を確認。40%の細い青マーカーは2x2画素で検出。Build Tree・Solver実行なし。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.57/payload-updater.zip.b64",
-  "payload_sha256": "228788bf4a0d42bd20528462a87f7bf5a4468d59983ad8cd9dcefa1bc5f994d0",
-  "payload_size": 207207
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.58/payload-updater.zip.b64",
+  "payload_sha256": "ad5653e90ea8ea3bc45fd6cf8e1b51f77e1674715c7bc19a55ea7fd6df39f3cc",
+  "payload_size": 207185
 }
