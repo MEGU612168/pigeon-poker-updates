@@ -1,0 +1,381 @@
+name: Release Pigeon Poker v1.3.97 persistent fold and sit-out button
+
+on:
+  push:
+    paths:
+      - "releases/v1.3.97/build.request"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify preserved preflop chart policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python staging/test_preflop_ranges_75.py
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          source = Path("staging/preflop_screenshot_ranges_75.py").read_text(encoding="utf-8")
+          ast.parse(source, filename="preflop_screenshot_ranges_75.py")
+          if "DEVIATION_BY_LEVEL" in source:
+              raise SystemExit("Unexpected CPU-level preflop deviation.")
+          if "Execute only the supplied screenshot chart" not in source:
+              raise SystemExit("Mechanical chart-only preflop policy missing.")
+          print("Mechanical preflop policy: PASS")
+          PY
+
+      - name: Build Stable v1.3.97 from exact v1.3.96
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import io
+          import json
+          import pathlib
+          import subprocess
+          import time
+          import urllib.request
+          import zipfile
+
+          REPO = "MEGU612168/pigeon-poker-updates"
+          SOURCE_VERSION = "1.3.96"
+          TARGET_VERSION = "1.3.97"
+          SOURCE_SHA256 = "e221a021f81c8072c492e85112b1fda4802cdd67a64a34bb5cd44139335cd75d"
+          SOURCE_SIZE = 265980
+          source_url = (
+              f"https://raw.githubusercontent.com/{REPO}/main/releases/v{SOURCE_VERSION}/"
+              f"payload-updater.zip.b64?v={SOURCE_SHA256}"
+          )
+          request = urllib.request.Request(
+              source_url, headers={"Cache-Control": "no-cache", "Pragma": "no-cache"}
+          )
+          with urllib.request.urlopen(request, timeout=90) as response:
+              encoded = response.read().decode("ascii").strip()
+          source_payload = base64.b64decode(encoded, validate=True)
+          if len(source_payload) != SOURCE_SIZE:
+              raise SystemExit("Pinned v1.3.96 payload size mismatch.")
+          if hashlib.sha256(source_payload).hexdigest() != SOURCE_SHA256:
+              raise SystemExit("Pinned v1.3.96 payload SHA-256 mismatch.")
+
+          expected_files = {
+              "PigeonPoker.pyw",
+              "pigeon_updater.py",
+              "VERSION.txt",
+              "pigeon_gto_plus/auto_solve_ui.py",
+              "pigeon_gto_plus/live_range_builder.py",
+              "pigeon_gto_plus/ui_probe.py",
+              "pigeon_poker/preflop_screenshot_ranges.py",
+          }
+          with zipfile.ZipFile(io.BytesIO(source_payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("v1.3.96 ZIP CRC failure: " + bad)
+              files = {name: archive.read(name) for name in archive.namelist()}
+          if set(files) != expected_files:
+              raise SystemExit("Unexpected v1.3.96 package contents.")
+          if files["VERSION.txt"].decode("ascii").strip() != SOURCE_VERSION:
+              raise SystemExit("Pinned v1.3.96 version marker mismatch.")
+
+          main = files["PigeonPoker.pyw"].decode("utf-8")
+
+          def replace_once(source, old, new, label):
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one occurrence, found {count}")
+              return source.replace(old, new, 1)
+
+          # Keep the existing utility-row Sit Out button as the only Resume
+          # control. It changes text and command in place when sitting out.
+          header_button_block = (
+              '        resume_header_button = self._compact_action_button(\n'
+              '            header, "再開",\n'
+              '            lambda tid=table_id: self._resume_cash_table(tid), "accent")\n'
+              '        resume_header_button.pack_forget()\n'
+          )
+          main = replace_once(main, header_button_block, "", "remove duplicate header Resume button")
+          main = replace_once(
+              main,
+              '            "resume_header_button": resume_header_button,\n',
+              "",
+              "remove header Resume button registration",
+          )
+          main = replace_once(
+              main,
+              '                    record["resume_header_button"].pack(side="right", padx=3)\n',
+              "",
+              "remove header Resume show call",
+          )
+          main = replace_once(
+              main,
+              '                    record["resume_header_button"].pack_forget()\n',
+              "",
+              "remove header Resume hide call",
+          )
+          if "resume_header_button" in main:
+              raise SystemExit("Duplicate header Resume control still exists.")
+
+          # Create one persistent Fold widget in the action row. Never destroy
+          # or recreate it when the actor changes from CPU to HERO.
+          creation_anchor = (
+              '        actions = tk.Frame(action_outer, bg=COLORS["panel"])\n'
+              '        actions.pack(fill="x", padx=5, pady=(3, 1))\n'
+              '        size_actions = tk.Frame(action_outer, bg=COLORS["panel"])\n'
+              '        size_actions.pack(fill="x", padx=5, pady=(0, 2))\n'
+          )
+          creation_replacement = (
+              '        actions = tk.Frame(action_outer, bg=COLORS["panel"])\n'
+              '        actions.pack(fill="x", padx=5, pady=(3, 1))\n'
+              '        fold_button = self._compact_action_button(\n'
+              '            actions, "FOLD",\n'
+              '            lambda tid=table_id: self._handle_table_fold(tid), "danger")\n'
+              '        fold_button.pack_forget()\n'
+              '        size_actions = tk.Frame(action_outer, bg=COLORS["panel"])\n'
+              '        size_actions.pack(fill="x", padx=5, pady=(0, 2))\n'
+              '        size_actions.configure(height=48)\n'
+              '        size_actions.pack_propagate(False)\n'
+          )
+          main = replace_once(main, creation_anchor, creation_replacement, "persistent Fold and fixed sizing row")
+
+          main = replace_once(
+              main,
+              '            "actions": actions, "size_actions": size_actions, "utility_actions": utility_actions,\n',
+              '            "actions": actions, "size_actions": size_actions, "utility_actions": utility_actions,\n'
+              '            "fold_button": fold_button,\n',
+              "register persistent Fold button",
+          )
+
+          old_clear = (
+              '                for frame in (actions_frame, sizes_frame):\n'
+              '                    for child in frame.winfo_children():\n'
+              '                        child.destroy()\n'
+          )
+          new_clear = (
+              '                for frame in (actions_frame, sizes_frame):\n'
+              '                    for child in frame.winfo_children():\n'
+              '                        if frame is actions_frame and child is record.get("fold_button"):\n'
+              '                            child.pack_forget()\n'
+              '                            continue\n'
+              '                        child.destroy()\n'
+          )
+          main = replace_once(main, old_clear, new_clear, "preserve Fold widget during action refresh")
+
+          old_busy_fold = (
+              '                    fold_button = self._compact_action_button(\n'
+              '                        actions_frame, "FOLD" if not queued else "FOLD ✓",\n'
+              '                        lambda tid=slot.table_id: self._handle_table_fold(tid),\n'
+              '                        "danger")\n'
+              '                    fold_button.configure(state="disabled" if queued else "normal")\n'
+              '                    fold_button.pack(side="left", padx=2)\n'
+          )
+          new_busy_fold = (
+              '                    fold_button = record["fold_button"]\n'
+              '                    fold_button.configure(\n'
+              '                        text="FOLD" if not queued else "FOLD ✓",\n'
+              '                        command=lambda tid=slot.table_id: self._handle_table_fold(tid),\n'
+              '                        state="disabled" if queued else "normal")\n'
+              '                    fold_button.pack(side="left", padx=2)\n'
+          )
+          main = replace_once(main, old_busy_fold, new_busy_fold, "reuse Fold widget before HERO turn")
+
+          old_turn_fold = (
+              '                    if rush_preflop or "fold" in action_names:\n'
+              '                        fold_caption = "FOLD"\n'
+              '                        fold_command = ((lambda tid=slot.table_id: self._handle_table_fold(tid))\n'
+              '                                        if rush_preflop or hand.street != "preflop" else\n'
+              '                                        (lambda tid=slot.table_id: self._floating_table_action(tid, "fold")))\n'
+              '                        self._compact_action_button(actions_frame, fold_caption,\n'
+              '                            fold_command, "danger").pack(side="left", padx=2)\n'
+          )
+          new_turn_fold = (
+              '                    fold_button = record["fold_button"]\n'
+              '                    if rush_preflop or "fold" in action_names:\n'
+              '                        fold_command = ((lambda tid=slot.table_id: self._handle_table_fold(tid))\n'
+              '                                        if rush_preflop or hand.street != "preflop" else\n'
+              '                                        (lambda tid=slot.table_id: self._floating_table_action(tid, "fold")))\n'
+              '                        fold_button.configure(text="FOLD", command=fold_command, state="normal")\n'
+              '                        fold_button.pack(side="left", padx=2)\n'
+              '                    else:\n'
+              '                        fold_button.pack_forget()\n'
+          )
+          main = replace_once(main, old_turn_fold, new_turn_fold, "reuse same Fold widget on HERO turn")
+
+          # The same sizing-row height is reserved before and during the turn,
+          # so revealing the slider cannot push the Fold control around.
+          if "size_actions.configure(height=48)" not in main:
+              raise SystemExit("Fixed sizing-row height missing.")
+          if "size_actions.pack_propagate(False)" not in main:
+              raise SystemExit("Sizing-row geometry reservation missing.")
+
+          # The sit-out state synchronizes the existing utility button before
+          # any UI refresh early-exit. Verify it still switches in place.
+          if 'record["sitout_button"].configure(\n                        text="再開"' not in main:
+              raise SystemExit("Existing Sit Out button does not become Resume.")
+          if 'text="一時離席", command=lambda tid=slot.table_id: self._request_table_sitout(tid)' not in main:
+              raise SystemExit("Existing Resume control does not return to Sit Out.")
+          if 'record["fold_button"]' not in main:
+              raise SystemExit("Persistent Fold button is not used by both states.")
+          if 'child is record.get("fold_button")' not in main:
+              raise SystemExit("Persistent Fold button would still be destroyed.")
+          if 'self._compact_action_button(actions_frame, fold_caption' in main:
+              raise SystemExit("A second Fold button is still created on the HERO turn.")
+          if main.count('fold_button = self._compact_action_button(\n            actions, "FOLD",') != 1:
+              raise SystemExit("Expected exactly one persistent Fold widget.")
+
+          # Confirm the original half-duration deal and Resume handler are retained.
+          for required in (
+              "DEAL_FIRST_DELAY_MS // 4",
+              "DEAL_FLIGHT_FRAME_MS // 4",
+              "DEAL_BETWEEN_CARDS_MS // 4",
+              "max(1, HOLE_REVEAL_PAUSE_MS // 2)",
+          ):
+              if required not in main:
+                  raise SystemExit("v1.3.96 faster first-deal timing missing: " + required)
+          resume_start = main.index("def _resume_cash_table(")
+          resume_end = main.index("def _retry_queued_table_resume(", resume_start)
+          resume_method = main[resume_start:resume_end]
+          for required in (
+              'state["cash_sitting_out"] = False',
+              'self._start_cash_hand(first=table.hand is None)',
+          ):
+              if required not in resume_method:
+                  raise SystemExit("Resume handler lost a required transition: " + required)
+
+          ast.parse(main, filename="PigeonPoker.pyw")
+          files["PigeonPoker.pyw"] = main.encode("utf-8")
+          files["VERSION.txt"] = (TARGET_VERSION + "\n").encode("ascii")
+
+          for name, content in files.items():
+              if name.endswith((".py", ".pyw")):
+                  ast.parse(content.decode("utf-8"), filename=name)
+
+          output = io.BytesIO()
+          with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+              for name in sorted(files):
+                  archive.writestr(name, files[name])
+          final_payload = output.getvalue()
+          with zipfile.ZipFile(io.BytesIO(final_payload), "r") as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit("Final package ZIP CRC failure: " + bad)
+              if set(archive.namelist()) != expected_files:
+                  raise SystemExit("Final package file set mismatch.")
+              packaged_main = archive.read("PigeonPoker.pyw").decode("utf-8")
+              ast.parse(packaged_main, filename="PigeonPoker.pyw")
+              if "Preflop chart coverage missing" not in packaged_main:
+                  raise SystemExit("v1.3.95 strict chart-only preflop runtime was lost.")
+              if "resume_header_button" in packaged_main:
+                  raise SystemExit("Duplicate header Resume button remains.")
+              if '"fold_button": fold_button' not in packaged_main:
+                  raise SystemExit("Persistent Fold widget was not packaged.")
+
+          digest = hashlib.sha256(final_payload).hexdigest()
+          final_encoded = base64.b64encode(final_payload).decode("ascii")
+          release_dir = pathlib.Path("releases") / ("v" + TARGET_VERSION)
+          release_dir.mkdir(parents=True, exist_ok=True)
+          (release_dir / "payload-updater.zip.b64").write_text(final_encoded, encoding="ascii")
+          chunks = []
+          for index, offset in enumerate(range(0, len(final_encoded), 48000)):
+              name = f"payload.part-{index:03d}"
+              (release_dir / name).write_text(final_encoded[offset:offset + 48000], encoding="ascii")
+              chunks.append(name)
+          (release_dir / "payload.parts.json").write_text(
+              json.dumps({"parts": chunks}, indent=2) + "\n", encoding="utf-8"
+          )
+
+          now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+          notes = (
+              "最初のホールカード配札を従来の約50%の時間に短縮したv1.3.96の改善を維持。"
+              "一時離席中は、既存の「一時離席」ボタンそのものを同じ位置のまま「再開」に切り替え、"
+              "独立した別の再開ボタンは追加しない。"
+              "フォールドは一つのボタン部品をCPU進行中と自分のアクション時で共用し、同じ位置・同じ操作を維持。"
+              "ベットサイズ欄の高さを固定し、スライダーの表示でフォールドボタンが移動しないようにする。"
+              "全CPU共通の機械的プリフロップ75局面チャートと、ポストフロップのみのCPUレベル差を維持。"
+          )
+          release = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "package_mode": "full",
+              "release_notes": notes,
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+              "source_version": SOURCE_VERSION,
+              "initial_hole_card_deal_duration_multiplier": 0.5,
+              "sitout_resume_uses_existing_utility_button": True,
+              "no_duplicate_header_resume_button": True,
+              "sitout_resume_control_sync_before_ui_early_exit": True,
+              "persistent_fold_widget_across_cpu_and_hero_states": True,
+              "fold_button_position_stable": True,
+              "reserved_bet_size_row_height_px": 48,
+              "preflop_mechanical_all_cpu_levels": True,
+              "cpu_level_differences_apply_to": ["postflop"],
+              "gto_plus_engine_removed_from_runtime": True,
+              "package_ast_and_zip_crc": "passed",
+              "files": sorted(files),
+          }
+          (release_dir / "release.json").write_text(
+              json.dumps(release, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+          )
+          stable = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": TARGET_VERSION,
+              "published_at": now,
+              "release_notes": notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": (
+                  f"https://raw.githubusercontent.com/{REPO}/main/releases/v{TARGET_VERSION}/"
+                  f"payload-updater.zip.b64?v={digest}"
+              ),
+              "payload_sha256": digest,
+              "payload_size": len(final_payload),
+          }
+          pathlib.Path("stable.json").write_text(
+              json.dumps(stable, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+          )
+          pathlib.Path("dist").mkdir(exist_ok=True)
+          artifact = pathlib.Path("dist") / f"PigeonPoker_{TARGET_VERSION}.zip"
+          artifact.write_bytes(final_payload)
+          with zipfile.ZipFile(artifact, "r") as archive:
+              if archive.testzip() is not None:
+                  raise SystemExit("Installable ZIP validation failed.")
+          (release_dir / "build.request").unlink(missing_ok=True)
+          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
+          subprocess.run(
+              ["git", "config", "user.email", "41898282+users.noreply.github.com"], check=True
+          )
+          subprocess.run(["git", "add", "stable.json", str(release_dir)], check=True)
+          subprocess.run(
+              ["git", "commit", "-m", "Release Pigeon Poker v1.3.97 persistent fold and sit-out button"],
+              check=True,
+          )
+          subprocess.run(["git", "push"], check=True)
+          print(json.dumps({
+              "version": TARGET_VERSION,
+              "source_version": SOURCE_VERSION,
+              "sha256": digest,
+              "size": len(final_payload),
+              "initial_deal_duration_multiplier": 0.5,
+              "existing_sitout_button_becomes_resume": True,
+              "single_persistent_fold_button": True,
+              "fixed_size_row_height_px": 48,
+              "mechanical_preflop_preserved": True,
+          }, ensure_ascii=False, indent=2))
+          PY
