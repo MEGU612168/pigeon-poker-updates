@@ -265,7 +265,9 @@ def test_unacted_opponent_remains_in_multiway_equity():
     ]
     ranges = module.infer_opponent_ranges(FakeTable(), hand, "hero", sample_estimator)
     assert len(ranges) == 3
-    assert ranges["BTN"].source in {"unacted-uniform", "fixed-chart-action-range"}
+    assert ranges["BTN"].source in {
+        "unacted-conditional-response", "fixed-chart-action-range"
+    }
     decision = module.choose_range_aware_action(
         FakeTable(), hand, "hero", FakeCPU(3), range_estimator=sample_estimator
     )
