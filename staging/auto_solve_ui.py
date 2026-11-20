@@ -9,6 +9,7 @@ against the baseline screenshot before the next click is allowed.
 from __future__ import annotations
 
 # Build marker: OOP/IP matrix ROIs calibrated; None-safe stage summaries; schema v18.
+# Rebuild trigger: force embedded GTO+ geometry sync immediately and after dock.
 # Rebuild trigger: normalize last legacy AA JSON error label for dual OOP/IP check.
 # PigeonPoker completion gate: exactly one OOP multi-hand validator, v1.3.58.
 # Rebuild trigger: remove second post-success report check, keep one OOP multi-hand gate.
