@@ -2731,8 +2731,12 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             and board_build_tree_setup.get("board_test_may_remain_set")
             and not board_build_tree_setup.get("manual_close_required")
         )
+        build_tree_sequence["test_setup_committed"] = bool(
+            (oop_build_tree_range and oop_build_tree_range.get("range_committed_temporarily"))
+            or (ip_build_tree_range and ip_build_tree_range.get("range_committed_temporarily"))
+            or (board_build_tree_setup and board_build_tree_setup.get("board_test_temporarily_committed"))
+        )
         if oop_ready and ip_ready and board_ready:
-            build_tree_sequence["test_setup_committed"] = True
             build_tree_dialog_probe = _run_build_tree_dialog_probe(
                 user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
                 target_hwnd, target_pid, output_dir, stem, actions, all_captures,
@@ -2767,6 +2771,14 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                         committed_board_path, actions, all_captures,
                     )
                     stages.append(board_build_tree_cleanup)
+                else:
+                    board_build_tree_cleanup = {
+                        "stage": "board_build_tree_probe_cleanup",
+                        "status": "cleanup_blocked_missing_commit_screenshot",
+                        "board_restored": False,
+                        "manual_close_required": True,
+                    }
+                    stages.append(board_build_tree_cleanup)
             if (
                 ip_build_tree_range
                 and ip_build_tree_range.get("range_committed_temporarily")
@@ -2790,14 +2802,20 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                 )
                 stages.append(oop_build_tree_cleanup)
 
+        oop_committed = bool(oop_build_tree_range and oop_build_tree_range.get("range_committed_temporarily"))
+        ip_committed = bool(ip_build_tree_range and ip_build_tree_range.get("range_committed_temporarily"))
+        board_committed = bool(board_build_tree_setup and board_build_tree_setup.get("board_test_temporarily_committed"))
+        build_tree_sequence["oop_test_range_committed"] = oop_committed
+        build_tree_sequence["ip_test_range_committed"] = ip_committed
+        build_tree_sequence["board_test_committed"] = board_committed
         build_tree_sequence["oop_test_range_restored"] = bool(
-            oop_build_tree_cleanup and oop_build_tree_cleanup.get("range_restored")
+            not oop_committed or (oop_build_tree_cleanup and oop_build_tree_cleanup.get("range_restored"))
         )
         build_tree_sequence["ip_test_range_restored"] = bool(
-            ip_build_tree_cleanup and ip_build_tree_cleanup.get("range_restored")
+            not ip_committed or (ip_build_tree_cleanup and ip_build_tree_cleanup.get("range_restored"))
         )
         build_tree_sequence["board_test_restored"] = bool(
-            board_build_tree_cleanup and board_build_tree_cleanup.get("board_restored")
+            not board_committed or (board_build_tree_cleanup and board_build_tree_cleanup.get("board_restored"))
         )
         build_tree_sequence["all_test_inputs_restored"] = bool(
             build_tree_sequence["oop_test_range_restored"]
@@ -2814,10 +2832,13 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
                 or not item.get("range_restored", item.get("board_restored", False))
             )
             for item in cleanup_reports
+        ) or any(
+            item is not None and item.get("manual_close_required")
+            for item in (oop_build_tree_range, ip_build_tree_range, board_build_tree_setup)
         )
         dialog_not_closed = bool(
             build_tree_dialog_probe
-            and build_tree_dialog_probe.get("dialog_opened")
+            and build_tree_dialog_probe.get("build_tree_clicked")
             and not build_tree_dialog_probe.get("dialog_closed_verified")
         )
         build_tree_sequence["manual_close_required"] = bool(cleanup_failed or dialog_not_closed)
