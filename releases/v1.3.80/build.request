@@ -1,1 +1,1 @@
-Build v1.3.80 from pinned v1.3.69 source plus v1.3.77 updater. Workflow revision includes corrected auto-launch method replacement validator. Preserve original embedded host; narrow CONNECTION 350->320, canvas 332->302; auto socket setup, launch/connect/retry and close owned GTO PID; show GTO page on startup/update restart.
+Retry v1.3.80 after the update button state replacement was made explicit for the separate no-update and error callbacks.
