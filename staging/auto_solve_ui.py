@@ -9,6 +9,7 @@ against the baseline screenshot before the next click is allowed.
 from __future__ import annotations
 
 # Build marker: OOP/IP matrix ROIs calibrated; None-safe stage summaries; schema v18.
+# Rebuild trigger: fix doubled escapes in generated responsive docking method strings.
 # Rebuild trigger: generate aspect-preserving geometry methods with explicit line concatenation.
 # Rebuild trigger: fix workflow quoting for v1.3.70 responsive workspace description.
 # Rebuild trigger: responsive aspect-ratio GTO viewport and scaled click/image coordinates.
