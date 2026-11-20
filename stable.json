@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.86",
-  "published_at": "2026-11-20T11:58:08Z",
-  "release_notes": "GTO+ WORKSPACE内のGTO+表示原点を、指定スクリーンショットの青線に合わせて左14px・上38pxへ配置。GTO+の縦横比を維持し、移動後の有効表示領域に合わせて縮尺を算出。下端の見切れを防止。画面外スクロールなし、右側ドロワーは格納を標準とし、展開時はGTO+の上に重ねて表示。GTO+開閉でWORKSPACE寸法は変更しない。v1.3.85のStable manifest直結・起動時確認・60秒ごとの自動確認を維持。GTO+自動起動・接続・権限復旧、v1.3.69のレンジ本体を維持。",
+  "version": "1.3.87",
+  "published_at": "2026-11-20T15:17:50Z",
+  "release_notes": "ユーザー提供のGTO Wizardスクリーンショット20局面から読み取ったオープン／3ベットのターゲットサイズを、既存の6-maxプリフロップCPUレンジ表へ明示的に反映。169ハンドクラス×20ノードの頻度表は維持し、全20ノードでCPUが写真由来サイズを返す自動テストを追加。既存のCPUレベル別頻度抽選と、未対応局面の既存CPUフォールバック、Stable自動更新機能を維持。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.86/payload-updater.zip.b64?v=b27cb29a258e80aff91f3891e3962feddad9560dc0ce78c848fbf40f49b71d57",
-  "payload_sha256": "b27cb29a258e80aff91f3891e3962feddad9560dc0ce78c848fbf40f49b71d57",
-  "payload_size": 224277
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.87/payload-updater.zip.b64?v=b169c7be6f7c55c5ce0d74fc458848239b1b94716892be41145d10bd34cc7b1e",
+  "payload_sha256": "b169c7be6f7c55c5ce0d74fc458848239b1b94716892be41145d10bd34cc7b1e",
+  "payload_size": 224518
 }
