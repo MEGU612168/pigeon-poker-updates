@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.77",
+  "published_at": "2026-11-20T08:58:13Z",
+  "package_mode": "full",
+  "release_notes": "Pigeonの左右フレーム配置は従来のまま維持し、GTO+表示枠の内側だけに665:570の均等縮小viewportを追加。GTO+画面・右側のインポート済みレンジ一覧を枠内へ縮小表示し、中央配置。自動診断の座標は実client倍率に追従。起動時にstable manifestだけを確認し、更新が無ければUPDATEボタンを灰色のUP TO DATE表示で無効化。更新があるときだけ緑色のUPDATE NOWを有効化。確認失敗時はRETRY CHECKを表示。v1.3.76のGTO+自動起動・ソケット自動設定・自動接続・所有PID終了を維持。v1.3.69のプリフロップ/HUレンジ本体はバイト単位で維持。",
+  "payload_sha256": "0c756f41ee0e4d573b423fc251052db95bfd43546b105b712b8daf2b53f38639",
+  "payload_size": 223106,
+  "source_version": "1.3.76",
+  "range_baseline": "1.3.69",
+  "fixed_outer_frame": true,
+  "inner_uniform_scale": true,
+  "scale_reference": [
+    665,
+    570
+  ],
+  "startup_update_availability_check": true,
+  "disable_update_button_when_current": true,
+  "automatic_gto_lifecycle": true,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/preflop_screenshot_ranges.py",
+    "pigeon_updater.py"
+  ]
+}
