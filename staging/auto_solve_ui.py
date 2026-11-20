@@ -100,6 +100,54 @@ def _client_geometry(user32, hwnd: int, RECT) -> tuple[int, int]:
     return int(client.right-client.left), int(client.bottom-client.top)
 
 
+def _reference_scale_for_size(width: int, height: int) -> tuple[float, float]:
+    """Return the uniform scale from the 665x570 calibration canvas."""
+    width, height = int(width), int(height)
+    if width < 2 or height < 2:
+        raise ValueError(f"invalid GTO+ client size: {width}x{height}")
+    sx = width / float(_REFERENCE_SIZE[0])
+    sy = height / float(_REFERENCE_SIZE[1])
+    if min(sx, sy) < 0.35 or max(sx, sy) > 1.50:
+        raise ValueError(
+            f"GTO+ client scale is outside the calibrated responsive range: sx={sx:.4f}, sy={sy:.4f}"
+        )
+    if abs(sx - sy) > max(0.012, max(sx, sy) * 0.015):
+        raise ValueError(
+            f"GTO+ client aspect ratio changed: {width}x{height}; "
+            f"expected {_REFERENCE_SIZE[0]}:{_REFERENCE_SIZE[1]}"
+        )
+    return sx, sy
+
+
+def _scale_reference_point(point: tuple[int, int], sx: float, sy: float) -> tuple[int, int]:
+    """Map one calibrated client point to the live uniformly scaled GTO+ client."""
+    return int(round(int(point[0]) * float(sx))), int(round(int(point[1]) * float(sy)))
+
+
+def _scale_reference_rect(
+    rect: tuple[int, int, int, int], sx: float, sy: float
+) -> tuple[int, int, int, int]:
+    """Map a calibrated client rectangle to the live uniformly scaled GTO+ client."""
+    x0, y0 = _scale_reference_point((rect[0], rect[1]), sx, sy)
+    x1, y1 = _scale_reference_point((rect[2], rect[3]), sx, sy)
+    return x0, y0, max(x0 + 1, x1), max(y0 + 1, y1)
+
+
+def _scale_reference_roi(
+    roi: tuple[int, int, int, int], width: int, height: int
+) -> tuple[int, int, int, int]:
+    """Map a calibrated screenshot ROI into a BMP captured at the live client size."""
+    sx, sy = _reference_scale_for_size(width, height)
+    x0, y0, x1, y1 = _scale_reference_rect(roi, sx, sy)
+    return max(0, x0), max(0, y0), min(int(width), x1), min(int(height), y1)
+
+
+def _client_scale(user32, hwnd: int, RECT) -> tuple[float, float, int, int]:
+    width, height = _client_geometry(user32, hwnd, RECT)
+    sx, sy = _reference_scale_for_size(width, height)
+    return sx, sy, width, height
+
+
 def _bmp_region_difference_ratio(path_a: str | Path, path_b: str | Path,
                                  roi: tuple[int, int, int, int] = _DIALOG_ROI) -> dict[str, Any]:
     """Compare actual 32-bit BMP pixels in a client-relative ROI."""
@@ -122,6 +170,8 @@ def _bmp_region_difference_ratio(path_a: str | Path, path_b: str | Path,
     la, lb = layout(a), layout(b)
     if la[1:3] != lb[1:3]:
         raise ValueError(f"capture dimensions differ: {la[1:3]} vs {lb[1:3]}")
+    reference_roi = tuple(map(int, roi))
+    roi = _scale_reference_roi(reference_roi, la[1], la[2])
     x0, y0, x1, y1 = roi
     if not (0 <= x0 < x1 <= la[1] and 0 <= y0 < y1 <= la[2]):
         raise ValueError(f"ROI outside capture dimensions: {roi}")
@@ -138,7 +188,9 @@ def _bmp_region_difference_ratio(path_a: str | Path, path_b: str | Path,
             if a[ia:ia+3] != b[ib:ib+3]:
                 changed += 1
     return {"changed_pixels": changed, "total_pixels": total,
-            "ratio": changed/total if total else 1.0, "roi": list(roi)}
+            "ratio": changed/total if total else 1.0, "roi": list(roi),
+            "reference_roi": list(reference_roi),
+            "client_scale": list(_reference_scale_for_size(la[1], la[2]))}
 
 
 def _capture_related_windows(user32, EnumWindowsProc, EnumChildProc, RECT, POINT,
@@ -201,14 +253,16 @@ def _click_verified_gto_hit_target(user32, root_hwnd: int, root_pid: int,
     itself. It never sends messages to a foreign PID or an unrelated HWND.
     """
     hwnd = probe.wintypes.HWND(root_hwnd)
+    scale_x, scale_y, client_width, client_height = _client_scale(user32, root_hwnd, RECT)
     client = RECT()
     if not user32.GetClientRect(hwnd, probe.ctypes.byref(client)):
         raise OSError(f"{label}: GetClientRect failed")
     origin = POINT(int(client.left), int(client.top))
     if not user32.ClientToScreen(hwnd, probe.ctypes.byref(origin)):
         raise OSError(f"{label}: ClientToScreen failed")
-    sx = int(origin.x + int(point_client[0]))
-    sy = int(origin.y + int(point_client[1]))
+    actual_point = _scale_reference_point(point_client, scale_x, scale_y)
+    sx = int(origin.x + actual_point[0])
+    sy = int(origin.y + actual_point[1])
     screen_point = POINT(sx, sy)
     hit = int(user32.WindowFromPoint(screen_point) or 0)
     if not hit or not user32.IsWindow(probe.wintypes.HWND(hit)):
@@ -263,6 +317,10 @@ def _click_verified_gto_hit_target(user32, root_hwnd: int, root_pid: int,
         "hit_related_to_exact_host": related,
         "client_point_on_hit_target": [lx, ly],
         "screen_point": [sx, sy],
+        "reference_client_point": [int(point_client[0]), int(point_client[1])],
+        "scaled_client_point": [int(actual_point[0]), int(actual_point[1])],
+        "client_size": [client_width, client_height],
+        "client_scale": [scale_x, scale_y],
         "wm_mousemove_result": int(move_result),
         "wm_lbuttondown_result": int(down_result),
         "wm_lbuttonup_result": int(up_result),
@@ -285,19 +343,20 @@ def _click_exact_client(user32, root_hwnd: int, root_pid: int,
     }
     if label not in allowed:
         raise ValueError(f"{label}: no calibrated click target is registered")
-    width, height = _client_geometry(user32, root_hwnd, RECT)
+    scale_x, scale_y, width, height = _client_scale(user32, root_hwnd, RECT)
     ref_w, ref_h = _REFERENCE_SIZE
-    if abs(width-ref_w) > 12 or abs(height-ref_h) > 12:
-        raise RuntimeError(
-            f"{label}: unverified GTO+ client geometry {width}x{height}; "
-            f"expected {_REFERENCE_SIZE[0]}x{_REFERENCE_SIZE[1]}; no click sent"
-        )
     if probe._window_pid(user32, root_hwnd) != int(root_pid):
         raise RuntimeError(f"{label}: embedded HWND PID changed; no click sent")
-    x, y = point
+    reference_x, reference_y = map(int, point)
     x0, y0, x1, y1 = allowed[label]
-    if not (x0 <= x <= x1 and y0 <= y <= y1 and 0 <= x < width and 0 <= y < height):
-        raise RuntimeError(f"{label}: click point is outside its measured target; no click sent")
+    if not (x0 <= reference_x <= x1 and y0 <= reference_y <= y1
+            and 0 <= reference_x < ref_w and 0 <= reference_y < ref_h):
+        raise RuntimeError(f"{label}: reference click point is outside its calibrated target; no click sent")
+    x, y = _scale_reference_point((reference_x, reference_y), scale_x, scale_y)
+    allowed_scaled = _scale_reference_rect(allowed[label], scale_x, scale_y)
+    ax0, ay0, ax1, ay1 = allowed_scaled
+    if not (ax0 <= x <= ax1 and ay0 <= y <= ay1 and 0 <= x < width and 0 <= y < height):
+        raise RuntimeError(f"{label}: scaled click point is outside its measured target; no click sent")
 
     screen = POINT(int(x), int(y))
     if not user32.ClientToScreen(probe.wintypes.HWND(root_hwnd), probe.ctypes.byref(screen)):
@@ -341,6 +400,8 @@ def _click_exact_client(user32, root_hwnd: int, root_pid: int,
         "target_pid": int(root_pid),
         "client_size": [width, height],
         "reference_size": [ref_w, ref_h],
+        "client_scale": [scale_x, scale_y],
+        "client_point_reference": [reference_x, reference_y],
         "client_point": [int(x), int(y)],
         "screen_point": [int(screen.x), int(screen.y)],
         "foreground_verified": True,
@@ -804,15 +865,20 @@ def _temporary_source_field_window_adjustment(user32, root_hwnd: int,
         return {"status": "client_origin_unavailable", "moved": False,
                 "parent_hwnd": parent, "original_rect": original_rect}
 
+    scale_x, scale_y = _reference_scale_for_size(
+        int(client.right-client.left), int(client.bottom-client.top)
+    )
+    source_rect = _scale_reference_rect(_RANGE_SOURCE_FIELD_RECT, scale_x, scale_y)
+    source_center_xy = _scale_reference_point(_RANGE_SOURCE_FIELD_CENTER, scale_x, scale_y)
     source_rect_screen = [
-        int(client_origin.x + _RANGE_SOURCE_FIELD_RECT[0]),
-        int(client_origin.y + _RANGE_SOURCE_FIELD_RECT[1]),
-        int(client_origin.x + _RANGE_SOURCE_FIELD_RECT[2]),
-        int(client_origin.y + _RANGE_SOURCE_FIELD_RECT[3]),
+        int(client_origin.x + source_rect[0]),
+        int(client_origin.y + source_rect[1]),
+        int(client_origin.x + source_rect[2]),
+        int(client_origin.y + source_rect[3]),
     ]
     source_center = POINT(
-        int(client_origin.x + _RANGE_SOURCE_FIELD_CENTER[0]),
-        int(client_origin.y + _RANGE_SOURCE_FIELD_CENTER[1]),
+        int(client_origin.x + source_center_xy[0]),
+        int(client_origin.y + source_center_xy[1]),
     )
     under = int(user32.WindowFromPoint(source_center) or 0)
     under_record = None
@@ -894,14 +960,14 @@ def _temporary_source_field_window_adjustment(user32, root_hwnd: int,
     new_client_origin = POINT(int(client.left), int(client.top))
     origin_ok = bool(user32.ClientToScreen(hwnd, probe.ctypes.byref(new_client_origin)))
     new_source_rect = ([
-        int(new_client_origin.x + _RANGE_SOURCE_FIELD_RECT[0]),
-        int(new_client_origin.y + _RANGE_SOURCE_FIELD_RECT[1]),
-        int(new_client_origin.x + _RANGE_SOURCE_FIELD_RECT[2]),
-        int(new_client_origin.y + _RANGE_SOURCE_FIELD_RECT[3]),
+        int(new_client_origin.x + source_rect[0]),
+        int(new_client_origin.y + source_rect[1]),
+        int(new_client_origin.x + source_rect[2]),
+        int(new_client_origin.y + source_rect[3]),
     ] if origin_ok else None)
     new_center = POINT(
-        int(new_client_origin.x + _RANGE_SOURCE_FIELD_CENTER[0]) if origin_ok else 0,
-        int(new_client_origin.y + _RANGE_SOURCE_FIELD_CENTER[1]) if origin_ok else 0,
+        int(new_client_origin.x + source_center_xy[0]) if origin_ok else 0,
+        int(new_client_origin.y + source_center_xy[1]) if origin_ok else 0,
     )
     under_after = int(user32.WindowFromPoint(new_center) or 0) if origin_ok else 0
     after_record = None
@@ -1041,8 +1107,12 @@ def _probe_source_field_readback_restore_at_current_position(user32, root_hwnd: 
     if not user32.ClientToScreen(probe.wintypes.HWND(root_hwnd), probe.ctypes.byref(origin)):
         raise OSError(f"{role} Source field ClientToScreen failed: {probe.ctypes.get_last_error()}")
     host = probe._top_level_ancestor(user32, root_hwnd)
-    source_screen = (int(origin.x + _RANGE_SOURCE_FIELD_CENTER[0]),
-                     int(origin.y + _RANGE_SOURCE_FIELD_CENTER[1]))
+    scale_x, scale_y = _reference_scale_for_size(
+        int(client.right-client.left), int(client.bottom-client.top)
+    )
+    source_center_xy = _scale_reference_point(_RANGE_SOURCE_FIELD_CENTER, scale_x, scale_y)
+    source_screen = (int(origin.x + source_center_xy[0]),
+                     int(origin.y + source_center_xy[1]))
     point = POINT(*source_screen)
     under = int(user32.WindowFromPoint(point) or 0)
     under_record = None
@@ -1153,7 +1223,9 @@ def _probe_source_field_readback_restore_at_current_position(user32, root_hwnd: 
             "enabled": bool(user32.IsWindowEnabled(probe.wintypes.HWND(candidate))),
         }
         edit_candidates.append(observation)
-        if _source_field_underlay_is_verified_edit(observation, target_pid) and delta[0] <= 35 and delta[1] <= 20:
+        if (_source_field_underlay_is_verified_edit(observation, target_pid)
+                and delta[0] <= max(12, int(round(35 * scale_x)))
+                and delta[1] <= max(10, int(round(20 * scale_y)))):
             matches.append((candidate, rect))
 
     base.update({
@@ -1196,9 +1268,10 @@ def _probe_source_field_readback_restore_at_current_position(user32, root_hwnd: 
                      int(edit_rect[2] - origin.x), int(edit_rect[3] - origin.y)]
     center = [(relative_rect[0] + relative_rect[2]) // 2,
               (relative_rect[1] + relative_rect[3]) // 2]
-    delta = [abs(center[0] - _RANGE_SOURCE_FIELD_CENTER[0]),
-             abs(center[1] - _RANGE_SOURCE_FIELD_CENTER[1])]
-    if delta[0] > 35 or delta[1] > 20:
+    delta = [abs(center[0] - source_center_xy[0]),
+             abs(center[1] - source_center_xy[1])]
+    if (delta[0] > max(12, int(round(35 * scale_x)))
+            or delta[1] > max(10, int(round(20 * scale_y)))):
         return {**base, "status": "source_edit_outside_measured_field",
                 "text_changed": False, "edit_hwnd": int(edit_hwnd),
                 "edit_rect_screen": edit_rect, "edit_rect_client": relative_rect,
@@ -1283,20 +1356,25 @@ def _bmp_matrix_center_signature(path: str | Path,
     stride = ((width*bpp+31)//32)*4
     if offset + stride*height > len(data):
         raise ValueError("matrix BMP pixel data is truncated")
+    reference_roi = tuple(map(int, roi))
+    scale_x, scale_y = _reference_scale_for_size(width, height)
+    roi = _scale_reference_roi(reference_roi, width, height)
     x0, y0, x1, y1 = roi
     if not (0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height):
         raise ValueError(f"matrix ROI outside capture dimensions: {roi}")
+    patch_dx = tuple(sorted({max(1, int(round(value * scale_x))) for value in (1, 2)}))
+    patch_dy = tuple(sorted({max(1, int(round(value * scale_y))) for value in (1, 2)}))
     samples: list[list[int]] = []
     for row in range(13):
         cell_y0 = y0 + int(round(row * (y1-y0) / 13))
         for col in range(13):
             cell_x0 = x0 + int(round(col * (x1-x0) / 13))
             rgb_pixels: list[tuple[int, int, int]] = []
-            for dy in (1, 2):
-                y = cell_y0 + dy
+            for dy in patch_dy:
+                y = min(y1 - 1, cell_y0 + dy)
                 source_y = y if signed_height < 0 else height-1-y
-                for dx in (1, 2):
-                    x = cell_x0 + dx
+                for dx in patch_dx:
+                    x = min(x1 - 1, cell_x0 + dx)
                     index = offset + source_y*stride + x*4
                     blue, green, red = data[index], data[index+1], data[index+2]
                     rgb_pixels.append((red, green, blue))
@@ -1308,9 +1386,11 @@ def _bmp_matrix_center_signature(path: str | Path,
             ])
     return {
         "roi": list(roi),
+        "reference_roi": list(reference_roi),
+        "client_scale": [scale_x, scale_y],
         "samples": samples,
-        "sampling": "2x2_inner_patch_channel_max",
-        "pixels_per_cell": 4,
+        "sampling": "scaled_inner_patch_channel_max",
+        "pixels_per_cell": len(patch_dx) * len(patch_dy),
     }
 
 
@@ -2074,6 +2154,8 @@ def _bmp_region_dark_pixel_ratio(path: str | Path, roi: tuple[int, int, int, int
     stride = ((width * bpp + 31) // 32) * 4
     if offset + stride * height > len(data):
         raise ValueError("BMP pixel data is truncated")
+    reference_roi = tuple(map(int, roi))
+    roi = _scale_reference_roi(reference_roi, width, height)
     x0, y0, x1, y1 = roi
     if not (0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height):
         raise ValueError(f"ROI outside capture dimensions: {roi}")
@@ -2856,12 +2938,7 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     if actual_pid != int(target_pid):
         raise RuntimeError(f"Exact GTO+ PID mismatch: expected {target_pid}, got {actual_pid}.")
 
-    width, height = _client_geometry(user32, target_hwnd, RECT)
-    if abs(width-_REFERENCE_SIZE[0]) > 12 or abs(height-_REFERENCE_SIZE[1]) > 12:
-        raise RuntimeError(
-            f"Safe setup probe refused an uncalibrated GTO+ size: {width}x{height}; "
-            f"expected {_REFERENCE_SIZE[0]}x{_REFERENCE_SIZE[1]}. No click was sent."
-        )
+    scale_x, scale_y, width, height = _client_scale(user32, target_hwnd, RECT)
 
     host = probe._top_level_ancestor(user32, target_hwnd)
     initial_windows = _capture_related_windows(
@@ -3444,9 +3521,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
     all_captures = unique_captures
 
     report = {
-        "schema_version": 22,
+        "schema_version": 23,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "probe": "verified_gto_plus_oop_ip_board_build_tree_player2_source_focus_recovery_roundtrip_v22",
+        "probe": "verified_gto_plus_aspect_scaled_workspace_coordinates_roundtrip_v23",
         "target": {"pid": int(target_pid), "hwnd": int(target_hwnd), "host_hwnd": int(host)},
         "client_size": [width, height],
         "window_position_policy": {
@@ -3511,7 +3588,9 @@ def run_setup_dialog_probe(output_dir: Path, *, target_pid: int, target_hwnd: in
             "oop_matrix_cell_sample_centers": {"first": [29, 91], "step": [4, 4], "rows": 13, "columns": 13},
             "ip_matrix_cell_sample_centers": {"first": [29, 161], "step": [4, 4], "rows": 13, "columns": 13},
             "range_editor_verification_roi": list(_RANGE_EDITOR_VERIFY_ROI),
-            "client_size": list(_REFERENCE_SIZE),
+            "reference_client_size": list(_REFERENCE_SIZE),
+            "actual_client_size": [width, height],
+            "client_scale": [scale_x, scale_y],
             "oop_matrix_rect": list(_OOP_MATRIX_RECT),
             "oop_matrix_center": list(_OOP_MATRIX_CENTER),
             "oop_close_rect": list(_OOP_CLOSE_RECT),
