@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.3.99",
-  "published_at": "2026-11-20T17:42:20Z",
-  "release_notes": "プリフロップだけを75局面チャートの固定BBアクションにし、ポストフロップは従来のBET/RAISEスライダー・金額入力・ポットサイズプリセット・実行ボタンを明示的に復元。出金可能額をCashierの入金可能額へ加算し、Study時間の入金枠と合算表示。入金時は出金済み残高を先に使い、残りをStudy時間から使う。両方の残高移動と台帳記録は共有SQLite内の1トランザクションで確定。CPUのストリート別タイマー、超高速配札、同位置の離席/再開ボタン、固定フォールドボタンはv1.3.98から維持。",
+  "version": "1.3.100",
+  "published_at": "2026-11-20T18:07:54Z",
+  "release_notes": "上部のCHECK / UPDATEボタンを、確認中・最新版・確認失敗・更新処理中の全状態で常時クリック可能に変更。起動時確認と60秒ごとの自動確認を維持し、手動ボタンからいつでも再確認・更新可能。プリフロップの75局面・12,675ハンドクラス・頻度・固定BB指定サイズは変更せず、NL25で2.5BB×25セントがPythonの偶数丸めにより62セント(2.48BB)となる変換誤差を修正。1セント刻みで厳密に表現できない場合は最寄りセントへ変換し、チャート指定額が合法でない場合に別サイズへ勝手に変更せず、そのアクションを除外。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.99/payload-updater.zip.b64?v=7834124c5dbb02c34774eb52dde8c5d70d40c1963698d5ec904670dd4fe75900",
-  "payload_sha256": "7834124c5dbb02c34774eb52dde8c5d70d40c1963698d5ec904670dd4fe75900",
-  "payload_size": 270126
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.3.100/payload-updater.zip.b64?v=0e9de4cca741fd819ae18f069279da643f3193730196c0eeaf0c9198be4638e2",
+  "payload_sha256": "0e9de4cca741fd819ae18f069279da643f3193730196c0eeaf0c9198be4638e2",
+  "payload_size": 270416
 }

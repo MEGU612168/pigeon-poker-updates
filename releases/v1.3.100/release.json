@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.3.100",
+  "published_at": "2026-11-20T18:07:54Z",
+  "package_mode": "full",
+  "release_notes": "上部のCHECK / UPDATEボタンを、確認中・最新版・確認失敗・更新処理中の全状態で常時クリック可能に変更。起動時確認と60秒ごとの自動確認を維持し、手動ボタンからいつでも再確認・更新可能。プリフロップの75局面・12,675ハンドクラス・頻度・固定BB指定サイズは変更せず、NL25で2.5BB×25セントがPythonの偶数丸めにより62セント(2.48BB)となる変換誤差を修正。1セント刻みで厳密に表現できない場合は最寄りセントへ変換し、チャート指定額が合法でない場合に別サイズへ勝手に変更せず、そのアクションを除外。",
+  "payload_sha256": "0e9de4cca741fd819ae18f069279da643f3193730196c0eeaf0c9198be4638e2",
+  "payload_size": 270416,
+  "source_version": "1.3.99",
+  "update_button_always_clickable": true,
+  "automatic_update_check_interval_ms": 60000,
+  "preflop_75_node_policy_preserved": true,
+  "preflop_12675_hand_rows_preserved": true,
+  "preflop_chart_bb_sizes_preserved": true,
+  "preflop_chip_conversion_rounding": "ROUND_HALF_UP",
+  "illegal_fixed_chart_target_resized": false,
+  "postflop_ui_preserved": true,
+  "withdrawable_redeposit_preserved": true,
+  "package_ast_and_zip_crc": "passed",
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/preflop_screenshot_ranges.py",
+    "pigeon_updater.py"
+  ]
+}
