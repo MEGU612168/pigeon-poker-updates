@@ -167,9 +167,18 @@ def sample_estimator(*, table, hand, exclude_player_id):
             },
         },
     }
+    observed = {
+        str(event.get("player") or event.get("player_id") or "")
+        for event in list(getattr(hand, "events", ()) or ())
+        if isinstance(event, dict) and event.get("type") == "action"
+        and str(event.get("street", "preflop")).lower().replace("-", "") == "preflop"
+    }
     return {
         "supported": True,
-        "players": {pid: value for pid, value in rows.items() if pid != exclude_player_id},
+        "players": {
+            pid: value for pid, value in rows.items()
+            if pid != exclude_player_id and pid in observed
+        },
     }
 
 
