@@ -82,212 +82,96 @@ jobs:
 
           # Preflop uses fixed chart BB buttons only. Postflop explicitly
           # retains the legacy slider / amount box / presets / BET or RAISE.
+          # Inject a chart-only action panel only when the street is preflop.
+          # The existing action UI below remains byte-for-byte unchanged for postflop.
           refresh_start = main.index("    def _refresh_table_windows(")
           hero_start = None
-          base_indent = ""
+          hero_indent = ""
           search_pos = refresh_start
           while search_pos < len(main):
-              line_end = main.find("\n", search_pos)
+              line_end = main.find("\\n", search_pos)
               if line_end < 0:
                   line_end = len(main)
               line = main[search_pos:line_end]
               if line.strip() == 'if hand.next_to_act == "hero":':
                   hero_start = search_pos
-                  base_indent = line[:len(line) - len(line.lstrip())]
+                  hero_indent = line[:len(line) - len(line.lstrip())]
                   break
               search_pos = line_end + 1
           if hero_start is None:
-              raise SystemExit("Could not locate the HERO action branch as a complete source line.")
-          hero_condition_pos = hero_start + len(base_indent)
-          actor_marker = 'actor = hand.player(hand.next_to_act).name if hand.next_to_act else "CPU"'
-          actor_pos = main.index(actor_marker, hero_condition_pos)
-          actor_line_start = main.rfind("\n", hero_condition_pos, actor_pos) + 1
-          hero_end = None
-          search_pos = hero_start
-          while search_pos < actor_line_start:
-              line_end = main.find("\n", search_pos)
-              if line_end < 0 or line_end > actor_line_start:
-                  line_end = actor_line_start
-              line = main[search_pos:line_end]
-              indent = line[:len(line) - len(line.lstrip())]
-              if line.strip() == "else:" and indent == base_indent:
-                  hero_end = search_pos
-              search_pos = line_end + 1
-          if hero_end is None:
-              raise SystemExit("Could not locate the matching top-level CPU-turn else branch.")
-          hero_block = '''            if hand.next_to_act == "hero":
-                  record["status"].set("YOUR TURN")
-                  try:
-                      legal = hand.legal_actions("hero")
-                      action_names = set(legal.get("actions", []))
-                      if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):
-                          chart_controls = preflop_chart_options(table, hand, "hero")
-                          fold_button = record["fold_button"]
-                          rush = is_rush_mode(state.get("cash_game_mode", RUSH_MODE))
-                          fold_command = (
-                              (lambda tid=slot.table_id: self._handle_table_fold(tid))
-                              if rush else
-                              (lambda tid=slot.table_id: self._floating_table_action(tid, "fold"))
-                          )
-                          fold_button.configure(
-                              text="FOLD", command=fold_command,
-                              state="normal" if chart_controls and chart_controls.get("fold") else "disabled"
-                          )
-                          fold_button.pack(side="left", padx=2)
-                          call_action = chart_controls.get("call_action") if chart_controls else None
-                          call_label = "CHECK" if call_action == "check" else "CALL"
-                          call_button = self._compact_action_button(
-                              actions_frame, call_label,
-                              (lambda tid=slot.table_id, act=call_action:
-                                  self._floating_table_action(tid, act)) if call_action else (lambda: None),
-                              "accent"
-                          )
-                          call_button.configure(state="normal" if call_action else "disabled")
-                          call_button.pack(side="left", padx=2)
-                          raise_action = chart_controls.get("raise_action") if chart_controls else None
-                          raise_amount = chart_controls.get("raise_amount") if chart_controls else None
-                          if raise_amount is not None and int(hand.big_blind) > 0:
-                              raise_bb = int(raise_amount) / int(hand.big_blind)
-                              raise_label = f"RAISE {raise_bb:.2f} BB"
-                              if raise_action == "all-in":
-                                  raise_label += " (ALL-IN)"
-                              raise_button = self._compact_action_button(
-                                  actions_frame, raise_label,
-                                  lambda tid=slot.table_id, act=raise_action, amt=raise_amount:
-                                      self._floating_table_action(tid, act, None if act == "all-in" else amt),
-                                  "accent"
-                              )
-                              raise_button.configure(state="normal")
-                          else:
-                              raise_button = self._compact_action_button(
-                                  actions_frame, "RAISE — BB", lambda: None, "accent"
-                              )
-                              raise_button.configure(state="disabled")
-                          raise_button.pack(side="left", padx=2)
-                          record["status"].set(
-                              f"YOUR TURN • CHART {chart_controls['node_id']} / {chart_controls['hand_class']}"
-                              if chart_controls else "PREFLOP CHART LINE NOT COVERED • NO OFF-CHART ACTION"
-                          )
-                      else:
-                          # Keep the old postflop betting interface intact.
-                          rush_preflop = (
-                              hand.street == "preflop"
-                              and is_rush_mode(state.get("cash_game_mode", RUSH_MODE))
-                          )
-                          fold_button = record["fold_button"]
-                          if rush_preflop or "fold" in action_names:
-                              fold_command = (
-                                  (lambda tid=slot.table_id: self._handle_table_fold(tid))
-                                  if rush_preflop or hand.street != "preflop" else
-                                  (lambda tid=slot.table_id: self._floating_table_action(tid, "fold"))
-                              )
-                              fold_button.configure(
-                                  text="FOLD", command=fold_command, state="normal"
-                              )
-                              fold_button.pack(side="left", padx=2)
-                          else:
-                              fold_button.pack_forget()
-                          if "check" in action_names:
-                              self._compact_action_button(
-                                  actions_frame, "CHECK",
-                                  lambda tid=slot.table_id: self._floating_table_action(tid, "check"),
-                                  "accent"
-                              ).pack(side="left", padx=2)
-                          elif "call" in action_names:
-                              self._compact_action_button(
-                                  actions_frame,
-                                  f"CALL {format_chip_amount(legal['to_call'], bb, self.chip_display_unit)}",
-                                  lambda tid=slot.table_id: self._floating_table_action(tid, "call"),
-                                  "accent"
-                              ).pack(side="left", padx=2)
-                          if "bet" in action_names or "raise" in action_names:
-                              verb = "bet" if "bet" in action_names else "raise"
-                              minimum = int(legal["min_target"])
-                              maximum = int(legal["max_target"])
-                              minimum = min(minimum, maximum)
-                              record["bet_min"], record["bet_max"] = minimum, maximum
-                              record["bet_verb"], record["bet_bb"] = verb, bb
-                              target = int(record["bet_target_cents"].get())
-                              if target <= 0 or target < minimum or target > maximum:
-                                  target = minimum
-                              record["bet_target_cents"].set(target)
-                              record["bet_slider"].set(target)
-                              record["bet_target"].set("")
-                              self._update_bet_submit_label(slot.table_id)
-                              tk.Label(
-                                  sizes_frame, text="BET TO" if verb == "bet" else "RAISE TO",
-                                  bg=COLORS["panel"], fg=COLORS["muted"],
-                                  font=("Segoe UI", 7, "bold")
-                              ).pack(side="left", padx=(2, 4))
-                              scale = tk.Scale(
-                                  sizes_frame, from_=minimum, to=maximum, orient="horizontal",
-                                  resolution=1, showvalue=False, variable=record["bet_slider"],
-                                  command=lambda value, tid=slot.table_id: self._on_table_bet_slider(tid, value),
-                                  length=190, width=10, sliderlength=15, bd=0,
-                                  bg=COLORS["panel"], fg=COLORS["text"], troughcolor="#344d68",
-                                  activebackground=COLORS["green"], highlightthickness=0,
-                                  relief="flat", takefocus=True,
-                              )
-                              scale.pack(side="left", padx=(0, 4))
-                              entry = ttk.Entry(
-                                  sizes_frame, textvariable=record["bet_target"], width=7,
-                                  font=("Segoe UI", 8), justify="right"
-                              )
-                              entry.pack(side="left", padx=(0, 2))
-                              entry.bind(
-                                  "<KeyRelease>",
-                                  lambda _e, tid=slot.table_id: self._on_table_bet_entry_change(tid)
-                              )
-                              entry.bind(
-                                  "<Return>",
-                                  lambda _e, tid=slot.table_id: self._submit_table_bet_enter(tid),
-                                  add="+"
-                              )
-                              entry.bind(
-                                  "<KP_Enter>",
-                                  lambda _e, tid=slot.table_id: self._submit_table_bet_enter(tid),
-                                  add="+"
-                              )
-                              unit_text = "BB" if self.chip_display_unit == "BB" else "USD"
-                              tk.Label(
-                                  sizes_frame, text=unit_text, bg=COLORS["panel"],
-                                  fg=COLORS["muted"], font=("Segoe UI", 7)
-                              ).pack(side="left", padx=(0, 7))
-                              for pct in self.bet_pot_percentages:
-                                  self._compact_action_button(
-                                      sizes_frame, f"{pct}%",
-                                      lambda tid=slot.table_id, p=pct: self._set_table_pot_preset(tid, p),
-                                      "normal"
-                                  ).pack(side="left", padx=1)
-                              submit = self._compact_action_button(
-                                  actions_frame, "BET" if verb == "bet" else "RAISE",
-                                  lambda tid=slot.table_id, var=record["bet_target"]:
-                                      self._floating_table_bet_action(tid, var),
-                                  "accent"
-                              )
-                              submit.pack(side="left", padx=(7, 2))
-                              record["bet_action_button"] = submit
-                              self._update_bet_submit_label(slot.table_id)
-                      tk.Label(
-                          actions_frame,
-                          text=f"TO CALL {format_chip_amount(legal['to_call'], bb, self.chip_display_unit)}",
-                          bg=COLORS["panel"], fg=COLORS["muted"],
-                          font=("Segoe UI", 7, "bold")
-                      ).pack(side="right", padx=6)
-                  except Exception as exc:
-                      record["status"].set(f"ACTION ERROR: {exc}")
-                  try:
-                      record["window"].deiconify()
-                  except tk.TclError:
-                      pass
+              raise SystemExit("Could not locate complete HERO action branch.")
+          status_marker = 'record["status"].set("YOUR TURN")'
+          status_pos = main.index(status_marker, hero_start)
+          status_line_start = main.rfind("\\n", hero_start, status_pos) + 1
+          status_indent = main[status_line_start:status_pos]
+          status_line_end = main.find("\\n", status_pos)
+          if status_line_end < 0:
+              raise SystemExit("HERO status line is not newline terminated.")
+          insert_at = status_line_end + 1
+          preflop_block = '''
+          if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):
+              chart_controls = preflop_chart_options(table, hand, "hero")
+              fold_button = record["fold_button"]
+              rush = is_rush_mode(state.get("cash_game_mode", RUSH_MODE))
+              fold_command = (
+                  (lambda tid=slot.table_id: self._handle_table_fold(tid))
+                  if rush else
+                  (lambda tid=slot.table_id: self._floating_table_action(tid, "fold"))
+              )
+              fold_button.configure(
+                  text="FOLD", command=fold_command,
+                  state="normal" if chart_controls and chart_controls.get("fold") else "disabled"
+              )
+              fold_button.pack(side="left", padx=2)
 
+              call_action = chart_controls.get("call_action") if chart_controls else None
+              call_label = "CHECK" if call_action == "check" else "CALL"
+              call_button = self._compact_action_button(
+                  actions_frame, call_label,
+                  (lambda tid=slot.table_id, act=call_action:
+                      self._floating_table_action(tid, act)) if call_action else (lambda: None),
+                  "accent"
+              )
+              call_button.configure(state="normal" if call_action else "disabled")
+              call_button.pack(side="left", padx=2)
+
+              raise_action = chart_controls.get("raise_action") if chart_controls else None
+              raise_amount = chart_controls.get("raise_amount") if chart_controls else None
+              if raise_amount is not None and int(hand.big_blind) > 0:
+                  raise_bb = int(raise_amount) / int(hand.big_blind)
+                  raise_label = f"RAISE {raise_bb:.2f} BB"
+                  if raise_action == "all-in":
+                      raise_label += " (ALL-IN)"
+                  raise_button = self._compact_action_button(
+                      actions_frame, raise_label,
+                      lambda tid=slot.table_id, act=raise_action, amt=raise_amount:
+                          self._floating_table_action(tid, act, None if act == "all-in" else amt),
+                      "accent"
+                  )
+                  raise_button.configure(state="normal")
+              else:
+                  raise_button = self._compact_action_button(
+                      actions_frame, "RAISE — BB", lambda: None, "accent"
+                  )
+                  raise_button.configure(state="disabled")
+              raise_button.pack(side="left", padx=2)
+              record["status"].set(
+                  f"YOUR TURN • CHART {chart_controls['node_id']} / {chart_controls['hand_class']}"
+                  if chart_controls else "PREFLOP CHART LINE NOT COVERED • NO OFF-CHART ACTION"
+              )
+              try:
+                  record["window"].deiconify()
+              except tk.TclError:
+                  pass
+              continue
           '''
-          hero_block = textwrap.indent(textwrap.dedent(hero_block), base_indent)
-          main = main[:hero_start] + hero_block + main[hero_end:]
-          if "tk.Scale(" not in hero_block or "self.bet_pot_percentages" not in hero_block:
-              raise SystemExit("Legacy postflop sizing controls not restored.")
-
-          # A single atomic redeposit operation. Funds withdrawn from the
+          preflop_block = textwrap.indent(textwrap.dedent(preflop_block), status_indent)
+          main = main[:insert_at] + preflop_block + main[insert_at:]
+          if "tk.Scale(" not in main or "self.bet_pot_percentages" not in main:
+              raise SystemExit("Original postflop sizing controls were unexpectedly removed.")
+          if "preflop_chart_options(table, hand, \"hero\")" not in main:
+              raise SystemExit("Fixed-BB preflop action controls missing.")
+                    # A single atomic redeposit operation. Funds withdrawn from the
           # poker Wallet are used first; remaining amount may use Study hours.
           redeposit_helper = '''    def _redeposit_available_funds(self, amount_cents: int):
                   import sqlite3
