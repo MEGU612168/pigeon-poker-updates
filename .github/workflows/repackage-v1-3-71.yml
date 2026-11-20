@@ -249,6 +249,7 @@ jobs:
               if required_text not in main_text:
                   raise SystemExit("Automatic GTO+ lifecycle patch is incomplete: " + required_text)
           ast.parse(main_text, filename="PigeonPoker.pyw")
+          files["PigeonPoker.pyw"] = main_text.encode("utf-8")
 
           ast.parse(main_text, filename="PigeonPoker.pyw")
           if 'version_label = "VERSION " + (ROOT / "VERSION.txt").read_text' not in main_text:
