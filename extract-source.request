@@ -1,1 +1,1 @@
-Extract stable v1.3.79; verify all GTO+ auto-start, launch, reattach, connect and shutdown methods survive; verify native 1320x676 zoom fit, fixed Pigeon frame and v1.3.69 range files.
+Extract stable v1.3.80 and verify original v1.3.69 embedded GTO host, 320px connection column, auto GTO launch/connect and owned PID shutdown, plus updater restart behavior.
