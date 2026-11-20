@@ -2169,32 +2169,44 @@ class PigeonPokerApp(tk.Tk):
         """Refresh the standalone table windows; the lobby never hosts action controls."""
         self._refresh_table_windows()
 
+    def _fixed_preflop_raise_target(self, table, hand, actor_id: str, legal: dict[str, Any]) -> int | None:
+        """Keep only preflop raise sizing fixed; never use chart frequencies to gate actions."""
+        minimum = int(legal.get("min_target", 0) or 0)
+        maximum = int(legal.get("max_target", 0) or 0)
+        if maximum <= 0:
+            return None
+        if minimum <= 0 or minimum > maximum:
+            minimum = maximum
+        try:
+            chart_controls = preflop_chart_options(table, hand, actor_id)
+            chart_target = chart_controls.get("raise_amount") if chart_controls else None
+            if chart_target is not None:
+                target = int(chart_target)
+                if minimum <= target <= maximum:
+                    return target
+        except (AttributeError, KeyError, TypeError, ValueError, RuntimeError, OverflowError):
+            pass
+        # Unsupported chart nodes still leave every legal action available.
+        # The only fallback is a deterministic legal minimum raise size.
+        return minimum
+
     def _cash_human_action(self, action: str, amount: int | None = None):
         if self.cash_table is None or self.cash_table.hand is None or self.cash_busy:
             return
         hand = self.cash_table.hand
         if hand.next_to_act != "hero":
             return
-        if hand.street == "preflop" and not bool(getattr(self, "cash_gto_spot_mode", False)):
-            chart_controls = preflop_chart_options(self.cash_table, hand, "hero")
-            if chart_controls is None:
-                self.cash_status_var.set("PREFLOP CHART LINE NOT COVERED • ACTION BLOCKED")
-                return
+        if (hand.street == "preflop"
+                and not bool(getattr(self, "cash_gto_spot_mode", False))):
             key = str(action).lower().replace("_", "-")
-            allowed = False
-            if key == "fold":
-                allowed = bool(chart_controls.get("fold"))
-            elif key in {"call", "check"}:
-                allowed = key == chart_controls.get("call_action")
-            elif key in {"raise", "bet"}:
-                allowed = (key == chart_controls.get("raise_action")
-                           and amount is not None
-                           and int(amount) == int(chart_controls.get("raise_amount") or -1))
-            elif key in {"all-in", "allin"}:
-                allowed = chart_controls.get("raise_action") == "all-in"
-            if not allowed:
-                self.cash_status_var.set("USE THE CHART ACTIONS AND BB SIZE ONLY")
-                return
+            if key in {"raise", "bet"}:
+                legal = hand.legal_actions("hero")
+                # Actions are always the player's choice. Only the preflop
+                # raise-to amount is normalized to the fixed chart size (or
+                # the legal minimum when this exact line is not in the chart).
+                amount = self._fixed_preflop_raise_target(
+                    self.cash_table, hand, "hero", legal
+                )
         try:
             table_id = self.active_cash_table_id
             if table_id:
@@ -6294,54 +6306,73 @@ class PigeonPokerApp(tk.Tk):
                 record["status"].set("YOUR TURN")
 
                 if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):
-                    chart_controls = preflop_chart_options(table, hand, "hero")
-                    fold_button = record["fold_button"]
+                    legal = hand.legal_actions("hero")
+                    action_names = {
+                        str(value).lower().replace("_", "-")
+                        for value in legal.get("actions", ())
+                    }
                     rush = is_rush_mode(state.get("cash_game_mode", RUSH_MODE))
-                    fold_command = (
-                        (lambda tid=slot.table_id: self._handle_table_fold(tid))
-                        if rush else
-                        (lambda tid=slot.table_id: self._floating_table_action(tid, "fold"))
-                    )
-                    fold_button.configure(
-                        text="FOLD", command=fold_command,
-                        state="normal" if chart_controls and chart_controls.get("fold") else "disabled"
-                    )
-                    fold_button.pack(side="left", padx=2)
 
-                    call_action = chart_controls.get("call_action") if chart_controls else None
-                    call_label = "CHECK" if call_action == "check" else "CALL"
-                    call_button = self._compact_action_button(
-                        actions_frame, call_label,
-                        (lambda tid=slot.table_id, act=call_action:
-                            self._floating_table_action(tid, act)) if call_action else (lambda: None),
-                        "accent"
-                    )
-                    call_button.configure(state="normal" if call_action else "disabled")
-                    call_button.pack(side="left", padx=2)
-
-                    raise_action = chart_controls.get("raise_action") if chart_controls else None
-                    raise_amount = chart_controls.get("raise_amount") if chart_controls else None
-                    if raise_amount is not None and int(hand.big_blind) > 0:
-                        raise_bb = int(raise_amount) / int(hand.big_blind)
-                        raise_label = f"RAISE {raise_bb:.2f} BB"
-                        if raise_action == "all-in":
-                            raise_label += " (ALL-IN)"
-                        raise_button = self._compact_action_button(
-                            actions_frame, raise_label,
-                            lambda tid=slot.table_id, act=raise_action, amt=raise_amount:
-                                self._floating_table_action(tid, act, None if act == "all-in" else amt),
-                            "accent"
+                    # FOLD is always exposed in Rush & Cash; in regular ring
+                    # play it follows the engine's legal-action list.
+                    fold_button = record["fold_button"]
+                    if rush or "fold" in action_names:
+                        fold_command = (
+                            (lambda tid=slot.table_id: self._handle_table_fold(tid))
+                            if rush else
+                            (lambda tid=slot.table_id: self._floating_table_action(tid, "fold"))
                         )
-                        raise_button.configure(state="normal")
+                        fold_button.configure(
+                            text="FOLD", command=fold_command, state="normal"
+                        )
+                        fold_button.pack(side="left", padx=2)
                     else:
-                        raise_button = self._compact_action_button(
-                            actions_frame, "RAISE — BB", lambda: None, "accent"
+                        fold_button.pack_forget()
+
+                    # CHECK / CALL is available whenever the engine says it is.
+                    if "check" in action_names:
+                        self._compact_action_button(
+                            actions_frame, "CHECK",
+                            lambda tid=slot.table_id: self._floating_table_action(tid, "check"),
+                            "accent"
+                        ).pack(side="left", padx=2)
+                    elif "call" in action_names:
+                        call_amount = int(legal.get("to_call", 0) or 0)
+                        self._compact_action_button(
+                            actions_frame,
+                            f"CALL {format_chip_amount(call_amount, bb, self.chip_display_unit)}",
+                            lambda tid=slot.table_id: self._floating_table_action(tid, "call"),
+                            "accent"
+                        ).pack(side="left", padx=2)
+
+                    # A legal RAISE/BET button is never hidden by chart action
+                    # frequencies. Its amount alone is fixed preflop.
+                    if "raise" in action_names or "bet" in action_names:
+                        verb = "raise" if "raise" in action_names else "bet"
+                        fixed_target = self._fixed_preflop_raise_target(
+                            table, hand, "hero", legal
                         )
-                        raise_button.configure(state="disabled")
-                    raise_button.pack(side="left", padx=2)
+                        if fixed_target is not None:
+                            raise_bb = fixed_target / max(1, int(hand.big_blind))
+                            self._compact_action_button(
+                                actions_frame, f"RAISE {raise_bb:.2f} BB",
+                                lambda tid=slot.table_id, act=verb, target=fixed_target:
+                                    self._floating_table_action(tid, act, target),
+                                "accent"
+                            ).pack(side="left", padx=2)
+
+                    # ALL-IN remains an independent legal action, not removed
+                    # because the chart selects a different raise size.
+                    if "all-in" in action_names:
+                        self._compact_action_button(
+                            actions_frame, "ALL-IN",
+                            lambda tid=slot.table_id:
+                                self._floating_table_action(tid, "all-in"),
+                            "danger"
+                        ).pack(side="left", padx=2)
+
                     record["status"].set(
-                        f"YOUR TURN • CHART {chart_controls['node_id']} / {chart_controls['hand_class']}"
-                        if chart_controls else "PREFLOP CHART LINE NOT COVERED • NO OFF-CHART ACTION"
+                        "YOUR TURN • PREFLOP RAISE SIZE FIXED"
                     )
                     try:
                         record["window"].deiconify()
@@ -6349,10 +6380,6 @@ class PigeonPokerApp(tk.Tk):
                         pass
                     continue
 
-            # The fixed screenshot chart applies only before the flop. The
-            # normal legal-action controls below must remain available on every
-            # postflop street; never place them inside this preflop-only branch.
-            if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):
                 if hand.next_to_act != "hero":
                     actor = hand.player(hand.next_to_act).name if hand.next_to_act else "CPU"
                     record["status"].set(f"{actor} TO ACT")
