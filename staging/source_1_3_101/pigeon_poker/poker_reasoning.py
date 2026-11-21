@@ -1038,6 +1038,7 @@ def _action_updated_range_board_profile(
     player_id: str,
     board: list[str],
     *,
+    extra_blockers: tuple[str, ...] | list[str] | set[str] = (),
     max_samples: int = 320,
 ) -> dict[str, float] | None:
     """Build board strength from a player's range after every observed street action."""
@@ -1049,6 +1050,9 @@ def _action_updated_range_board_profile(
     if not isinstance(classes, dict):
         return None
     board_blockers = set(str(card) for card in board)
+    known_blockers = board_blockers | {
+        str(card) for card in extra_blockers if str(card)
+    }
     options: list[tuple[tuple[str, str], float]] = []
     for hand_class, raw_weight in classes.items():
         try:
@@ -1059,7 +1063,7 @@ def _action_updated_range_board_profile(
             continue
         combos = [
             combo for combo in _physical_combos(str(hand_class))
-            if not (set(combo) & board_blockers)
+            if not (set(combo) & known_blockers)
         ]
         if combos:
             options.extend((combo, class_weight / len(combos)) for combo in combos)
@@ -1801,6 +1805,14 @@ def _preflop_range_advantage_profile(
     )
     if hero_profile is None:
         return neutral
+    hero_player = next(
+        (p for p in list(getattr(hand, "players", ()) or ())
+         if str(getattr(p, "player_id", "")) == str(hero_id)),
+        None,
+    )
+    hero_known_cards = tuple(
+        str(card) for card in list(getattr(hero_player, "hole_cards", ()) or ())
+    )
 
     active_opponents = [
         player for player in list(getattr(hand, "players", ()) or ())
@@ -1812,7 +1824,8 @@ def _preflop_range_advantage_profile(
     for player in active_opponents:
         pid = str(getattr(player, "player_id", ""))
         profile = _action_updated_range_board_profile(
-            rows.get(pid, {}), hand, pid, board
+            rows.get(pid, {}), hand, pid, board,
+            extra_blockers=hero_known_cards,
         )
         if profile is None:
             # A partial chart sample can misstate a multiway range edge.
