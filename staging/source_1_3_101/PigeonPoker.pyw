@@ -2240,6 +2240,37 @@ class PigeonPokerApp(tk.Tk):
         # legal minimum suggestion. The user can edit it freely before submit.
         return minimum
 
+    def _apply_preflop_chart_size(self, table_id: str):
+        """Apply the exact live 75-node chart size to the editable amount field."""
+        slot = self.multi_tables.get(table_id)
+        record = self.table_windows.get(table_id)
+        if slot is None or record is None:
+            return
+        table = slot.state.get("cash_table")
+        hand = table.hand if table is not None else None
+        if (hand is None or hand.finished or hand.street != "preflop"
+                or hand.next_to_act != "hero"
+                or bool(slot.state.get("cash_busy", False))
+                or bool(slot.state.get("cash_gto_spot_mode", False))):
+            return
+        try:
+            legal = hand.legal_actions("hero")
+            if not ({"bet", "raise"} & set(legal.get("actions", ()))):
+                return
+            chart_controls = preflop_chart_options(table, hand, "hero")
+            target = chart_controls.get("raise_amount") if chart_controls else None
+            if target is None:
+                return
+            target = int(target)
+            minimum = int(legal.get("min_target", 0) or 0)
+            maximum = int(legal.get("max_target", 0) or 0)
+            if minimum <= 0 or maximum < minimum or not minimum <= target <= maximum:
+                return
+            record["bet_min"], record["bet_max"] = minimum, maximum
+            self._set_table_bet_target(table_id, target)
+        except (AttributeError, KeyError, TypeError, ValueError, RuntimeError, OverflowError):
+            return
+
     def _cash_human_action(self, action: str, amount: int | None = None):
         if self.cash_table is None or self.cash_table.hand is None or self.cash_busy:
             return
@@ -2669,16 +2700,11 @@ class PigeonPokerApp(tk.Tk):
                     # move almost immediately; postflop keeps natural thinking time.
                     fallback_decision = None
                     if hand.street == "preflop":
-                        # Fixed chart actions remain immutable wherever covered.
-                        # Uncovered branches use independent range-weighted reasoning.
-                        range_decision = choose_preflop_action(table, hand, pid, cpu, None)
-                        if getattr(range_decision, "source", "") == "screenshot-range":
-                            fallback_decision = range_decision
-                        else:
-                            fallback_decision = choose_range_aware_action(
-                                table, hand, pid, cpu,
-                                range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(**kwargs, opponent_profiles=profiles, opponent_learning=opponent_learning),
-                            )
+                        # Every preflop turn must stay on the immutable chart or
+                        # its explicit uncovered-history guardrail. Never route a
+                        # custom human line into the generic range policy, which
+                        # can invent uncharted limp/call actions from BTN.
+                        fallback_decision = choose_preflop_action(table, hand, pid, cpu, None)
                     elif not (session is not None and session.hand_token == id(hand) and session.context is not None):
                         # The same opponent-range engine handles postflop decisions.
                         fallback_decision = choose_range_aware_action(
@@ -2781,11 +2807,18 @@ class PigeonPokerApp(tk.Tk):
                     if not gto_used:
                         decision = fallback_decision
                         if decision is None:
-                            # Never fall back to the old random-equity CPU.
-                            decision = choose_range_aware_action(
-                                table, hand, pid, cpu,
-                                range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(**kwargs, opponent_profiles=profiles, opponent_learning=opponent_learning),
-                            )
+                            # If a preflop helper unexpectedly returns no decision,
+                            # retry the strict chart/guardrail path rather than
+                            # asking the postflop policy to invent a preflop line.
+                            if hand.street == "preflop":
+                                decision = choose_preflop_action(table, hand, pid, cpu, None)
+                            else:
+                                decision = choose_range_aware_action(
+                                    table, hand, pid, cpu,
+                                    range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(**kwargs, opponent_profiles=profiles, opponent_learning=opponent_learning),
+                                )
+                        if decision is None:
+                            raise RuntimeError("No safe decision was available for this CPU turn.")
                         if cancel_event.is_set():
                             break
                         with turn_lock:
@@ -2797,6 +2830,7 @@ class PigeonPokerApp(tk.Tk):
                         event_action = str(decision.action)
                         event_amount = decision.amount
                         chart_used = getattr(decision, "source", "") == "screenshot-range"
+                        preflop_guardrail_used = getattr(decision, "source", "") == "preflop-guardrail"
                         range_policy_used = getattr(decision, "source", "") in {
                             "range-aware-policy", "range-aware-guardrail"
                         }
@@ -2807,6 +2841,15 @@ class PigeonPokerApp(tk.Tk):
                                 + f" [fixed chart {decision.node_id}/{decision.hand_class} • {decision.action_frequency*100:.1f}%]"
                             )
                             source_status = f"Immutable screenshot chart • {decision.node_id}"
+                        elif preflop_guardrail_used:
+                            line = (
+                                f"{actor_name}: {decision.action.upper()}"
+                                + " [uncovered preflop history • chart guardrail]"
+                            )
+                            source_status = (
+                                "Preflop history is outside the fixed 75-node chart; "
+                                "the conservative check/fold guardrail was used."
+                            )
                         elif range_policy_used:
                             equity_pct = 100.0 * float(decision.equity_estimate or 0.0)
                             line = (
@@ -2854,6 +2897,7 @@ class PigeonPokerApp(tk.Tk):
                         "gto_used": gto_used,
                         "strategy_source": (
                             "screenshot-preflop-range" if chart_used else
+                            "preflop-chart-guardrail" if preflop_guardrail_used else
                             "range-aware-guardrail" if getattr(fallback_decision, "source", "") == "range-aware-guardrail" else
                             "range-aware-policy" if range_policy_used else
                             ("gtoplus" if gto_used else "local-fallback")
@@ -3808,6 +3852,7 @@ class PigeonPokerApp(tk.Tk):
             "postflop_auto_fold_check": postflop_auto_fold_check,
             "bet_target": bet_target_var, "bet_target_cents": bet_target_cents_var,
             "bet_slider": bet_slider_var, "bet_action_button": None,
+            "chart_size_button": None,
             "bet_min": 0, "bet_max": 0, "bet_verb": "bet", "bet_bb": 1,
             "bet_unit_label": None, "syncing_bet": False,
             "pot_animation": None, "pot_animation_key": None, "pot_animation_job": None,
@@ -6182,6 +6227,11 @@ class PigeonPokerApp(tk.Tk):
             )
             hero = next((p for p in hand.players if p.player_id == "hero"), None) if hand else None
             action_signature = (
+                # A new hand may have identical legal actions/pot/stack to the
+                # previous hand. Include identity so its chart default is reloaded.
+                current_hand_key,
+                int(getattr(table, "dealer_index", 0) or 0) if table is not None else None,
+                tuple(getattr(hero, "hole_cards", ()) or ()) if hero else (),
                 bool(hand is not None),
                 bool(hand.finished) if hand else False,
                 str(hand.winner_reason or "") if hand else "",
@@ -6216,6 +6266,7 @@ class PigeonPokerApp(tk.Tk):
                             continue
                         child.destroy()
                 record["bet_action_button"] = None
+                record["chart_size_button"] = None
                 record["action_signature"] = action_signature
             else:
                 # Keep existing action controls and focused widgets alive.
@@ -6427,6 +6478,26 @@ class PigeonPokerApp(tk.Tk):
                     unit_text = "BB" if self.chip_display_unit == "BB" else "USD"
                     tk.Label(sizes_frame, text=unit_text, bg=COLORS["panel"],
                              fg=COLORS["muted"], font=("Segoe UI", 7)).pack(side="left", padx=(0, 7))
+
+                    # This control exists only on a chart-covered preflop raise
+                    # decision. It re-reads the live hand when clicked; it never
+                    # submits or locks the action/amount.
+                    record["chart_size_button"] = None
+                    if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):
+                        try:
+                            live_chart = preflop_chart_options(table, hand, "hero")
+                            live_chart_target = live_chart.get("raise_amount") if live_chart else None
+                            live_chart_target = int(live_chart_target) if live_chart_target is not None else None
+                        except (AttributeError, KeyError, TypeError, ValueError, RuntimeError, OverflowError):
+                            live_chart_target = None
+                        if live_chart_target is not None and minimum <= live_chart_target <= maximum:
+                            chart_button = self._compact_action_button(
+                                sizes_frame, "CHART SIZE",
+                                lambda tid=slot.table_id: self._apply_preflop_chart_size(tid),
+                                "normal")
+                            chart_button.pack(side="left", padx=(3, 3))
+                            record["chart_size_button"] = chart_button
+
                     for pct in self.bet_pot_percentages:
                         self._compact_action_button(
                             sizes_frame, f"{pct}%",
@@ -8497,17 +8568,21 @@ class PigeonPokerApp(tk.Tk):
                     # every Check/Call and keeps speech off the Tk thread.
                     if voice_process is None or voice_process.poll() is not None:
                         script = ("Add-Type -AssemblyName System.Speech; "
-                                  "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-                                  "$voices=@($s.GetInstalledVoices() | Where-Object { $_.Enabled -and $_.VoiceInfo.Culture.Name -like 'en-*' }); "
+                                  "$probe=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                                  "$voices=@($probe.GetInstalledVoices() | Where-Object { $_.Enabled -and $_.VoiceInfo.Culture.Name -like 'en-*' }); "
                                   "$en=$voices | Where-Object { $_.VoiceInfo.Culture.Name -eq 'en-US' } | Select-Object -First 1; "
                                   "if(-not $en){$en=$voices | Where-Object { $_.VoiceInfo.Culture.Name -eq 'en-GB' } | Select-Object -First 1}; "
                                   "if(-not $en){$en=$voices | Select-Object -First 1}; "
                                   "if(-not $en){throw 'No English Action Voice is installed'}; "
-                                  "$s.SelectVoice($en.VoiceInfo.Name); "
-                                  "$s.Rate=-1; while(($l=[Console]::ReadLine()) -ne $null){ "
+                                  "$voiceName=$en.VoiceInfo.Name; $probe.Dispose(); "
+                                  "while(($l=[Console]::ReadLine()) -ne $null){ "
                                   "$p=$l.Split('|',2); if($p.Length -eq 2){ "
-                                  "try{$s.Volume=[Math]::Max(0,[Math]::Min(100,[int]$p[0])); "
-                                  "$s.SpeakAsync($p[1])}catch{} } }")
+                                  "$sp=$null; try{$sp=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                                  "$sp.SelectVoice($voiceName); "
+                                  "$sp.Volume=[Math]::Max(0,[Math]::Min(100,[int]$p[0])); "
+                                  "$sp.Rate=-1; "
+                                  "$sp.add_SpeakCompleted({ param($sender,$eventArgs) try{$sender.Dispose()}catch{} }); "
+                                  "$sp.SpeakAsync($p[1])}catch{if($sp){try{$sp.Dispose()}catch{}}} } }")
                         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
                         voice_process = subprocess.Popen(
                             ["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script],
