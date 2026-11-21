@@ -1,0 +1,7 @@
+Build Pigeon Poker Stable v1.3.114.
+source_version=1.3.113
+feature=postflop_fold_call_raise_branch_model
+tests=reasoning_and_full_release_regression
+preserve=75_nodes_12675_rows_frequencies_raise_sizes
+preserve=user_preflop_actions_and_editable_raise_sizes
+ev_policy=raise_branch_conservatively_folds_and_loses_initial_bet
