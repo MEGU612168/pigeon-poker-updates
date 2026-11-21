@@ -1030,6 +1030,65 @@ def test_unmatched_preflop_line_falls_back_from_exact_range_profile() -> None:
     assert profile["range_disadvantage"] is False
 
 
+def test_facing_bet_response_splits_fold_call_and_raise_by_hand_strength():
+    weak = module._response_action_probabilities(
+        0.06, 0.04, 0.66, "turn", "balanced"
+    )
+    strong_value = module._response_action_probabilities(
+        0.94, 0.02, 0.66, "turn", "balanced"
+    )
+    strong_draw = module._response_action_probabilities(
+        0.08, 0.94, 0.66, "flop", "aggressive"
+    )
+    for probabilities in (weak, strong_value, strong_draw):
+        assert len(probabilities) == 3
+        assert all(0.0 <= value <= 1.0 for value in probabilities)
+        assert abs(sum(probabilities) - 1.0) < 1e-9
+    assert strong_value[2] > weak[2]
+    assert strong_draw[2] > weak[2]
+    assert weak[0] > 0.0
+    assert weak[1] > weak[2]
+
+
+def test_bet_response_branch_probabilities_sum_to_one_and_condition_on_calls():
+    players = [
+        FakePlayer("hero", ("Qh", "Qd")),
+        FakePlayer("villain", ()),
+    ]
+    hand = FakeHand(
+        players, board=("Js", "7d", "2c"), pot=1200,
+        street="flop", to_call=0, actions=("check", "bet"),
+        min_target=300, max_target=5000,
+    )
+    opponent = module.OpponentRange(
+        player_id="villain",
+        combos=(
+            (("Jc", "Jh"), 0.35),
+            (("3s", "4s"), 0.65),
+        ),
+        source="test-range",
+        confidence=0.90,
+        participation_probability=1.0,
+        archetype="balanced",
+    )
+    metrics = module._bet_response_branch_metrics(
+        hand, "hero", {"villain": opponent}, list(hand.board),
+        0.66, FakeCPU(5), simulation_multiplier=0.25,
+    )
+    assert abs(
+        metrics["all_fold_probability"]
+        + metrics["call_only_probability"]
+        + metrics["raise_probability"] - 1.0
+    ) < 1e-8
+    assert metrics["all_fold_probability"] > 0.0
+    assert metrics["call_only_probability"] > 0.0
+    assert metrics["raise_probability"] > 0.0
+    # With one opponent, conditioning on a call-only branch means exactly one caller.
+    assert abs(metrics["expected_callers"] - 1.0) < 1e-8
+    assert 0.0 <= metrics["called_equity"] <= 1.0
+    assert metrics["samples"] > 0
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
