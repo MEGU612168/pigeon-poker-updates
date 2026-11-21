@@ -9350,7 +9350,7 @@ class PigeonPokerApp(tk.Tk):
         tk.Label(session_filters, text="BLINDS", bg=COLORS["panel"], fg=COLORS["muted"],
                  font=("Segoe UI", 8, "bold")).pack(side="left", padx=(0, 3))
         ttk.Combobox(session_filters, textvariable=self.poker_session_stake_var,
-                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200"],
+                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200", "VIP25/50"],
                      state="readonly", width=9).pack(side="left", padx=(0, 8))
         ttk.Button(session_filters, text="SHOW", style="Accent.TButton",
                    command=self._refresh_pokercraft).pack(side="left", padx=(0, 8))
@@ -9426,7 +9426,7 @@ class PigeonPokerApp(tk.Tk):
         self.poker_include_rake_var = tk.BooleanVar(value=True)
         tk.Label(row1, text="Stake", bg=COLORS["panel"], fg=COLORS["muted"]).pack(side="left")
         ttk.Combobox(row1, textvariable=self.poker_filter_stake_var,
-                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200"],
+                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200", "VIP25/50"],
                      state="readonly", width=8).pack(side="left", padx=(4, 12))
         tk.Label(row1, text="Sort", bg=COLORS["panel"], fg=COLORS["muted"]).pack(side="left")
         ttk.Combobox(row1, textvariable=self.poker_sort_var,
@@ -9711,8 +9711,10 @@ class PigeonPokerApp(tk.Tk):
                 selected = sid in self.poker_session_selected_ids
                 self.poker_session_vars[sid] = tk.BooleanVar(value=selected)
                 time_text = self._format_pokercraft_jst(item.get("started_at"), "%Y-%m-%d %I:%M %p")
-                table_name = str(item.get("table_mode") or item.get("table_name")
-                                 or ("Rush & Cash" if item.get("table_id") else "Cash"))
+                rate = str(item.get("table_rate", ""))
+                default_table = ("VIP" if rate == "VIP25/50"
+                                 else ("Rush & Cash" if item.get("table_id") else "Cash"))
+                table_name = str(item.get("table_mode") or item.get("table_name") or default_table)
                 self.poker_session_tree.insert("", "end", iid=sid, values=(
                     "✓" if selected else "□", time_text,
                     self._pokercraft_blinds_label(str(item.get("table_rate", ""))),
@@ -9966,7 +9968,7 @@ class PigeonPokerApp(tk.Tk):
                 stat["hands"] += 1
                 stat["net"] += row_net
                 bb_cents_for_hand = {"NL2": 2, "NL5": 5, "NL10": 10, "NL25": 25,
-                                     "NL50": 50, "NL100": 100, "NL200": 200, "VIP25/50": 2500}.get(str(row.get("table_rate", "")), 0)
+                                     "NL50": 50, "NL100": 100, "NL200": 200, "VIP25/50": 5000}.get(str(row.get("table_rate", "")), 0)
                 if bb_cents_for_hand:
                     stat["bb_units"] += row_net / bb_cents_for_hand
                 if row_net > 0:
@@ -10015,7 +10017,11 @@ class PigeonPokerApp(tk.Tk):
                 position, stat["hands"], stat["wins"], f"${net/100:+.2f}", f"{bb100:+.1f}"))
 
     def _export_pokercraft_csv(self):
-        rows = list(getattr(self, "poker_filtered_rows", []))
+        rows = []
+        for source_row in list(getattr(self, "poker_filtered_rows", [])):
+            row = dict(source_row)
+            row["played_at"] = self._format_pokercraft_jst(row.get("played_at"))
+            rows.append(row)
         if not rows:
             messagebox.showinfo("PokerCraft export", "エクスポートするハンドがありません。先にセッション／フィルターを確認してください。")
             return
