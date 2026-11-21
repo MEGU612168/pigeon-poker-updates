@@ -3,7 +3,7 @@ name: Assemble and publish Pigeon Poker update
 on:
   push:
     paths:
-      - "releases/**/payload.ready"
+      - "releases/v1.3.*/payload.ready"
   workflow_dispatch:
 
 permissions:
