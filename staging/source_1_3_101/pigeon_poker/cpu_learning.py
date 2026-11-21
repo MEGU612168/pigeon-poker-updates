@@ -250,37 +250,21 @@ class CPULearningStore:
             if cursor.rowcount != 1:
                 connection.rollback()
                 return False
+            counter_columns_sql = ", ".join(_COUNTERS)
+            counter_placeholders_sql = ", ".join("?" for _ in _COUNTERS)
+            counter_updates_sql = ",\n                        ".join(
+                f"{name} = {name} + excluded.{name}" for name in _COUNTERS
+            )
             for cpu_id, values in deltas.items():
                 connection.execute(
-                    """
+                    f"""
                     INSERT INTO cpu_behavior_stats (
-                        stake, cpu_id, hands, vpip_hands, pfr_hands,
-                        three_bet_opportunities, three_bets,
-                        four_bet_opportunities, four_bets,
-                        faced_bets, folds_facing_bet,
-                        postflop_actions, postflop_aggressive, postflop_calls,
-                        cbet_opportunities, cbets,
-                        fold_to_cbet_opportunities, folds_to_cbet
+                        stake, cpu_id, {counter_columns_sql}
                     ) VALUES (
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        ?, ?, {counter_placeholders_sql}
                     )
                     ON CONFLICT(stake, cpu_id) DO UPDATE SET
-                        hands = hands + excluded.hands,
-                        vpip_hands = vpip_hands + excluded.vpip_hands,
-                        pfr_hands = pfr_hands + excluded.pfr_hands,
-                        three_bet_opportunities = three_bet_opportunities + excluded.three_bet_opportunities,
-                        three_bets = three_bets + excluded.three_bets,
-                        four_bet_opportunities = four_bet_opportunities + excluded.four_bet_opportunities,
-                        four_bets = four_bets + excluded.four_bets,
-                        faced_bets = faced_bets + excluded.faced_bets,
-                        folds_facing_bet = folds_facing_bet + excluded.folds_facing_bet,
-                        postflop_actions = postflop_actions + excluded.postflop_actions,
-                        postflop_aggressive = postflop_aggressive + excluded.postflop_aggressive,
-                        postflop_calls = postflop_calls + excluded.postflop_calls,
-                        cbet_opportunities = cbet_opportunities + excluded.cbet_opportunities,
-                        cbets = cbets + excluded.cbets,
-                        fold_to_cbet_opportunities = fold_to_cbet_opportunities + excluded.fold_to_cbet_opportunities,
-                        folds_to_cbet = folds_to_cbet + excluded.folds_to_cbet,
+                        {counter_updates_sql},
                         updated_at = CURRENT_TIMESTAMP
                     """,
                     (rate, cpu_id, *(values[name] for name in _COUNTERS)),
