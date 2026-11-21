@@ -1599,6 +1599,22 @@ def test_opponent_board_profile_removes_hero_known_card_blockers():
 
 
 
+
+def test_one_pair_plus_draw_needs_made_hand_equity_to_be_thin_value():
+    value, bluff = module._postflop_aggression_gates(
+        True, True,
+        street="flop", to_call=0, donk_lead=False,
+        range_disadvantage=False, made_category=1, draw_strength=0.92,
+        expected_callers=1.0, called_equity=0.64,
+        value_threshold=0.56, fold_probability=0.68,
+        required_success=0.35, uncertainty_margin=0.02,
+        called_current_equity=0.30,
+    )
+    assert value is False
+    assert bluff is True
+
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
