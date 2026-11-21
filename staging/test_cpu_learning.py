@@ -143,6 +143,28 @@ def test_unacted_cpu_receives_learned_profile_without_fake_chart_range():
         assert row["reason"] == "behavior-profile-prior"
         assert row["learned_archetype"] == "calling_station"
         assert row["learned_behavior"]["sample_hands"] == 40.0
+
+        aggressive_result = preflop_ranges.estimate_preflop_opponent_ranges(
+            object(), hand, exclude_player_id="hero",
+            opponent_profiles={"cpu-A": {"archetype": "balanced", "level": 3}},
+            opponent_learning={"cpu-A": {
+                "sample_hands": 40.0,
+                "vpip_rate": 0.24,
+                "pfr_rate": 0.20,
+                "faced_bet_opportunities": 30.0,
+                "fold_to_bet_rate": 0.55,
+                "postflop_actions": 5.0,
+                "postflop_call_rate": 0.28,
+                "postflop_aggression_rate": 0.20,
+                "three_bet_opportunities": 20.0,
+                "three_bet_rate": 0.27,
+                "four_bet_opportunities": 3.0,
+                "four_bet_rate": 0.08,
+            }},
+        )
+        aggressive_row = aggressive_result["players"]["cpu-A"]
+        assert aggressive_row["learned_archetype"] == "aggressive"
+        assert aggressive_row["learned_archetype_basis"] == "three_bet_rate"
     finally:
         preflop_ranges._supports_100bb_effective_stack = original_support
         preflop_ranges._seat_position_map = original_positions
