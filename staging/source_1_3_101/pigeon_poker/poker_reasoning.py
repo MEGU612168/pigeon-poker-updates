@@ -1621,6 +1621,24 @@ def _showdown_value_ev(equity: float, pot: int, estimated_rake: int = 0) -> floa
 
 
 
+
+def _range_conditioned_draw_strength(
+    made_equity: float,
+    runout_equity: float,
+    board_draw_strength: float,
+    street: str,
+) -> float:
+    """Blend visible draw texture with improvement equity against the call range."""
+    if str(street or "").lower() == "river":
+        return 0.0
+    made = max(0.0, min(1.0, float(made_equity)))
+    runout = max(0.0, min(1.0, float(runout_equity)))
+    structural = max(0.0, min(1.0, float(board_draw_strength)))
+    range_improvement = max(0.0, runout - made)
+    conditioned = min(0.98, range_improvement * 1.75)
+    return max(structural, conditioned)
+
+
 def _postflop_board_texture(board: list[str]) -> dict[str, Any]:
     """Describe board dynamism for sizing and street-transition decisions."""
     cards = [str(card) for card in board if len(str(card)) >= 2]
@@ -2420,6 +2438,12 @@ def _choose_range_aware_action_impl(
             candidate_called_current_equity = float(
                 response_metrics.get("called_current_equity", candidate_called_equity)
             )
+            candidate_draw_strength = _range_conditioned_draw_strength(
+                candidate_called_current_equity,
+                candidate_called_equity,
+                hero_draw_strength,
+                street,
+            )
             candidate_response_samples = int(response_metrics["samples"])
             required_success = required_bluff_success(pot, risk)
             candidate_required_bluff = required_success
@@ -2505,7 +2529,7 @@ def _choose_range_aware_action_impl(
                 donk_lead=bool(board_role.get("donk_lead", False)),
                 range_disadvantage=bool(board_role.get("preflop_range_disadvantage", False)),
                 made_category=hero_hand_category,
-                draw_strength=hero_draw_strength,
+                draw_strength=candidate_draw_strength,
                 expected_callers=max(candidate_expected_callers, expected_opponents),
                 called_equity=candidate_called_realized_equity,
                 value_threshold=value_threshold,
@@ -2622,7 +2646,9 @@ def _choose_range_aware_action_impl(
         f"raw-equity={equity:.1%}; realized-equity={realized_equity:.1%}; SPR={spr:.2f}; "
         f"SDV-check-EV≈{showdown_value_ev:.1f}; "
         f"donk-lead={bool(board_role.get('donk_lead', False))}; "
-        f"hero-made-category={hero_hand_category}; draw={hero_draw_strength:.2f}; "
+        f"hero-made-category={hero_hand_category}; "
+        f"structural-draw={hero_draw_strength:.2f}; "
+        f"range-conditioned-draw={candidate_draw_strength:.2f}; "
         "source=range-aware multiway response model with postflop aggression guardrails (not solver exact)"
     )
     return CPUAction(
