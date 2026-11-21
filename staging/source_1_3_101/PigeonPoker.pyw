@@ -4181,26 +4181,23 @@ class PigeonPokerApp(tk.Tk):
                             font=("Segoe UI", 11, "bold"),
                         )
                     winner = "LIVE" if is_live else winner_text(record)
-                    tk.Label(
+                    winner_label = tk.Label(
                         row_frame, text=winner, bg=row_frame.cget("bg"),
                         fg="#f2f6fc", font=("Segoe UI", 9, "bold"),
                         anchor="w",
-                    ).pack(side="left", fill="x", expand=True)
+                    )
+                    winner_label.pack(side="left", fill="x", expand=True)
                     pot = int(record.get("pot", 0) or 0)
-                    tk.Label(
+                    pot_label = tk.Label(
                         row_frame, text=f"${pot/100:.2f}", width=11,
                         bg=row_frame.cget("bg"), fg="#e6bd63",
                         font=("Segoe UI", 10, "bold"), anchor="e",
-                    ).pack(side="right", padx=(8, 2))
-                    for widget in (row_frame, card_canvas):
-                        widget.bind(
-                            "<Double-Button-1>",
-                            lambda _e, row=record, live=is_live: open_detail(row, live),
-                        )
-                    row_frame.bind(
-                        "<Button-1>",
-                        lambda _e, row=record, live=is_live: open_detail(row, live),
                     )
+                    pot_label.pack(side="right", padx=(8, 2))
+                    open_row = lambda _e, row=record, live=is_live: open_detail(row, live)
+                    for widget in (row_frame, card_canvas, winner_label, pot_label):
+                        widget.bind("<Button-1>", open_row)
+                        widget.bind("<Double-Button-1>", open_row)
             state["after_id"] = win.after(1800, render)
 
         def close():
@@ -4262,7 +4259,7 @@ class PigeonPokerApp(tk.Tk):
                                highlightthickness=0, bd=0, cursor="hand2")
         range_icon.pack(side="left", padx=(1, 7))
         self._draw_range_grid_icon(range_icon, enabled=False)
-        range_icon.configure(state="disabled")
+        range_icon.configure(state="normal", cursor="hand2")
         range_icon.bind("<Button-1>", lambda _e, tid=table_id: self._open_realtime_preflop_range(tid))
         tk.Label(header, textvariable=title_var, bg="#080e19", fg=COLORS["gold"],
                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=12)
