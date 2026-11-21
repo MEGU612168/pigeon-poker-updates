@@ -5,6 +5,15 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
+_POSTFLOP_STREETS = ("flop", "turn", "river")
+_SIZE_BUCKETS = ("small", "medium", "large", "overbet")
+_SIZE_OUTCOMES = ("folds", "calls", "raises")
+_SIZE_COUNTERS = tuple(
+    f"{street}_{bucket}_{suffix}"
+    for street in _POSTFLOP_STREETS
+    for bucket in _SIZE_BUCKETS
+    for suffix in ("opportunities", *_SIZE_OUTCOMES)
+)
 _COUNTERS = (
     "hands", "vpip_hands", "pfr_hands",
     "three_bet_opportunities", "three_bets",
@@ -13,7 +22,19 @@ _COUNTERS = (
     "postflop_actions", "postflop_aggressive", "postflop_calls",
     "cbet_opportunities", "cbets",
     "fold_to_cbet_opportunities", "folds_to_cbet",
+    *_SIZE_COUNTERS,
 )
+
+
+def _size_bucket(size_fraction: float) -> str:
+    value = max(0.0, float(size_fraction))
+    if value <= 0.33:
+        return "small"
+    if value <= 0.75:
+        return "medium"
+    if value <= 1.25:
+        return "large"
+    return "overbet"
 
 
 def _action_name(event: dict[str, Any]) -> str:
@@ -72,11 +93,22 @@ class CPULearningStore:
                     cbets INTEGER NOT NULL DEFAULT 0,
                     fold_to_cbet_opportunities INTEGER NOT NULL DEFAULT 0,
                     folds_to_cbet INTEGER NOT NULL DEFAULT 0,
+                    ${_SIZE_COUNTERS.map(name => name + " INTEGER NOT NULL DEFAULT 0").join(",\n                    ")},
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (stake, cpu_id)
                 )
                 """
             )
+            # Additive migration keeps existing per-CPU learning databases usable.
+            existing_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(cpu_behavior_stats)")
+            }
+            for column in _SIZE_COUNTERS:
+                if column not in existing_columns:
+                    connection.execute(
+                        f"ALTER TABLE cpu_behavior_stats ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0"
+                    )
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS cpu_learning_hands (
@@ -182,6 +214,15 @@ class CPULearningStore:
                 values["faced_bets"] += 1
                 if action == "fold":
                     values["folds_facing_bet"] += 1
+                if street in _POSTFLOP_STREETS and action in {"fold", "call", "raise"}:
+                    # pot_before includes the wager being faced. Remove it to
+                    # recover the pot size before that wager was made.
+                    prior_pot = max(1, pot_before - to_call)
+                    faced_size = to_call / prior_pot
+                    bucket = _size_bucket(faced_size)
+                    prefix = f"{street}_{bucket}"
+                    values[f"{prefix}_opportunities"] += 1
+                    values[f"{prefix}_{action}s"] += 1
             if street == "flop" and cbet_active and actor != cbet_aggressor and to_call > 0:
                 values["fold_to_cbet_opportunities"] += 1
                 if action == "fold":
@@ -283,4 +324,23 @@ class CPULearningStore:
                 "fold_to_cbet_opportunities": float(fold_cbet_opp),
                 "fold_to_cbet_rate": (int(row["folds_to_cbet"]) + 4.4) / (fold_cbet_opp + 8.0),
             }
+            # Dirichlet-style smoothing uses an eight-observation prior
+            # centred on 55% fold / 35% call / 10% raise.
+            for street in _POSTFLOP_STREETS:
+                for bucket in _SIZE_BUCKETS:
+                    prefix = f"{street}_{bucket}"
+                    opportunities = int(row[f"{prefix}_opportunities"])
+                    denominator = opportunities + 8.0
+                    result[str(row["cpu_id"])][
+                        f"{prefix}_response_opportunities"
+                    ] = float(opportunities)
+                    result[str(row["cpu_id"])][
+                        f"{prefix}_fold_rate"
+                    ] = (int(row[f"{prefix}_folds"]) + 4.4) / denominator
+                    result[str(row["cpu_id"])][
+                        f"{prefix}_call_rate"
+                    ] = (int(row[f"{prefix}_calls"]) + 2.8) / denominator
+                    result[str(row["cpu_id"])][
+                        f"{prefix}_raise_rate"
+                    ] = (int(row[f"{prefix}_raises"]) + 0.8) / denominator
         return result
