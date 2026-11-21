@@ -910,6 +910,333 @@ def _equity_vs_ranges(hand: Any, hero_id: str, ranges: dict[str, OpponentRange],
     return wins / completed, completed
 
 
+
+def _current_showdown_equity(
+    hand: Any,
+    hero_id: str,
+    ranges: dict[str, OpponentRange],
+    cpu: Any,
+    *,
+    simulation_multiplier: float = 0.55,
+) -> tuple[float, int]:
+    """Estimate made-hand equity on the current board, without future runouts.
+
+    This separates present showdown value from draw/improvement equity. Opponent
+    participation and combo collisions are sampled jointly, so multiway ranges
+    do not reuse physical cards.
+    """
+    hero = hand.player(hero_id)
+    hero_cards = [str(card) for card in list(getattr(hero, "hole_cards", ()) or ())]
+    board = [str(card) for card in list(getattr(hand, "board", ()) or ())]
+    if len(hero_cards) != 2 or len(board) < 3:
+        return 0.0, 0
+    if len(set(hero_cards + board)) != len(hero_cards) + len(board):
+        raise ValueError("Duplicate cards in current showdown-equity state")
+    if not ranges:
+        return 1.0, 0
+    rng = getattr(cpu, "rng", None) or random.Random()
+    level = min(5, max(1, int(getattr(cpu, "level", 3) or 3)))
+    runs = max(100, min(420, int((120 + level * 60) * max(
+        0.25, min(1.0, float(simulation_multiplier))
+    ))))
+    deck = [str(card) for card in make_deck()]
+    hero_rank = evaluate_seven(hero_cards + board)
+    wins = 0.0
+    completed = 0
+    for _ in range(runs):
+        hands = _sample_joint_opponent_hands(
+            list(ranges.values()), set(hero_cards + board), deck, rng
+        )
+        if not hands:
+            wins += 1.0
+            completed += 1
+            continue
+        ranks = [evaluate_seven(list(cards) + board) for cards in hands]
+        best = max([hero_rank] + ranks)
+        winners = (1 if hero_rank == best else 0) + sum(
+            1 for rank in ranks if rank == best
+        )
+        if hero_rank == best:
+            wins += 1.0 / max(1, winners)
+        completed += 1
+    if completed <= 0:
+        raise RuntimeError("No current-board showdown simulations completed")
+    return wins / completed, completed
+
+
+def _postflop_position_profile(
+    table: Any, hand: Any, hero_id: str
+) -> dict[str, Any]:
+    """Resolve whether hero acts last against the remaining live opponents."""
+    players = list(getattr(hand, "players", ()) or ())
+    dealer = getattr(table, "dealer_index", None)
+    if dealer is None:
+        dealer = getattr(hand, "dealer_index", None)
+    try:
+        dealer_index = int(dealer) % max(1, len(players))
+    except (TypeError, ValueError, OverflowError):
+        return {"known": False, "in_position": False, "opponents_after": 0}
+    seat_by_id = getattr(hand, "seat_by_id", {}) or {}
+
+    def distance(player: Any) -> int | None:
+        pid = str(getattr(player, "player_id", ""))
+        try:
+            seat = (
+                int(seat_by_id[pid]) % len(players)
+                if isinstance(seat_by_id, dict) and pid in seat_by_id
+                else next(i for i, item in enumerate(players)
+                          if str(getattr(item, "player_id", "")) == pid)
+            )
+        except (StopIteration, TypeError, ValueError, OverflowError):
+            return None
+        delta = (seat - dealer_index) % len(players)
+        return len(players) if delta == 0 else delta
+
+    hero = next(
+        (p for p in players if str(getattr(p, "player_id", "")) == str(hero_id)),
+        None,
+    )
+    hero_distance = distance(hero) if hero is not None else None
+    if hero_distance is None:
+        return {"known": False, "in_position": False, "opponents_after": 0}
+    live = [
+        p for p in players
+        if str(getattr(p, "player_id", ""))
+        and str(getattr(p, "player_id", "")) != str(hero_id)
+        and bool(getattr(p, "eligible", False))
+    ]
+    opponent_distances = [
+        value for p in live if (value := distance(p)) is not None
+    ]
+    if not opponent_distances:
+        return {"known": True, "in_position": True, "opponents_after": 0}
+    after = sum(1 for value in opponent_distances if value > hero_distance)
+    return {
+        "known": True,
+        "in_position": after == 0,
+        "opponents_after": after,
+        "hero_action_order": hero_distance,
+        "live_opponents": len(opponent_distances),
+    }
+
+
+def _equity_realization_factor(
+    street: str,
+    *,
+    in_position: bool,
+    position_known: bool,
+    expected_opponents: float,
+    made_category: int,
+    draw_strength: float,
+) -> float:
+    """Approximate how much raw equity can be realized when checking.
+
+    Realization falls OOP and multiway, rises with a strong made hand/draw, and
+    reaches 100% on the river where no future cards or betting streets remain.
+    """
+    current = str(street or "").lower()
+    if current == "river":
+        return 1.0
+    base = {"flop": 0.935, "turn": 0.965}.get(current, 0.94)
+    if position_known:
+        base += 0.035 if in_position else -0.035
+    else:
+        base -= 0.015
+    category = max(0, int(made_category))
+    draw = max(0.0, min(1.0, float(draw_strength)))
+    if category >= 2:
+        base += 0.015
+    elif category == 0 and draw < 0.25:
+        base -= 0.025
+    elif draw >= 0.70:
+        base += 0.010
+    base -= max(0.0, float(expected_opponents) - 1.0) * 0.025
+    return max(0.78, min(0.995, base))
+
+
+def _action_updated_range_board_profile(
+    row: dict[str, Any],
+    hand: Any,
+    player_id: str,
+    board: list[str],
+    *,
+    max_samples: int = 320,
+) -> dict[str, float] | None:
+    """Build board strength from a player's range after every observed street action."""
+    if not isinstance(row, dict) or not row.get("supported") or len(board) < 3:
+        return None
+    classes = row.get("unblocked_hand_class_probabilities")
+    if not isinstance(classes, dict):
+        classes = row.get("hand_class_probabilities")
+    if not isinstance(classes, dict):
+        return None
+    board_blockers = set(str(card) for card in board)
+    options: list[tuple[tuple[str, str], float]] = []
+    for hand_class, raw_weight in classes.items():
+        try:
+            class_weight = max(0.0, float(raw_weight))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if class_weight <= 0:
+            continue
+        combos = [
+            combo for combo in _physical_combos(str(hand_class))
+            if not (set(combo) & board_blockers)
+        ]
+        if combos:
+            options.extend((combo, class_weight / len(combos)) for combo in combos)
+    if not options:
+        return None
+
+    players = list(getattr(hand, "players", ()) or ())
+    actor_ids = {str(getattr(p, "player_id", "")) for p in players}
+    actor_names = {
+        str(getattr(p, "name", "")): str(getattr(p, "player_id", ""))
+        for p in players if str(getattr(p, "name", ""))
+    }
+    target = str(player_id)
+    running_board: list[str] = []
+    learned = row.get("learned_behavior", row.get("learned_stats", {}))
+    archetype = str(row.get("archetype", "balanced") or "balanced")
+    for event in list(getattr(hand, "events", ()) or ()):
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "street":
+            running_board = [
+                str(card) for card in event.get("board", running_board)
+            ]
+            continue
+        if event.get("type") != "action":
+            continue
+        raw_actor = str(event.get("player_id") or event.get("player") or "")
+        actor = raw_actor if raw_actor in actor_ids else actor_names.get(raw_actor)
+        if actor != target:
+            continue
+        event_street = str(event.get("street", "preflop")).lower().replace("-", "")
+        if event_street not in {"flop", "turn", "river"} or len(running_board) < 3:
+            continue
+        action = _event_action(event)
+        if action == "fold":
+            continue
+        pot_before = max(1, int(event.get("pot_before", 1) or 1))
+        paid = max(0, int(event.get("paid", event.get("amount", 0)) or 0))
+        to_call = max(0, int(event.get("to_call_before", 0) or 0))
+        if action in {"raise", "bet", "allin"}:
+            size_fraction = paid / pot_before
+        elif action in {"call", "allin_call"}:
+            size_fraction = to_call / pot_before
+        else:
+            size_fraction = 0.0
+        updated: list[tuple[tuple[str, str], float]] = []
+        for combo, weight in options:
+            if set(combo) & set(running_board):
+                continue
+            made, draw = _board_metrics(combo, running_board)
+            likelihood = _action_likelihood(
+                action, made, draw, size_fraction, event_street,
+                archetype, learned,
+            )
+            posterior_weight = weight * likelihood
+            if posterior_weight > 0:
+                updated.append((combo, posterior_weight))
+        if updated:
+            options = updated
+
+    total = sum(weight for _, weight in options)
+    if total <= 0:
+        return None
+    options = [(combo, weight / total) for combo, weight in options]
+    options.sort(key=lambda item: item[0])
+    if len(options) > max(1, int(max_samples)):
+        sample_count = max(1, int(max_samples))
+        step = 1.0 / sample_count
+        cumulative = options[0][1]
+        index = 0
+        sampled: list[tuple[tuple[str, str], float]] = []
+        for sample_index in range(sample_count):
+            target_weight = (sample_index + 0.5) * step
+            while index < len(options) - 1 and cumulative < target_weight:
+                index += 1
+                cumulative += options[index][1]
+            sampled.append((options[index][0], step))
+        profile_options = sampled
+    else:
+        profile_options = options
+
+    scores = [
+        (_board_metrics(combo, board)[0], weight)
+        for combo, weight in profile_options if weight > 0
+    ]
+    profile_total = sum(weight for _, weight in scores)
+    if profile_total <= 0:
+        return None
+    mean = sum(score * weight for score, weight in scores) / profile_total
+    nut_mass = sum(weight for score, weight in scores if score >= 0.315) / profile_total
+    upper_mass = profile_total * 0.10
+    remaining = upper_mass
+    upper_sum = 0.0
+    for score, weight in sorted(scores, key=lambda item: item[0], reverse=True):
+        take = min(weight, remaining)
+        upper_sum += score * take
+        remaining -= take
+        if remaining <= 1e-12:
+            break
+    return {
+        "mean_strength": mean,
+        "top_decile_strength": upper_sum / max(1e-12, upper_mass),
+        "two_pair_plus_mass": nut_mass,
+        "sampled_combos": float(len(scores)),
+    }
+
+
+def _sample_near_optimal_action(
+    candidates: list[tuple[str, int | None, float]],
+    *,
+    best_ev: float,
+    pot: int,
+    level: int,
+    rng: Any,
+) -> tuple[str, int | None, bool, int]:
+    """Mix among near-indifferent postflop actions instead of always pure-maxing EV.
+
+    This is an EV-neighborhood approximation to mixed strategy, not a claimed
+    solver frequency. Lower CPU levels remain deterministic and exploitative.
+    """
+    if int(level) < 4 or len(candidates) < 2:
+        if candidates:
+            chosen = max(candidates, key=lambda item: item[2])
+            return chosen[0], chosen[1], False, 1
+        return "", None, False, 0
+    budget = max(1.0, float(max(1, int(pot))) * (0.010 if int(level) >= 5 else 0.018))
+    near = [
+        item for item in candidates
+        if float(item[2]) >= float(best_ev) - budget
+    ]
+    # Collapse duplicate action/amount entries while preserving the best EV.
+    collapsed: dict[tuple[str, int | None], float] = {}
+    for action, amount, ev in near:
+        key = (str(action), None if amount is None else int(amount))
+        collapsed[key] = max(float(ev), collapsed.get(key, -float("inf")))
+    near = [(a, amount, ev) for (a, amount), ev in collapsed.items()]
+    if len(near) < 2:
+        chosen = max(candidates, key=lambda item: item[2])
+        return chosen[0], chosen[1], False, 1
+    temperature = max(1.0, float(max(1, int(pot))) * (
+        0.003 if int(level) >= 5 else 0.006
+    ))
+    weights = [
+        math.exp(max(-20.0, min(0.0, (float(ev) - float(best_ev)) / temperature)))
+        for _, _, ev in near
+    ]
+    total = sum(weights)
+    threshold = (float(rng.random()) if rng is not None else random.random()) * total
+    for item, weight in zip(near, weights):
+        threshold -= weight
+        if threshold <= 0:
+            return item[0], item[1], True, len(near)
+    chosen = near[-1]
+    return chosen[0], chosen[1], True, len(near)
+
 def _fold_probability(ranges: dict[str, OpponentRange], board: list[str],
                       bet_fraction: float) -> float:
     """Estimate joint all-fold probability using each player's weighted range."""
@@ -1043,13 +1370,22 @@ def _bet_response_branch_metrics(
         hand, hero_id, call_ranges, cpu,
         simulation_multiplier=simulation_multiplier,
     )
+    current_made_equity, made_samples = _current_showdown_equity(
+        hand, hero_id, call_ranges, cpu,
+        simulation_multiplier=0.45,
+    )
     if conditional_all_fold >= 0.999999:
         called_equity = 1.0
+        called_current_equity = 1.0
     else:
         called_equity = (
             no_raise_equity - conditional_all_fold
         ) / max(1e-9, 1.0 - conditional_all_fold)
         called_equity = max(0.0, min(1.0, called_equity))
+        called_current_equity = (
+            current_made_equity - conditional_all_fold
+        ) / max(1e-9, 1.0 - conditional_all_fold)
+        called_current_equity = max(0.0, min(1.0, called_current_equity))
 
     total_probability = all_fold_probability + call_only_probability + raise_probability
     if total_probability > 0 and abs(total_probability - 1.0) > 1e-9:
@@ -1062,7 +1398,9 @@ def _bet_response_branch_metrics(
         "raise_probability": raise_probability,
         "expected_callers": max(0.0, expected_callers),
         "called_equity": max(0.0, min(1.0, called_equity)),
-        "samples": samples,
+        "called_current_equity": max(0.0, min(1.0, called_current_equity)),
+        "made_samples": made_samples,
+        "samples": samples + made_samples,
     }
 
 
@@ -1375,7 +1713,9 @@ def _preflop_range_advantage_profile(
     if not isinstance(rows, dict):
         return neutral
     hero_row = rows.get(str(hero_id))
-    hero_profile = _range_board_strength_profile(hero_row, board)
+    hero_profile = _action_updated_range_board_profile(
+        hero_row, hand, str(hero_id), board
+    )
     if hero_profile is None:
         return neutral
 
@@ -1388,7 +1728,9 @@ def _preflop_range_advantage_profile(
     opponent_profiles = []
     for player in active_opponents:
         pid = str(getattr(player, "player_id", ""))
-        profile = _range_board_strength_profile(rows.get(pid, {}), board)
+        profile = _action_updated_range_board_profile(
+            rows.get(pid, {}), hand, pid, board
+        )
         if profile is None:
             # A partial chart sample can misstate a multiway range edge.
             # Use the board-texture fallback unless every live opponent is covered.
