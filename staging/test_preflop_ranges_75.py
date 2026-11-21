@@ -103,6 +103,33 @@ def test_all_75_histories_match():
         assert got==node['id'], (node['id'],got,node['history'])
 
 
+def test_situation_size_uses_position_and_raise_history_not_hero_hand_class():
+    checked = 0
+    for node in module._data()['nodes']:
+        has_raise = any(
+            item.get('action') in {'raise', 'allin'}
+            and float(item.get('frequency', 0.0)) > 0
+            for actions in node['hands'].values()
+            for item in actions
+        )
+        if not has_raise:
+            continue
+        # These very different hole-card classes must receive the same
+        # size because both resolve to the same position/history node.
+        hand_premium = FakeHand(node, 'AA')
+        hand_weak = FakeHand(node, '72o')
+        size_premium = module.preflop_situation_size(
+            FakeTable(), hand_premium, hand_premium.actor_id
+        )
+        size_weak = module.preflop_situation_size(
+            FakeTable(), hand_weak, hand_weak.actor_id
+        )
+        assert size_premium is not None, (node['id'], size_premium)
+        assert size_weak == size_premium, (node['id'], size_premium, size_weak)
+        checked += 1
+    assert checked >= 50, checked
+
+
 def test_wrong_size_is_rejected():
     data=module._data()
     node=data['nodes'][20]
