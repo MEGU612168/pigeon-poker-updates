@@ -1567,6 +1567,70 @@ def _showdown_value_ev(equity: float, pot: int, estimated_rake: int = 0) -> floa
     return share * distributable
 
 
+
+def _postflop_board_texture(board: list[str]) -> dict[str, Any]:
+    """Describe board dynamism for sizing and street-transition decisions."""
+    cards = [str(card) for card in board if len(str(card)) >= 2]
+    ranks = sorted({
+        14 if card[0] == "A" else RANKS.index(card[0]) + 2
+        for card in cards if card[0] in RANKS
+    })
+    suits: dict[str, int] = {}
+    for card in cards:
+        suits[card[1]] = suits.get(card[1], 0) + 1
+    rank_counts: dict[int, int] = {}
+    for card in cards:
+        if card[0] not in RANKS:
+            continue
+        rank = 14 if card[0] == "A" else RANKS.index(card[0]) + 2
+        rank_counts[rank] = rank_counts.get(rank, 0) + 1
+    pair_count = sum(max(0, count - 1) for count in rank_counts.values())
+    max_suit = max(suits.values(), default=0)
+    connected_links = sum(
+        1 for left, right in zip(ranks, ranks[1:]) if right - left <= 2
+    )
+    near_links = sum(
+        1 for left, right in zip(ranks, ranks[1:]) if right - left <= 4
+    )
+    high_cards = sum(1 for rank in ranks if rank >= 10)
+    span = ranks[-1] - ranks[0] if len(ranks) >= 2 else 0
+    wetness = 0.0
+    if max_suit == 2:
+        wetness += 0.16
+    elif max_suit >= 3:
+        wetness += 0.42
+    wetness += min(0.36, connected_links * 0.18)
+    wetness += min(0.16, max(0, near_links - connected_links) * 0.08)
+    if pair_count:
+        wetness -= min(0.16, pair_count * 0.08)
+    if high_cards >= 2:
+        wetness -= 0.04
+    if len(ranks) >= 3 and span <= 4:
+        wetness += 0.08
+    wetness = max(0.0, min(1.0, wetness))
+
+    completed_flush = bool(len(cards) >= 4 and max_suit >= 3)
+    unique = set(ranks)
+    if 14 in unique:
+        unique.add(1)
+    completed_straight = any(
+        len(set(range(high - 4, high + 1)) & unique) >= 5
+        for high in range(5, 15)
+    )
+    return {
+        "wetness": wetness,
+        "paired": pair_count > 0,
+        "pair_count": pair_count,
+        "monotone": max_suit >= 3 and len(cards) >= 3,
+        "two_tone": max_suit == 2,
+        "connected_links": connected_links,
+        "high_card_density": high_cards / max(1, len(ranks)),
+        "completed_flush": completed_flush,
+        "completed_straight": completed_straight,
+    }
+
+
+
 def _postflop_bet_size_fractions(
     *,
     to_call: bool,
@@ -1575,29 +1639,44 @@ def _postflop_bet_size_fractions(
     range_disadvantage: bool,
     nut_advantage: float,
     expected_callers: float,
+    board_texture: dict[str, Any] | None = None,
 ) -> tuple[float, ...]:
-    """Choose sizing candidates from range texture, then let response EV rank them."""
+    """Choose sizes from position, range edge, nut density and board dynamism."""
     callers = max(0.0, float(expected_callers))
     nut_edge = max(0.0, min(1.0, float(nut_advantage)))
-    # Facing a bet is a raise-sizing problem, never a donk-sizing problem.
+    texture = board_texture if isinstance(board_texture, dict) else {}
+    wetness = max(0.0, min(1.0, float(texture.get("wetness", 0.30) or 0.0)))
+    paired = bool(texture.get("paired", False))
+    monotone = bool(texture.get("monotone", False))
     if to_call:
+        # Facing a bet is a raise-sizing decision; never apply donk sizes here.
         if range_disadvantage:
             return (0.50, 0.75, 1.00)
         if range_advantage and nut_edge >= 0.05:
+            if wetness >= 0.50 or monotone:
+                return (0.75, 1.00, 1.25, 1.50, 2.00)
             return (0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
         return (0.50, 0.75, 1.00, 1.25, 1.50)
     if donk_lead:
         # Donk leads are low-frequency range-protection actions, not a pot-sized default.
-        return (0.20, 0.25, 0.33) if callers >= 1.5 else (0.25, 0.33, 0.50)
+        if callers >= 1.5:
+            return (0.20, 0.25, 0.33)
+        return (0.20, 0.25, 0.33, 0.50) if wetness >= 0.50 else (0.25, 0.33, 0.50)
     if range_disadvantage:
-        return (0.15, 0.25, 0.33, 0.50)
+        return (0.15, 0.25, 0.33) if paired or wetness < 0.30 else (0.20, 0.33, 0.50)
     if range_advantage and nut_edge >= 0.05:
-        # A real upper-tail edge can support polarized overbets as well as small bets.
-        return (0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
+        if wetness >= 0.50 or monotone:
+            return (0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
+        return (0.15, 0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
     if range_advantage:
-        return (0.15, 0.25, 0.33, 0.50, 0.75, 1.00, 1.25)
+        if paired or wetness < 0.25:
+            return (0.10, 0.15, 0.25, 0.33, 0.50, 0.75)
+        return (0.15, 0.25, 0.33, 0.50, 0.75, 1.00)
+    if wetness >= 0.60 or monotone:
+        return (0.33, 0.50, 0.75, 1.00, 1.50)
+    if paired or wetness < 0.20:
+        return (0.10, 0.15, 0.25, 0.33, 0.50, 0.75)
     return (0.15, 0.25, 0.33, 0.50, 0.75, 1.00, 1.50)
-
 
 def _range_board_strength_profile(
     row: dict[str, Any],
@@ -2210,6 +2289,7 @@ def _choose_range_aware_action_impl(
             nut_advantage = float(
                 range_profile.get("top_decile_advantage", 0.0)
             ) if isinstance(range_profile, dict) else 0.0
+            board_texture = _postflop_board_texture(board)
             fractions = _postflop_bet_size_fractions(
                 to_call=bool(to_call),
                 donk_lead=bool(board_role.get("donk_lead", False)),
@@ -2217,6 +2297,7 @@ def _choose_range_aware_action_impl(
                 range_disadvantage=bool(board_role.get("preflop_range_disadvantage", False)),
                 nut_advantage=nut_advantage,
                 expected_callers=expected_opponents,
+                board_texture=board_texture,
             )
             bases = [
                 street_contribution + max(min_target - street_contribution,
@@ -2415,6 +2496,9 @@ def _choose_range_aware_action_impl(
         f"position-known={bool(position_profile.get('known', False))}; "
         f"in-position={bool(position_profile.get('in_position', False))}; "
         f"mixed-action={mixed_action}; mixed-candidates={mixed_candidate_count}; "
+        f"board-wetness={float(_postflop_board_texture(board).get('wetness', 0.0)):.2f}; "
+        f"board-paired={bool(_postflop_board_texture(board).get('paired', False))}; "
+        f"board-monotone={bool(_postflop_board_texture(board).get('monotone', False))}; "
         f"preflop aggressor={board_role.get('preflop_aggressor') or 'unknown'}; "
         f"range-disadvantage={bool(board_role.get('preflop_range_disadvantage', False))}; "
         f"chart-range-supported={bool(board_role.get('preflop_range_profile', {}).get('supported', False))}; "
