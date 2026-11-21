@@ -909,6 +909,75 @@ def preflop_chart_options(table: Any, hand: Any, actor_id: str) -> dict[str, Any
         return None
 
 
+
+def preflop_situation_size(table: Any, hand: Any, actor_id: str) -> int | None:
+    """Return the dominant chart size for a positional/action-history node.
+
+    This intentionally does not inspect the actor's hole-card class. The spot
+    key is the actor's seat position plus the complete observed preflop action
+    and sizing history, as resolved by _node_for_actor(). When a node mixes
+    sizes, choose the population-weighted modal size across all 1,326 physical
+    starting combinations, not the size preferred by the current hand.
+    """
+    if str(getattr(hand, "street", "")).lower() != "preflop":
+        return None
+    legal = _legal_actions(hand, str(actor_id))
+    legal_names = {
+        str(value).lower().replace("-", "_")
+        for value in legal.get("actions", ())
+    }
+    if not ({"raise", "bet"} & legal_names):
+        return None
+    node_id = _node_for_actor(table, hand, str(actor_id))
+    if node_id is None:
+        return None
+    node = _data().get("nodes_by_id", {}).get(node_id)
+    if not isinstance(node, dict):
+        return None
+    try:
+        big_blind = int(getattr(hand, "big_blind", 0) or 0)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if big_blind <= 0:
+        return None
+
+    size_mass: dict[int, float] = {}
+    maximum = max(0, int(legal.get("max_target", 0) or 0))
+    for hand_class, raw_actions in node.get("hands", {}).items():
+        physical_count = _available_combos_for_class(str(hand_class), set())
+        if physical_count <= 0:
+            continue
+        for item in raw_actions:
+            action = str(item.get("action", "")).lower()
+            try:
+                frequency = max(0.0, float(item.get("frequency", 0.0) or 0.0))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if frequency <= 0.0 or action not in {"raise", "allin"}:
+                continue
+            if action == "allin":
+                target_cents = maximum
+            else:
+                amount_bb = item.get("amount_bb")
+                if amount_bb is None:
+                    continue
+                try:
+                    target_cents = _bb_target_to_cents(amount_bb, big_blind)
+                except (TypeError, ValueError, ArithmeticError, OverflowError):
+                    continue
+            if target_cents <= 0 or target_cents > maximum:
+                continue
+            size_mass[target_cents] = (
+                size_mass.get(target_cents, 0.0) + frequency * physical_count
+            )
+    if not size_mass:
+        return None
+    # A modal spot-level size gives one stable suggestion without consulting
+    # the player's cards. In a tie, prefer the smaller size to avoid silently
+    # escalating the user's amount.
+    return max(size_mass.items(), key=lambda item: (item[1], -item[0]))[0]
+
+
 def coverage_summary() -> dict[str, Any]:
     data = _data()
     return {
