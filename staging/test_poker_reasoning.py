@@ -478,6 +478,88 @@ def test_unacted_players_enter_less_often_after_a_large_open():
     assert large_open < standard_open
 
 
+
+def _six_max_position_hand(actor_position: str, action: str = "raise"):
+    # Clockwise seat indices relative to a BTN at table dealer index zero.
+    position_ids = {
+        "BTN": "BTN", "SB": "SB", "BB": "BB",
+        "UTG": "UTG", "HJ": "HJ", "CO": "CO",
+    }
+    seat_order = ["BTN", "SB", "BB", "UTG", "HJ", "CO"]
+    players = [FakePlayer(position_ids[position]) for position in seat_order]
+    hand = FakeHand(
+        players, pot=400, street="preflop", to_call=250,
+        actions=("fold", "call", "raise"), min_target=500, max_target=10000,
+    )
+    hand.seat_by_id = {player.player_id: index for index, player in enumerate(players)}
+    hand.events = [{
+        "type": "action", "street": "preflop", "player_id": actor_position,
+        "action": action, "target": 250, "paid": 250,
+        "pot_before": 75, "to_call_before": 0,
+    }]
+    return hand, FakeTable()
+
+
+def _range_weighted_strength(rows):
+    total = sum(weight for _, weight in rows)
+    return sum(
+        weight * module._preflop_strength(module._cards_to_class(combo))
+        for combo, weight in rows
+    ) / max(1e-9, total)
+
+
+def test_fallback_open_ranges_are_position_aware() -> None:
+    hand_utg, table_utg = _six_max_position_hand("UTG", "raise")
+    hand_btn, table_btn = _six_max_position_hand("BTN", "raise")
+    utg_rows = module._fallback_preflop_range(
+        hand_utg, "UTG", set(), table=table_utg
+    )[0]
+    btn_rows = module._fallback_preflop_range(
+        hand_btn, "BTN", set(), table=table_btn
+    )[0]
+    assert _range_weighted_strength(utg_rows) > _range_weighted_strength(btn_rows)
+    assert len(utg_rows) < len(btn_rows)
+
+
+def test_fallback_blind_defense_and_ip_response_use_seat_position() -> None:
+    hand_bb, table_bb = _six_max_position_hand("BB", "call")
+    hand_sb, table_sb = _six_max_position_hand("SB", "call")
+    # Add an opener before the blind's action so this is a true defend node.
+    for hand, actor in ((hand_bb, "BB"), (hand_sb, "SB")):
+        hand.events.insert(0, {
+            "type": "action", "street": "preflop", "player_id": "UTG",
+            "action": "raise", "target": 250, "paid": 250,
+            "pot_before": 75, "to_call_before": 0,
+        })
+        hand.events[1]["target"] = 800
+        hand.events[1]["paid"] = 550
+        hand.events[1]["to_call_before"] = 550
+    bb_rows = module._fallback_preflop_range(
+        hand_bb, "BB", set(), table=table_bb
+    )[0]
+    sb_rows = module._fallback_preflop_range(
+        hand_sb, "SB", set(), table=table_sb
+    )[0]
+    assert _range_weighted_strength(bb_rows) < _range_weighted_strength(sb_rows)
+
+
+def test_unacted_participation_uses_table_position_in_six_max() -> None:
+    players = [FakePlayer(name) for name in ("BTN", "SB", "BB", "UTG", "HJ", "CO")]
+    hand = FakeHand(players, pot=400, street="preflop", to_call=250)
+    hand.seat_by_id = {player.player_id: index for index, player in enumerate(players)}
+    hand.events = [{
+        "type": "action", "street": "preflop", "player_id": "UTG",
+        "action": "raise", "target": 250, "paid": 250,
+        "pot_before": 75, "to_call_before": 0,
+    }]
+    no_chart = lambda **_kwargs: {"supported": False, "players": {}}
+    ranges = module.infer_opponent_ranges(
+        FakeTable(), hand, "UTG", range_estimator=no_chart
+    )
+    assert ranges["BTN"].participation_probability > ranges["SB"].participation_probability
+    assert ranges["BB"].participation_probability > ranges["BTN"].participation_probability
+
+
 def test_co_aces_continue_against_utg_open_and_hj_three_bet():
     players = [
         FakePlayer("UTG", ("2c", "3d")),
