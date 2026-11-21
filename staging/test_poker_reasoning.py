@@ -703,6 +703,26 @@ def test_inferred_opponent_range_carries_persistent_behavioral_profile():
     assert learned["postflop_call_rate"] == 0.66
 
 
+
+def test_flop_response_uses_opponent_fold_to_cbet_history():
+    sticky_cbet = module._response_continue_probability(
+        0.10, 0.08, 0.66, "flop", "balanced",
+        {"sample_hands": 100, "fold_to_bet_rate": 0.55,
+         "postflop_call_rate": 0.30, "fold_to_cbet_opportunities": 24,
+         "fold_to_cbet_rate": 0.12},
+    )
+    baseline = module._response_continue_probability(
+        0.10, 0.08, 0.66, "flop", "balanced",
+    )
+    overfold_cbet = module._response_continue_probability(
+        0.10, 0.08, 0.66, "flop", "balanced",
+        {"sample_hands": 100, "fold_to_bet_rate": 0.55,
+         "postflop_call_rate": 0.30, "fold_to_cbet_opportunities": 24,
+         "fold_to_cbet_rate": 0.90},
+    )
+    assert sticky_cbet > baseline > overfold_cbet
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
