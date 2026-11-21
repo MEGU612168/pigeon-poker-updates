@@ -518,11 +518,12 @@ def test_human_situation_size_lookup_survives_non_100bb_current_stack():
     expected = module.preflop_situation_size(FakeTable(), hand, hand.actor_id)
     assert expected is not None
 
-    # BOT's 100-BB chart gate remains intact, while the hero's sizing helper
-    # follows the requested position/action-history-only rule.
+    # Normal cash-game stack movement must not disable the BOT's fixed
+    # chart action policy. The user sizing helper and BOT both resolve the
+    # same position/action-history node; action rows and frequencies are fixed.
     hand.player(hand.actor_id).stack -= 700
     assert not module._supports_100bb_effective_stack(hand)
-    assert module._node_for_actor(FakeTable(), hand, hand.actor_id) is None
+    assert module._node_for_actor(FakeTable(), hand, hand.actor_id) == node['id']
     assert module.preflop_situation_size(FakeTable(), hand, hand.actor_id) == expected
 
 
