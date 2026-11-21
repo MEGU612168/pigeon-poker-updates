@@ -151,7 +151,7 @@ class PigeonPokerApp(tk.Tk):
         self.hotkeys = validate_hotkeys(self.config_data.get("hotkeys", DEFAULT_HOTKEYS))
         self.sound_settings = {key: bool(self.config_data.get("sounds", {}).get(key, True)) for key in SOUND_KEYS}
         self.sound_master = bool(self.config_data.get("sound_master", True))
-        self.sound_volume = max(0, min(100, int(self.config_data.get("sound_volume", 70))))
+        self.sound_volume = max(0, min(100, int(self.config_data.get("sound_volume", 50))))
         self.sound_group_levels = sound_group_volumes(self.config_data)
         self.hud_fields = {key: bool(self.config_data.get("hud_fields", {}).get(key, True))
                            for key in HUD_LABELS}
@@ -2241,40 +2241,79 @@ class PigeonPokerApp(tk.Tk):
         return minimum
 
     def _apply_preflop_chart_size(self, table_id: str):
-        """Apply the exact live 75-node chart size to the editable amount field."""
-        slot = self.multi_tables.get(table_id)
+        """Apply a position/history-only chart size and always report the outcome."""
         record = self.table_windows.get(table_id)
-        if slot is None or record is None:
+        if record is None:
+            return
+
+        def report(message: str):
+            try:
+                record["status"].set(str(message))
+            except Exception:
+                pass
+
+        slot = self.multi_tables.get(table_id)
+        if slot is None:
+            report("CHART SIZE UNAVAILABLE • TABLE NOT FOUND")
             return
         table = slot.state.get("cash_table")
         hand = table.hand if table is not None else None
-        if (hand is None or hand.finished or hand.street != "preflop"
-                or hand.next_to_act != "hero"
-                or bool(slot.state.get("cash_busy", False))
-                or bool(slot.state.get("cash_gto_spot_mode", False))):
+        if hand is None or hand.finished:
+            report("CHART SIZE UNAVAILABLE • NO LIVE HAND")
             return
+        if str(hand.street).lower() != "preflop":
+            report("CHART SIZE IS PRE-FLOP ONLY")
+            return
+        if bool(slot.state.get("cash_busy", False)):
+            report("CHART SIZE UNAVAILABLE • TABLE BUSY")
+            return
+        if hand.next_to_act != "hero":
+            report("CHART SIZE UNAVAILABLE • WAIT FOR YOUR TURN")
+            return
+        if bool(slot.state.get("cash_gto_spot_mode", False)):
+            report("CHART SIZE UNAVAILABLE • GTO+ SPOT")
+            return
+
         try:
             legal = hand.legal_actions("hero")
-            if not ({"bet", "raise"} & set(legal.get("actions", ()))):
+            legal_names = {
+                str(value).lower().replace("_", "-")
+                for value in legal.get("actions", ())
+            }
+            if not ({"bet", "raise"} & legal_names):
+                report("CHART SIZE UNAVAILABLE • NO LEGAL BET/RAISE")
                 return
+
             target = preflop_situation_size(table, hand, "hero")
             if target is None:
-                record["status"].set(
-                    "NO MATCHING 75-NODE SIZE • AMOUNT UNCHANGED"
-                )
+                report("NO MATCHING 75-NODE SIZE • POSITION / ACTION HISTORY NOT COVERED")
                 return
+
             target = int(target)
             minimum = int(legal.get("min_target", 0) or 0)
             maximum = int(legal.get("max_target", 0) or 0)
-            if minimum <= 0 or maximum < minimum or not minimum <= target <= maximum:
+            if minimum <= 0 or maximum < minimum:
+                report("CHART SIZE UNAVAILABLE • INVALID LEGAL RANGE")
                 return
+            if not minimum <= target <= maximum:
+                bb = max(1, int(getattr(table, "big_blind", 1)))
+                wanted = format_chip_amount(
+                    target, bb, self.chip_display_unit, include_unit=True
+                )
+                report(f"CHART SIZE NOT LEGAL • {wanted} OUTSIDE CURRENT STACK")
+                return
+
             record["bet_min"], record["bet_max"] = minimum, maximum
             self._set_table_bet_target(table_id, target)
-            record["status"].set(
-                "CHART SIZE APPLIED • POSITION + RAISE HISTORY ONLY"
+            bb = max(1, int(getattr(table, "big_blind", 1)))
+            shown = format_chip_amount(
+                target, bb, self.chip_display_unit, include_unit=True
             )
-        except (AttributeError, KeyError, TypeError, ValueError, RuntimeError, OverflowError):
-            return
+            report(f"CHART SIZE APPLIED • {shown} • POSITION + ACTION HISTORY")
+        except Exception as exc:
+            # The old handler swallowed every exception, making a dead button
+            # indistinguishable from a chart miss. Surface the actual failure.
+            report(f"CHART SIZE ERROR • {type(exc).__name__}: {str(exc)[:72]}")
 
     def _cash_human_action(self, action: str, amount: int | None = None):
         if self.cash_table is None or self.cash_table.hand is None or self.cash_busy:
@@ -8685,7 +8724,7 @@ class PigeonPokerApp(tk.Tk):
         group_levels = getattr(self, "sound_group_levels", {})
         bus_level = max(0, min(100, int(group_levels.get(group, 100))))
         # Lower all output; repeating card-deal effects get an additional trim.
-        output_scale = 0.60 if key not in {"deal", "card_land"} else 0.30
+        output_scale = 0.45 if key not in {"deal", "card_land"} else 0.15
         effective_volume = int(round(self.sound_volume * bus_level / 100 * output_scale))
         if effective_volume <= 0:
             return
@@ -8715,10 +8754,67 @@ class PigeonPokerApp(tk.Tk):
             write_sound_wav(path, key, variation=take)
         return path
 
+    def _attenuated_wav_file(self, sound_path: Path, volume: int) -> Path | None:
+        """Create/cache a PCM WAV attenuated to the same level as the MCI sound bus."""
+        level = max(0, min(520, int(volume) * 5))
+        if level <= 0:
+            return None
+        cached = sound_path.with_name(f"{sound_path.stem}_vol{level}.wav")
+        try:
+            if cached.is_file() and cached.stat().st_mtime_ns >= sound_path.stat().st_mtime_ns:
+                return cached
+        except OSError:
+            pass
+
+        factor = level / 1000.0
+        with wave.open(str(sound_path), "rb") as source:
+            params = source.getparams()
+            if params.comptype != "NONE":
+                raise wave.Error("Only uncompressed PCM WAV effects can be attenuated")
+            frames = source.readframes(params.nframes)
+
+        width = int(params.sampwidth)
+        if width <= 0 or len(frames) % width:
+            raise wave.Error("Invalid PCM sample width")
+        if width == 1:
+            samples = bytearray(frames)
+            for index, sample in enumerate(samples):
+                samples[index] = max(0, min(255, int(round(128 + (sample - 128) * factor))))
+            attenuated = bytes(samples)
+        elif width in (2, 4):
+            code = "h" if width == 2 else "i"
+            count = len(frames) // width
+            values = struct.unpack("<" + code * count, frames)
+            info = struct.Struct("<" + code * count)
+            lower = -(1 << (width * 8 - 1))
+            upper = (1 << (width * 8 - 1)) - 1
+            attenuated = info.pack(*(
+                max(lower, min(upper, int(round(value * factor))))
+                for value in values
+            ))
+        elif width == 3:
+            result = bytearray()
+            for index in range(0, len(frames), 3):
+                sample = int.from_bytes(frames[index:index + 3], "little", signed=True)
+                scaled = max(-(1 << 23), min((1 << 23) - 1, int(round(sample * factor))))
+                result.extend(scaled.to_bytes(3, "little", signed=True))
+            attenuated = bytes(result)
+        else:
+            raise wave.Error(f"Unsupported PCM sample width: {width}")
+
+        temporary = cached.with_name(cached.name + f".{threading.get_ident()}.tmp")
+        with wave.open(str(temporary), "wb") as output:
+            output.setparams(params)
+            output.writeframes(attenuated)
+        temporary.replace(cached)
+        return cached
+
     def _play_wav_nonblocking(self, sound_path: Path, volume: int = 70) -> bool:
-        """Play WAV without blocking; MCI aliases allow action and card cues to overlap."""
-        # Windows MCI opens each effect as its own waveaudio alias, so a card
-        # swipe does not cut off a chip/action cue already in progress.
+        """Play an independently attenuated WAV; both Windows backends honor volume."""
+        if int(volume) <= 0:
+            return False
+        # Windows MCI keeps overlapping effects independent. Never start the
+        # original full-level clip unless the per-stream volume command worked.
         win_dll = getattr(ctypes, "WinDLL", None)
         if callable(win_dll):
             alias = "ppk_" + uuid.uuid4().hex[:12]
@@ -8731,33 +8827,40 @@ class PigeonPokerApp(tk.Tk):
                 path_text = str(sound_path).replace('"', '')
                 opened = send(f'open "{path_text}" type waveaudio alias {alias}', None, 0, None)
                 if opened == 0:
-                    # MCI volume is per-stream (0-1000); the same pre-normalized
-                    # asset is used at every master-volume setting.
-                    send(f"setaudio {alias} volume to {max(0, min(520, int(volume) * 5))}", None, 0, None)
-                    played = send(f"play {alias}", None, 0, None)
-                    if played == 0:
-                        with wave.open(str(sound_path), "rb") as wav:
-                            duration = wav.getnframes() / max(1, wav.getframerate())
-                        def close_alias():
-                            try:
-                                send(f"close {alias}", None, 0, None)
-                            except Exception:
-                                pass
-                        timer = threading.Timer(max(.08, duration + .12), close_alias)
-                        timer.daemon = True
-                        timer.start()
-                        return True
+                    volume_set = send(
+                        f"setaudio {alias} volume to {max(0, min(520, int(volume) * 5))}",
+                        None, 0, None
+                    )
+                    if volume_set == 0:
+                        played = send(f"play {alias}", None, 0, None)
+                        if played == 0:
+                            with wave.open(str(sound_path), "rb") as wav:
+                                duration = wav.getnframes() / max(1, wav.getframerate())
+                            def close_alias():
+                                try:
+                                    send(f"close {alias}", None, 0, None)
+                                except Exception:
+                                    pass
+                            timer = threading.Timer(max(.08, duration + .12), close_alias)
+                            timer.daemon = True
+                            timer.start()
+                            return True
                     send(f"close {alias}", None, 0, None)
             except Exception:
-                # Older / restricted Windows audio stacks fall through to winsound.
+                # MCI can be unavailable or reject per-stream volume. The
+                # fallback below uses a physically attenuated WAV, not the raw clip.
                 pass
+
         try:
             import winsound
-            winsound.PlaySound(str(sound_path), winsound.SND_FILENAME
+            fallback_path = self._attenuated_wav_file(sound_path, volume)
+            if fallback_path is None:
+                return False
+            winsound.PlaySound(str(fallback_path), winsound.SND_FILENAME
                                | winsound.SND_ASYNC
                                | getattr(winsound, "SND_NODEFAULT", 0))
             return True
-        except (ImportError, OSError, RuntimeError):
+        except (ImportError, OSError, RuntimeError, wave.Error, struct.error):
             return False
 
     def _sound_worker_loop(self):
