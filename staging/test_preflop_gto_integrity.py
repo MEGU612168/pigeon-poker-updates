@@ -98,6 +98,12 @@ def test_screenshot_action_totals_match_the_169_combo_weighted_matrix() -> None:
         combo_matches = True
         class_matches = True
         diagnostics = []
+        if raw["i"] in {"25_UTG_VS_HJ_3BET", "26_BTN_VS_BB_3BET", "27_BB_VS_BTN_4BET", "28_BTN_VS_BB_5BET"}:
+            print("RAW NODE", raw["i"], "ACTIONS", actions, "TOTALS", action_totals)
+            print("RAW ROWS", [
+                (policy.HAND_ORDER[index], row)
+                for index, row in enumerate(matrix) if any(int(value) for value in row)
+            ])
         for action, reported_pct in action_totals.items():
             assert action in actions, (raw["i"], action)
             index = actions.index(action)
