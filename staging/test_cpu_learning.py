@@ -171,6 +171,104 @@ def test_unacted_cpu_receives_learned_profile_without_fake_chart_range():
         preflop_ranges._known_public_blockers = original_blockers
 
 
+def test_learns_fold_call_raise_by_street_and_faced_bet_size():
+    with tempfile.TemporaryDirectory() as tmp:
+        store = CPULearningStore(Path(tmp) / "cpu-learning.sqlite3")
+        observations = [
+            ("flop", 25, 100, "fold", "small"),
+            ("flop", 60, 100, "call", "medium"),
+            ("turn", 120, 100, "raise", "large"),
+            ("river", 180, 100, "fold", "overbet"),
+        ]
+        for index, (street, bet, pot, outcome, bucket) in enumerate(observations):
+            hand = FakeHand()
+            transitions = [{"type": "street", "street": "flop",
+                            "board": ["2c", "7d", "Jh"]}]
+            if street in {"turn", "river"}:
+                transitions.append({"type": "street", "street": "turn",
+                                    "board": ["2c", "7d", "Jh", "9s"]})
+            if street == "river":
+                transitions.append({"type": "street", "street": "river",
+                                    "board": ["2c", "7d", "Jh", "9s", "3c"]})
+            hand.events = [
+                {"type": "action", "street": "preflop", "player_id": "cpu-A",
+                 "action": "raise", "paid": 250, "target": 250,
+                 "pot_before": 75, "to_call_before": 0},
+                {"type": "action", "street": "preflop", "player_id": "cpu-B",
+                 "action": "call", "paid": 250, "target": 250,
+                 "pot_before": 325, "to_call_before": 250},
+                *transitions,
+                {"type": "action", "street": street, "player_id": "cpu-A",
+                 "action": "bet", "paid": bet, "target": bet,
+                 "pot_before": pot, "to_call_before": 0},
+                {"type": "action", "street": street, "player_id": "cpu-B",
+                 "action": outcome, "paid": bet if outcome in {"call", "raise"} else 0,
+                 "target": bet, "pot_before": pot + bet, "to_call_before": bet},
+            ]
+            assert store.record_hand(
+                f"size-hand-{index}", "NL10", hand, ["cpu-A", "cpu-B"]
+            )
+        profile = store.get_profiles("NL10", ["cpu-B"])["cpu-B"]
+        expected_outcomes = {
+            "flop_small": "fold",
+            "flop_medium": "call",
+            "turn_large": "raise",
+            "river_overbet": "fold",
+        }
+        for prefix, expected in expected_outcomes.items():
+            assert profile[f"{prefix}_response_opportunities"] == 1.0
+            rates = {
+                "fold": profile[f"{prefix}_fold_rate"],
+                "call": profile[f"{prefix}_call_rate"],
+                "raise": profile[f"{prefix}_raise_rate"],
+            }
+            assert abs(sum(rates.values()) - 1.0) < 1e-9
+            assert rates[expected] == max(rates.values())
+
+
+def test_old_cpu_learning_database_is_migrated_without_losing_rows():
+    import sqlite3
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Path(tmp) / "legacy-learning.sqlite3"
+        with sqlite3.connect(db) as connection:
+            connection.execute(
+                """
+                CREATE TABLE cpu_behavior_stats (
+                    stake TEXT NOT NULL,
+                    cpu_id TEXT NOT NULL,
+                    hands INTEGER NOT NULL DEFAULT 0,
+                    vpip_hands INTEGER NOT NULL DEFAULT 0,
+                    pfr_hands INTEGER NOT NULL DEFAULT 0,
+                    three_bet_opportunities INTEGER NOT NULL DEFAULT 0,
+                    three_bets INTEGER NOT NULL DEFAULT 0,
+                    four_bet_opportunities INTEGER NOT NULL DEFAULT 0,
+                    four_bets INTEGER NOT NULL DEFAULT 0,
+                    faced_bets INTEGER NOT NULL DEFAULT 0,
+                    folds_facing_bet INTEGER NOT NULL DEFAULT 0,
+                    postflop_actions INTEGER NOT NULL DEFAULT 0,
+                    postflop_aggressive INTEGER NOT NULL DEFAULT 0,
+                    postflop_calls INTEGER NOT NULL DEFAULT 0,
+                    cbet_opportunities INTEGER NOT NULL DEFAULT 0,
+                    cbets INTEGER NOT NULL DEFAULT 0,
+                    fold_to_cbet_opportunities INTEGER NOT NULL DEFAULT 0,
+                    folds_to_cbet INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (stake, cpu_id)
+                )
+                """
+            )
+            connection.execute(
+                "INSERT INTO cpu_behavior_stats(stake, cpu_id, hands) VALUES (?, ?, ?)",
+                ("NL10", "cpu-A", 12),
+            )
+        store = CPULearningStore(db)
+        profile = store.get_profiles("NL10", ["cpu-A"])["cpu-A"]
+        assert profile["sample_hands"] == 12.0
+        assert profile["flop_small_response_opportunities"] == 0.0
+        assert 0.0 <= profile["flop_small_fold_rate"] <= 1.0
+
+
 if __name__ == "__main__":
     for name, value in sorted(globals().items()):
         if name.startswith("test_") and callable(value):
