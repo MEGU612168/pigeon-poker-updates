@@ -961,6 +961,7 @@ class PigeonPokerApp(tk.Tk):
         balance_text = f"${self.cash_balance_cents / 100:,.2f}"
         self.balance_var.set(balance_text)
         self.config_data["balance"] = self.cash_balance_cents / 100
+        self._refresh_live_range_icons()
         for record in getattr(self, "table_windows", {}).values():
             try:
                 record["wallet"].set(f"WALLET  {balance_text}")
@@ -1114,6 +1115,7 @@ class PigeonPokerApp(tk.Tk):
                 return
             self.cash_balance_cents = external_balance
             balance_text = f"${external_balance / 100:,.2f}"
+            self._refresh_live_range_icons()
             try:
                 self.balance_var.set(balance_text)
             except (AttributeError, tk.TclError):
@@ -3807,6 +3809,10 @@ class PigeonPokerApp(tk.Tk):
     def _range_chart_for_table(self, slot, hand):
         if hand is None or bool(getattr(hand, "finished", False)):
             return None
+        if bool(slot.state.get("cash_busy", False)) or bool(slot.state.get("cash_deal_busy", False)):
+            return None
+        if bool(slot.state.get("cash_sitting_out", False)):
+            return None
         if str(getattr(hand, "street", "")).lower() not in {"preflop", "pre"}:
             return None
         if str(getattr(hand, "next_to_act", "") or "") != "hero":
@@ -3815,6 +3821,18 @@ class PigeonPokerApp(tk.Tk):
             return preflop_gto_range_for_situation(slot.state.get("cash_table"), hand, "hero")
         except Exception:
             return None
+
+    def _refresh_live_range_icons(self):
+        for table_id, record in list(getattr(self, "table_windows", {}).items()):
+            try:
+                slot = self.multi_tables.get(table_id)
+                if slot is None:
+                    continue
+                table = slot.state.get("cash_table")
+                hand = table.hand if table is not None else None
+                self._update_range_icon_state(slot, record, hand)
+            except Exception:
+                continue
 
     def _update_range_icon_state(self, slot, record, hand):
         canvas = record.get("range_icon")
@@ -9623,8 +9641,11 @@ class PigeonPokerApp(tk.Tk):
             int(item.get("hands", 0)), int(item.get("net", 0)),
             str(item.get("started_at", "")), str(item.get("last_hand_at", "")),
         ) for item in filtered)
-        filter_signature = (from_text, to_text, stake, self.poker_session_sort_column,
-                            bool(self.poker_session_sort_reverse))
+        filter_signature = (
+            from_text, to_text, stake, self.poker_session_sort_column,
+            bool(self.poker_session_sort_reverse),
+            tuple(sorted(self.poker_session_selected_ids or set())),
+        )
         if (signature != self.poker_session_signature
                 or getattr(self, "poker_session_filter_signature", None) != filter_signature
                 or not self.poker_session_tree.get_children()):
