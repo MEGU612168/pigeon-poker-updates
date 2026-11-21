@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - "staging/source_1_3_101/PigeonPoker.pyw"
+      - "staging/source_1_3_101/pigeon_poker/range_image_catalog.py"
+      - "staging/source_1_3_101/pigeon_poker/range_tables_v2.bin"
+      - "staging/source_1_3_101/pigeon_poker/range_scenarios_v2.json"
       - "staging/test_windows_work_area.py"
       - ".github/workflows/verify-windows-work-area.yml"
   workflow_dispatch:
