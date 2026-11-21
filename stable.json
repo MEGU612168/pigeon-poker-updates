@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.4.9",
-  "published_at": "2026-11-21T21:11:05Z",
-  "release_notes": "Windowsのタスクバーを隠さないよう、Tkのクライアント領域ではなくネイティブウィンドウ枠をモニター作業領域内に配置。テーブル・有料レンジ窓も同じ作業領域で制限。レンジ描画をDPIレイアウト後に再試行し、描画例外時は黒画面の代わりにエラーを表示。",
+  "version": "1.5.0",
+  "published_at": "2026-11-21T22:01:23Z",
+  "release_notes": "テーブル起動時のチップ表示関数の引数不一致を修正。有料プリフロップレンジ窓をテーブルの左上に配置し、WindowsのMap/Exposeイベント時にも再描画。実際のスクリーンショット由来レンジデータを用いたCanvasピクセル検証を追加。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.9/payload-updater.zip.b64?v=de8b08beffc826b80ef34b65ca91ea91902f8d867e515dd27689394d50e637a6",
-  "payload_sha256": "de8b08beffc826b80ef34b65ca91ea91902f8d867e515dd27689394d50e637a6",
-  "payload_size": 278532
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.0/payload-updater.zip.b64?v=c228bc7561baf14a4a180e2ab3382abbf5a05b25abfe8ec2e6a0aee05b660ab5",
+  "payload_sha256": "c228bc7561baf14a4a180e2ab3382abbf5a05b25abfe8ec2e6a0aee05b660ab5",
+  "payload_size": 278754
 }
