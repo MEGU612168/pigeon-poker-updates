@@ -355,6 +355,33 @@ def _test_opponent_range_estimator_uses_new_preflop_policy():
     assert row["hand_class_probabilities"]
 
 
+
+def _test_exact_range_chart_api_returns_full_169_matrix_and_never_infers():
+    hand = FakeHand(
+        events=[action("UTG", "fold"), action("HJ", "raise", 2.0)],
+        holecards={"CO": ("As", "Kd")},
+    )
+    chart = policy.preflop_gto_range_for_situation(
+        FakeTable(), hand, "pCO", prior_events=list(hand.events)
+    )
+    assert chart is not None
+    assert chart["node_id"] == "11_CO_VS_HJ"
+    assert chart["actor_position"] == "CO"
+    assert len(chart["hand_order"]) == 169
+    assert len(chart["hands"]) == 169
+    assert all(abs(sum(item["frequency"] for item in chart["hands"][hand_class]) - 1.0) <= 0.003
+               for hand_class in chart["hand_order"])
+    assert chart["source_image"]
+
+    uncovered = FakeHand(
+        events=[action("UTG", "fold"), action("HJ", "raise", 2.2)],
+        holecards={"CO": ("As", "Kd")},
+    )
+    assert policy.preflop_gto_range_for_situation(
+        FakeTable(), uncovered, "pCO", prior_events=list(uncovered.events)
+    ) is None
+
+
 def run_tests():
     tests = [
         _test_schema2_screenshot_policy_metadata,
@@ -369,6 +396,7 @@ def run_tests():
         _test_stack_depth_changes_inferred_threebet_size,
         _test_cpu_action_uses_new_node_range_and_preserves_legality,
         _test_opponent_range_estimator_uses_new_preflop_policy,
+        _test_exact_range_chart_api_returns_full_169_matrix_and_never_infers,
         test_all_screenshot_nodes_contain_a_complete_169_hand_matrix,
         test_utg_open_is_exact_screenshot_range_not_inferred,
         test_screenshot_action_totals_match_the_169_combo_weighted_matrix,

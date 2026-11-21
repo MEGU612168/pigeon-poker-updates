@@ -7,7 +7,8 @@ import math
 import ctypes
 import struct
 import wave
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from types import SimpleNamespace
 import queue
 import random
 import subprocess
@@ -36,7 +37,7 @@ from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOErr
                           is_gto_plus_supported_postflop_hand, CPUPoolStore, GGCareLedger, CashierLedger, bind_first_matching_tree)
 from pigeon_poker.preflop_gto_strategy import (
     choose_preflop_action, preflop_gto_situation_size,
-    estimate_preflop_opponent_ranges
+    estimate_preflop_opponent_ranges, preflop_gto_range_for_situation
 )
 from pigeon_poker.poker_reasoning import choose_range_aware_action
 from pigeon_poker.cpu_learning import CPULearningStore
@@ -353,6 +354,7 @@ class PigeonPokerApp(tk.Tk):
         self.bind_all("<KeyPress>", self._on_global_hotkey, add="+")
         self._job_drain_after_id = self.after(120, self._drain_jobs)
         self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)
+        self._pokercraft_live_refresh_job = self.after(1800, self._tick_pokercraft_live_refresh)
         self.after(1200, self._refresh_update_button_state)
         self.after(UPDATE_CHECK_INTERVAL_MS, self._periodic_update_check)
 
@@ -719,6 +721,8 @@ class PigeonPokerApp(tk.Tk):
             "cash_session_id": self.cash_session_id,
             "cash_hand_instance": self.cash_hand_instance,
             "cash_current_hand_key": self.cash_current_hand_key,
+            "range_paid_hand_key": slot_state.get("range_paid_hand_key"),
+            "range_paid_chart": slot_state.get("range_paid_chart"),
             "cash_cpu_profiles": dict(self.cash_cpu_profiles),
             "vip_cpu_roles": dict(self.vip_cpu_roles),
             "cash_visible_board": list(self.cash_visible_board),
@@ -779,6 +783,7 @@ class PigeonPokerApp(tk.Tk):
         self.cash_session_id = state.get("cash_session_id", uuid.uuid4().hex)
         self.cash_hand_instance = int(state.get("cash_hand_instance", 0))
         self.cash_current_hand_key = state.get("cash_current_hand_key")
+        state["range_paid_hand_key"] = state.get("range_paid_hand_key")
         self.cash_cpu_profiles = dict(state.get("cash_cpu_profiles", {}))
         self.vip_cpu_roles = dict(state.get("vip_cpu_roles", {}))
         self.cash_visible_board = list(state.get("cash_visible_board", []))
@@ -957,6 +962,7 @@ class PigeonPokerApp(tk.Tk):
         balance_text = f"${self.cash_balance_cents / 100:,.2f}"
         self.balance_var.set(balance_text)
         self.config_data["balance"] = self.cash_balance_cents / 100
+        self._refresh_live_range_icons()
         for record in getattr(self, "table_windows", {}).values():
             try:
                 record["wallet"].set(f"WALLET  {balance_text}")
@@ -1110,6 +1116,7 @@ class PigeonPokerApp(tk.Tk):
                 return
             self.cash_balance_cents = external_balance
             balance_text = f"${external_balance / 100:,.2f}"
+            self._refresh_live_range_icons()
             try:
                 self.balance_var.set(balance_text)
             except (AttributeError, tk.TclError):
@@ -3147,6 +3154,11 @@ class PigeonPokerApp(tk.Tk):
                         compute_allin_ev=False)
                     if saved:
                         self.cash_log_lines.append("PokerCraft: hand history saved")
+                        if getattr(self, "_active_page_key", "") == "poker_craft":
+                            try:
+                                self.after(80, self._refresh_pokercraft)
+                            except tk.TclError:
+                                pass
                         allin_snapshot = next((event for event in hand.events
                                                 if event.get("type") == "allin_ev_snapshot"), None)
                         if allin_snapshot is not None:
@@ -3747,6 +3759,299 @@ class PigeonPokerApp(tk.Tk):
         except tk.TclError:
             pass
 
+    @staticmethod
+    def _rotate_card_points(points, angle_degrees, center_x, center_y):
+        import math
+        angle = math.radians(float(angle_degrees))
+        cosine, sine = math.cos(angle), math.sin(angle)
+        rotated = []
+        for x, y in points:
+            dx, dy = float(x) - center_x, float(y) - center_y
+            rotated.append((center_x + dx*cosine - dy*sine,
+                            center_y + dx*sine + dy*cosine))
+        return rotated
+
+    def _draw_history_cards_icon(self, canvas: tk.Canvas):
+        """Draw two real overlapping playing cards, rotated 10 degrees left."""
+        canvas.delete("all")
+        canvas.create_rectangle(0, 0, 40, 34, fill="#080e19", outline="")
+        def card(x, y, rank, suit, foreground, front=False):
+            width, height = 17.0, 24.0
+            points = self._rotate_card_points(
+                [(x, y), (x+width, y), (x+width, y+height), (x, y+height)],
+                -10.0, x+width/2, y+height/2)
+            flattened = [coordinate for point in points for coordinate in point]
+            canvas.create_polygon(*flattened, fill="#ffffff", outline="#05080d",
+                                  width=1.35, joinstyle="round")
+            if front:
+                canvas.create_text(x+4.5, y+6.2, text=rank, fill=foreground,
+                                   font=("Georgia", 7, "bold"))
+                canvas.create_text(x+4.5, y+12.2, text=suit, fill=foreground,
+                                   font=("Segoe UI Symbol", 7, "bold"))
+                canvas.create_text(x+12.2, y+20.0, text=suit, fill=foreground,
+                                   font=("Segoe UI Symbol", 5, "bold"))
+        card(15, 2, "K", "♠", "#111111", False)
+        card(5, 5, "A", "♠", "#111111", True)
+        canvas.create_rectangle(0, 0, 40, 34, outline="#080e19", width=1)
+
+    def _draw_range_grid_icon(self, canvas: tk.Canvas, *, enabled: bool):
+        canvas.delete("all")
+        canvas.create_rectangle(0, 0, 34, 34, fill="#080e19", outline="")
+        color = "#ffffff" if enabled else "#586575"
+        canvas.create_rectangle(6, 5, 28, 29, outline=color, width=1.5)
+        canvas.create_line(6, 10, 28, 10, fill=color, width=1.4)
+        canvas.create_line(13.3, 10, 13.3, 29, fill=color, width=1.1)
+        canvas.create_line(20.6, 10, 20.6, 29, fill=color, width=1.1)
+        canvas.create_line(6, 16.3, 28, 16.3, fill=color, width=1.1)
+        canvas.create_line(6, 22.6, 28, 22.6, fill=color, width=1.1)
+        canvas.create_line(11, 3, 11, 7, fill=color, width=1.8)
+        canvas.create_line(23, 3, 23, 7, fill=color, width=1.8)
+
+    def _range_chart_for_table(self, slot, hand):
+        if hand is None or bool(getattr(hand, "finished", False)):
+            return None
+        if bool(slot.state.get("cash_busy", False)) or bool(slot.state.get("cash_deal_busy", False)):
+            return None
+        if bool(slot.state.get("cash_sitting_out", False)):
+            return None
+        if str(getattr(hand, "street", "")).lower() not in {"preflop", "pre"}:
+            return None
+        if str(getattr(hand, "next_to_act", "") or "") != "hero":
+            return None
+        try:
+            return preflop_gto_range_for_situation(slot.state.get("cash_table"), hand, "hero")
+        except Exception:
+            return None
+
+    def _refresh_live_range_icons(self):
+        for table_id, record in list(getattr(self, "table_windows", {}).items()):
+            try:
+                slot = self.multi_tables.get(table_id)
+                if slot is None:
+                    continue
+                table = slot.state.get("cash_table")
+                hand = table.hand if table is not None else None
+                self._update_range_icon_state(slot, record, hand)
+            except Exception:
+                continue
+
+    def _update_range_icon_state(self, slot, record, hand):
+        canvas = record.get("range_icon")
+        if canvas is None:
+            return
+        current_key = str(slot.state.get("cash_current_hand_key") or
+                          (f"{slot.table_id}:{id(hand)}" if hand is not None else ""))
+        signature = (
+            id(hand) if hand is not None else None,
+            len(getattr(hand, "events", ()) or ()) if hand is not None else 0,
+            str(getattr(hand, "street", "")) if hand is not None else "",
+            str(getattr(hand, "next_to_act", "")) if hand is not None else "",
+            current_key,
+        )
+        paid = bool(current_key and slot.state.get("range_paid_hand_key") == current_key)
+        if paid:
+            # The same paid chart remains available through this hand even
+            # after HERO acts or the board advances; reopening never charges again.
+            chart = slot.state.get("range_paid_chart")
+            record["range_chart_cache"] = chart
+            record["range_chart_cache_key"] = signature
+        else:
+            if record.get("range_chart_cache_key") != signature:
+                chart = self._range_chart_for_table(slot, hand)
+                record["range_chart_cache"] = chart
+                record["range_chart_cache_key"] = signature
+            chart = record.get("range_chart_cache")
+        # Use the already synchronized wallet cache during high-frequency table
+        # refreshes. The click handler re-checks/debits SQLite atomically.
+        balance = max(0, int(getattr(self, "cash_balance_cents", 0)))
+        fee = int(getattr(hand, "big_blind", 0) or 0) if hand is not None else 0
+        enabled = bool(chart and (paid or (fee > 0 and balance >= fee)))
+        if record.get("range_icon_enabled") != enabled:
+            self._draw_range_grid_icon(canvas, enabled=enabled)
+            record["range_icon_enabled"] = enabled
+        try:
+            canvas.configure(
+                state="normal" if enabled else "disabled",
+                cursor="hand2" if enabled else "arrow")
+        except tk.TclError:
+            pass
+        record["range_paid_for_current_hand"] = paid
+        record["range_current_hand_key"] = current_key
+
+    def _debit_live_range_review(self, amount_cents: int, table_id: str, hand_key: str) -> bool:
+        """Atomically debit the shared Wallet balance, never the poker stack."""
+        import sqlite3
+        amount = int(amount_cents)
+        if amount <= 0:
+            return False
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        db_path = self.wallet_store.db_path
+        with sqlite3.connect(str(db_path), timeout=20, isolation_level=None) as con:
+            con.execute("PRAGMA busy_timeout=20000")
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute(
+                "SELECT balance_cents FROM wallet_account WHERE account_id=1"
+            ).fetchone()
+            if row is None or int(row[0]) < amount:
+                con.execute("ROLLBACK")
+                return False
+            before = int(row[0])
+            after = before - amount
+            txid = uuid.uuid4().hex
+            con.execute(
+                "UPDATE wallet_account SET balance_cents=?,updated_at=? WHERE account_id=1",
+                (after, now),
+            )
+            con.execute(
+                "INSERT INTO cashier_transactions "
+                "(transaction_id,played_at,kind,delta_cents,balance_after_cents,recipient,note) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (txid, now, "preflop-range-review", -amount, after, "",
+                 f"Live preflop range review • table {table_id} • hand {hand_key}"),
+            )
+            con.execute("COMMIT")
+        self.cash_balance_cents = after
+        self._update_cash_balance()
+        try:
+            self._refresh_cashier()
+        except Exception:
+            pass
+        return True
+
+    def _open_realtime_preflop_range(self, table_id: str):
+        slot = self.multi_tables.get(table_id)
+        if slot is None:
+            return
+        table = slot.state.get("cash_table")
+        hand = table.hand if table is not None else None
+        hand_key = str(slot.state.get("cash_current_hand_key") or f"{table_id}:{id(hand)}")
+        paid = str(slot.state.get("range_paid_hand_key") or "") == hand_key
+        chart = slot.state.get("range_paid_chart") if paid else self._range_chart_for_table(slot, hand)
+        if chart is None:
+            self._update_range_icon_state(slot, self.table_windows.get(table_id, {}), hand)
+            return
+        if not paid:
+            fee = int(getattr(hand, "big_blind", 0) or 0)
+            if fee <= 0 or not self._debit_live_range_review(fee, table_id, hand_key):
+                self._update_range_icon_state(slot, self.table_windows.get(table_id, {}), hand)
+                return
+            slot.state["range_paid_hand_key"] = hand_key
+            slot.state["range_paid_chart"] = chart
+            try:
+                if self.active_cash_table_id == table_id:
+                    self._save_active_cash_slot()
+            except Exception:
+                pass
+        record = self.table_windows.get(table_id)
+        if record is not None:
+            record["range_paid_for_current_hand"] = True
+            self._update_range_icon_state(slot, record, hand)
+        self._open_preflop_range_view(
+            chart,
+            title="LIVE PREFLOP RANGE",
+            charge_label=("1 BB paid for this hand • re-open free" if not paid
+                          else "Already paid this hand • re-open free"),
+        )
+
+    def _open_live_hand_flow(self, table_id: str):
+        slot = self.multi_tables.get(table_id)
+        if slot is None:
+            return
+        table = slot.state.get("cash_table")
+        hand = table.hand if table is not None else None
+        if hand is None:
+            return
+
+        win = tk.Toplevel(self)
+        win.title(f"PIGEON POKER • LIVE HAND FLOW • {slot.rate}")
+        win.geometry("560x620")
+        win.minsize(440, 440)
+        win.configure(bg="#080e19")
+        header = tk.Frame(win, bg="#080e19", padx=12, pady=9)
+        header.pack(fill="x")
+        title_var = tk.StringVar(value="LIVE HAND FLOW")
+        board_var = tk.StringVar(value="")
+        tk.Label(header, textvariable=title_var, bg="#080e19", fg="#f2f6fc",
+                 font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        tk.Label(header, textvariable=board_var, bg="#080e19", fg="#e6bd63",
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(3, 0))
+        flow = tk.Text(win, bg="#0b1624", fg="#eaf1f9", insertbackground="#fff",
+                       relief="flat", wrap="word", font=("Consolas", 9), padx=10, pady=8)
+        flow.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        flow.configure(state="disabled")
+        state = {"after_id": None, "closed": False, "last_text": ""}
+
+        def close():
+            state["closed"] = True
+            if state.get("after_id"):
+                try:
+                    win.after_cancel(state["after_id"])
+                except tk.TclError:
+                    pass
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
+
+        def render():
+            if state["closed"] or not win.winfo_exists():
+                return
+            active_slot = self.multi_tables.get(table_id)
+            active_table = active_slot.state.get("cash_table") if active_slot else None
+            active_hand = active_table.hand if active_table is not None else None
+            if active_hand is None:
+                text = "No active hand."
+                board_text = ""
+                hand_number = "LIVE HAND FLOW"
+            else:
+                hero = next((p for p in active_hand.players if p.player_id == "hero"), None)
+                hero_cards = " ".join(getattr(hero, "hole_cards", ()) or ()) if hero else "—"
+                visible_board = list((active_slot.state.get("cash_visible_board", []) or [])
+                                     if active_slot else [])
+                board_text = f"YOUR CARDS  {hero_cards or '—'}     BOARD  {' '.join(visible_board) or '—'}"
+                hand_number = (f"HAND #{getattr(active_hand, 'hand_number', 0)}  •  "
+                               f"{str(getattr(active_hand, 'street', 'preflop')).upper()}  •  "
+                               f"POT ${int(getattr(active_hand, 'pot', 0))/100:.2f}")
+                names = {p.player_id: p.name for p in active_hand.players}
+                out = [hand_number, board_text, "", "ACTION FLOW"]
+                for event in list(getattr(active_hand, "events", ()) or ()):
+                    if not isinstance(event, dict):
+                        continue
+                    kind = str(event.get("type", "action"))
+                    if kind == "street":
+                        street = str(event.get("street", "")).upper()
+                        out.append(f"\n── {street} ──")
+                        continue
+                    if kind != "action":
+                        continue
+                    pid = str(event.get("player_id") or "")
+                    actor = str(event.get("player") or names.get(pid, pid or "Player"))
+                    if pid == "hero" or actor.casefold() in {"you", "hero"}:
+                        actor = "YOU"
+                    action = str(event.get("action", "")).upper().replace("_", " ")
+                    target = event.get("target")
+                    amount = ""
+                    if target not in (None, "", 0):
+                        amount = f"  ${int(target)/100:.2f}"
+                    out.append(f"{actor:<14} {action}{amount}")
+                if active_hand.finished:
+                    out.append("")
+                    out.append(f"RESULT  {str(active_hand.winner_reason or 'COMPLETE').upper()}")
+                text = "\n".join(out)
+            title_var.set(hand_number)
+            board_var.set(board_text)
+            if text != state["last_text"]:
+                flow.configure(state="normal")
+                flow.delete("1.0", "end")
+                flow.insert("end", text)
+                flow.configure(state="disabled")
+                flow.see("end")
+                state["last_text"] = text
+            state["after_id"] = win.after(700, render)
+
+        win.protocol("WM_DELETE_WINDOW", close)
+        render()
+
     def _create_table_window(self, table_id: str):
         """Create a compact, self-contained Rush & Cash table window."""
         if table_id in self.table_windows:
@@ -3783,6 +4088,17 @@ class PigeonPokerApp(tk.Tk):
                  font=("Segoe UI", 12, "bold")).pack(side="left", padx=(10, 1))
         tk.Label(header, text="POKER", bg="#080e19", fg=COLORS["green"],
                  font=("Segoe UI", 12, "bold")).pack(side="left")
+        history_icon = tk.Canvas(header, width=40, height=34, bg="#080e19",
+                                 highlightthickness=0, bd=0, cursor="hand2")
+        history_icon.pack(side="left", padx=(9, 2))
+        self._draw_history_cards_icon(history_icon)
+        history_icon.bind("<Button-1>", lambda _e, tid=table_id: self._open_live_hand_flow(tid))
+        range_icon = tk.Canvas(header, width=34, height=34, bg="#080e19",
+                               highlightthickness=0, bd=0, cursor="hand2")
+        range_icon.pack(side="left", padx=(1, 7))
+        self._draw_range_grid_icon(range_icon, enabled=False)
+        range_icon.configure(state="disabled")
+        range_icon.bind("<Button-1>", lambda _e, tid=table_id: self._open_realtime_preflop_range(tid))
         tk.Label(header, textvariable=title_var, bg="#080e19", fg=COLORS["gold"],
                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=12)
         tk.Label(header, textvariable=status_var, bg="#080e19", fg=COLORS["text"],
@@ -3907,6 +4223,8 @@ class PigeonPokerApp(tk.Tk):
             "timer": timer_var, "timer_label": timer_label,
             "detail": detail_var, "event": event_var,
             "wallet": wallet_var, "canvas": canvas, "event_label": event_label,
+            "history_icon": history_icon, "range_icon": range_icon,
+            "range_chart_cache": None, "range_chart_cache_key": None,
             "actions": actions, "size_actions": size_actions,
             "situation_actions": situation_actions, "utility_actions": utility_actions,
             "fold_button": fold_button,
@@ -6218,6 +6536,7 @@ class PigeonPokerApp(tk.Tk):
             table = state.get("cash_table")
             hand = table.hand if table is not None else None
             current_hand_key = id(hand) if hand is not None else None
+            self._update_range_icon_state(slot, record, hand)
             if hand is not None and not hand.finished:
                 previous_effect_hand = record.get("social_effect_hand_key")
                 if previous_effect_hand != current_hand_key:
@@ -9008,38 +9327,95 @@ class PigeonPokerApp(tk.Tk):
         ttk.Button(summary, text="EXPORT CSV", command=self._export_pokercraft_csv).pack(side="right", padx=(6, 0))
         ttk.Button(summary, text="REFRESH", command=self._refresh_pokercraft).pack(side="right")
 
-        # One checkbox per joined table session, not one checkbox per hand.
+        # PokerCraft session overview: date/stake filter plus sortable session rows.
         session_box = tk.Frame(page, bg=COLORS["panel"], padx=9, pady=6)
         session_box.pack(fill="x", padx=22, pady=(0, 8))
         session_head = tk.Frame(session_box, bg=COLORS["panel"])
         session_head.pack(fill="x")
-        tk.Label(session_head, text="TABLE SESSIONS  •  SELECT WHICH SESSIONS TO ANALYZE",
+        tk.Label(session_head, text="SESSION HISTORY  •  DOUBLE-CLICK THE CHECK COLUMN TO INCLUDE / EXCLUDE",
                  bg=COLORS["panel"], fg=COLORS["gold"], font=("Segoe UI", 8, "bold")).pack(side="left")
         ttk.Button(session_head, text="ALL", width=6, command=lambda: self._set_pokercraft_sessions(True)).pack(side="right", padx=(4, 0))
         ttk.Button(session_head, text="NONE", width=6, command=lambda: self._set_pokercraft_sessions(False)).pack(side="right")
-        self.poker_session_canvas = tk.Canvas(session_box, height=54, bg=COLORS["panel"],
-                                             highlightthickness=0, bd=0)
-        self.poker_session_canvas.pack(fill="x", pady=(3, 0))
-        self.poker_session_inner = tk.Frame(self.poker_session_canvas, bg=COLORS["panel"])
-        self.poker_session_canvas_window = self.poker_session_canvas.create_window(
-            (0, 0), window=self.poker_session_inner, anchor="nw")
-        self.poker_session_inner.bind("<Configure>", lambda _e: self.poker_session_canvas.configure(
-            scrollregion=self.poker_session_canvas.bbox("all")))
-        self.poker_session_canvas.bind("<Configure>", lambda event: self.poker_session_canvas.itemconfigure(
-            self.poker_session_canvas_window, height=54))
-        self.poker_session_canvas.bind_all("<Shift-MouseWheel>", lambda event: self.poker_session_canvas.xview_scroll(
-            int(-event.delta / 120), "units"))
+        session_filters = tk.Frame(session_box, bg=COLORS["panel"])
+        session_filters.pack(fill="x", pady=(4, 4))
+        self.poker_from_filter_var = tk.StringVar(value="")
+        self.poker_to_filter_var = tk.StringVar(value="")
+        self.poker_session_stake_var = tk.StringVar(value="ALL")
+        tk.Label(session_filters, text="FROM", bg=COLORS["panel"], fg=COLORS["muted"],
+                 font=("Segoe UI", 8, "bold")).pack(side="left", padx=(0, 3))
+        ttk.Entry(session_filters, textvariable=self.poker_from_filter_var, width=12).pack(side="left", padx=(0, 8))
+        tk.Label(session_filters, text="TO", bg=COLORS["panel"], fg=COLORS["muted"],
+                 font=("Segoe UI", 8, "bold")).pack(side="left", padx=(0, 3))
+        ttk.Entry(session_filters, textvariable=self.poker_to_filter_var, width=12).pack(side="left", padx=(0, 8))
+        tk.Label(session_filters, text="BLINDS", bg=COLORS["panel"], fg=COLORS["muted"],
+                 font=("Segoe UI", 8, "bold")).pack(side="left", padx=(0, 3))
+        ttk.Combobox(session_filters, textvariable=self.poker_session_stake_var,
+                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200", "VIP25/50"],
+                     state="readonly", width=9).pack(side="left", padx=(0, 8))
+        ttk.Button(session_filters, text="SHOW", style="Accent.TButton",
+                   command=self._refresh_pokercraft).pack(side="left", padx=(0, 8))
+        tk.Label(session_filters, text="TIME DISPLAY: JAPAN (JST)",
+                 bg=COLORS["panel"], fg=COLORS["muted"], font=("Segoe UI", 8)).pack(side="right")
+        session_cols = ("include", "time", "blinds", "table", "hands", "duration", "winloss")
+        self.poker_session_tree = ttk.Treeview(
+            session_box, columns=session_cols, show="headings", height=4, selectmode="browse")
+        session_headings = {"include": "✓", "time": "TIME (JST)", "blinds": "BLINDS",
+                            "table": "TABLE", "hands": "HANDS", "duration": "DURATION",
+                            "winloss": "WIN / LOSS"}
+        session_widths = {"include": 34, "time": 160, "blinds": 100, "table": 130,
+                          "hands": 72, "duration": 100, "winloss": 110}
+        for column in session_cols:
+            self.poker_session_tree.heading(
+                column, text=session_headings[column],
+                command=(lambda col=column: self._sort_pokercraft_sessions(col)) if column != "include" else "")
+            self.poker_session_tree.column(column, width=session_widths[column],
+                                           anchor="center", stretch=(column in {"time", "table"}))
+        self.poker_session_tree.pack(fill="x", expand=False)
+        self.poker_session_tree.bind("<Double-1>", self._toggle_pokercraft_session_row)
         self.poker_session_vars: dict[str, tk.BooleanVar] = {}
         self.poker_session_meta: list[dict[str, Any]] = []
         self.poker_session_signature: tuple[tuple[Any, ...], ...] = ()
+        self.poker_session_known_ids: set[str] = set()
+        self.poker_session_selected_ids: set[str] | None = None
+        self.poker_session_sort_column: str | None = None
+        self.poker_session_sort_reverse = True
 
         notebook = ttk.Notebook(page)
         self.poker_notebook = notebook
         notebook.pack(fill="both", expand=True, padx=22, pady=(0, 15))
-        hands_host, hands_tab = self._make_scrollable_tab(notebook, "Hands & Actions", COLORS["bg"])
-        analytics_host, analytics_tab = self._make_scrollable_tab(notebook, "Profit / All-in EV", COLORS["bg"])
-        breakdown_host, breakdown_tab = self._make_scrollable_tab(notebook, "Opponents / Positions", COLORS["bg"])
+        hands_host, hands_tab = self._make_scrollable_tab(notebook, "Game History", COLORS["bg"])
+        analytics_host, analytics_tab = self._make_scrollable_tab(notebook, "EV Graph", COLORS["bg"])
+        hole_cards_host, hole_cards_tab = self._make_scrollable_tab(notebook, "Hole Cards", COLORS["bg"])
+        position_host, position_tab = self._make_scrollable_tab(notebook, "Position", COLORS["bg"])
+        breakdown_host, breakdown_tab = self._make_scrollable_tab(notebook, "Opponents", COLORS["bg"])
         stats_host, stats_tab = self._make_scrollable_tab(notebook, "Player Stats", COLORS["bg"])
+
+        hole_header = tk.Frame(hole_cards_tab, bg=COLORS["bg"])
+        hole_header.pack(fill="x", pady=(0, 7))
+        self.poker_hole_cards_summary_var = tk.StringVar(value="Starting-hand results from the selected sessions")
+        tk.Label(hole_header, textvariable=self.poker_hole_cards_summary_var,
+                 bg=COLORS["bg"], fg=COLORS["green"],
+                 font=("Segoe UI", 10, "bold")).pack(side="left")
+        hole_panel, hole_inner = self._panel(hole_cards_tab, "STARTING HAND PERFORMANCE  •  169 HAND CLASSES")
+        hole_panel.pack(fill="both", expand=True)
+        hole_columns = ("hand", "hands", "winrate", "net", "avgpot", "avgnet")
+        self.poker_hole_cards_tree = ttk.Treeview(
+            hole_inner, columns=hole_columns, show="headings", height=20)
+        hole_headings = {
+            "hand": "HAND", "hands": "HANDS", "winrate": "WIN RATE",
+            "net": "NET", "avgpot": "AVG POT", "avgnet": "AVG NET",
+        }
+        hole_widths = {"hand": 100, "hands": 90, "winrate": 110,
+                       "net": 130, "avgpot": 120, "avgnet": 120}
+        for column in hole_columns:
+            self.poker_hole_cards_tree.heading(
+                column, text=hole_headings[column],
+                command=lambda col=column: self._sort_pokercraft_hole_cards(col))
+            self.poker_hole_cards_tree.column(column, width=hole_widths[column], anchor="center")
+        self.poker_hole_cards_tree.pack(fill="both", expand=True)
+        self.poker_hole_cards_rows: list[dict[str, Any]] = []
+        self.poker_hole_cards_sort_column = "hands"
+        self.poker_hole_cards_sort_reverse = True
 
         filters = tk.Frame(hands_tab, bg=COLORS["panel"], padx=10, pady=7)
         filters.pack(fill="x", pady=(0, 7))
@@ -9050,7 +9426,7 @@ class PigeonPokerApp(tk.Tk):
         self.poker_include_rake_var = tk.BooleanVar(value=True)
         tk.Label(row1, text="Stake", bg=COLORS["panel"], fg=COLORS["muted"]).pack(side="left")
         ttk.Combobox(row1, textvariable=self.poker_filter_stake_var,
-                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200"],
+                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200", "VIP25/50"],
                      state="readonly", width=8).pack(side="left", padx=(4, 12))
         tk.Label(row1, text="Sort", bg=COLORS["panel"], fg=COLORS["muted"]).pack(side="left")
         ttk.Combobox(row1, textvariable=self.poker_sort_var,
@@ -9071,12 +9447,8 @@ class PigeonPokerApp(tk.Tk):
         row2 = tk.Frame(filters, bg=COLORS["panel"]); row2.pack(fill="x", pady=(6, 0))
         self.poker_hole_filter_var = tk.StringVar()
         self.poker_board_filter_var = tk.StringVar()
-        self.poker_from_filter_var = tk.StringVar()
-        self.poker_to_filter_var = tk.StringVar()
         for label, variable, width in (("Hole", self.poker_hole_filter_var, 7),
-                                       ("Board", self.poker_board_filter_var, 7),
-                                       ("From", self.poker_from_filter_var, 17),
-                                       ("To", self.poker_to_filter_var, 17)):
+                                       ("Board", self.poker_board_filter_var, 7)):
             tk.Label(row2, text=label, bg=COLORS["panel"], fg=COLORS["muted"],
                      font=("Segoe UI", 8)).pack(side="left", padx=(0, 3))
             ttk.Entry(row2, textvariable=variable, width=width).pack(side="left", padx=(0, 8))
@@ -9092,8 +9464,12 @@ class PigeonPokerApp(tk.Tk):
                     "hand": "YOUR HAND", "pot": "POT", "rake": "RAKE", "net": "NET", "allin_ev": "ALL-IN EV", "result": "RESULT"}
         widths = {"date": 140, "session": 105, "stake": 62, "board": 100, "hand": 80,
                   "pot": 72, "rake": 68, "net": 82, "allin_ev": 82, "result": 70}
+        self.poker_history_sort_column: str | None = None
+        self.poker_history_sort_reverse = True
         for col in cols:
-            self.history_tree.heading(col, text=headings[col])
+            self.history_tree.heading(
+                col, text=headings[col],
+                command=lambda column=col: self._sort_pokercraft_hands(column))
             self.history_tree.column(col, width=widths[col], anchor="center")
         self.history_tree.pack(fill="both", expand=True)
         self.history_tree.bind("<<TreeviewSelect>>", self._show_pokercraft_hand)
@@ -9104,7 +9480,12 @@ class PigeonPokerApp(tk.Tk):
         self.history_replay_button = ttk.Button(
             detail_toolbar, text="▶  REPLAY HAND", style="Accent.TButton",
             command=self._open_pokercraft_replay, state="disabled")
-        self.history_replay_button.pack(side="left")
+        self.history_replay_button.pack(side="left", padx=(0, 6))
+        self.history_range_button = ttk.Button(
+            detail_toolbar, text="▦  PREFLOP RANGE",
+            command=self._open_pokercraft_history_range, state="disabled")
+        self.history_range_button.pack(side="left")
+        self.selected_history_preflop_range = None
         self.history_detail = tk.Text(detail, height=7, bg="#081321", fg="#dce8f7",
                                       insertbackground="white", relief="flat",
                                       font=("Consolas", 8), wrap="word")
@@ -9144,8 +9525,10 @@ class PigeonPokerApp(tk.Tk):
             self.poker_opponent_tree.heading(col, text=label)
             self.poker_opponent_tree.column(col, width=width, anchor="center")
         self.poker_opponent_tree.pack(fill="both", expand=True)
-        pos_panel, pos_inner = self._panel(breakdowns, "RESULT BY HERO POSITION")
-        pos_panel.pack(side="left", fill="both", expand=True, padx=(5, 0))
+        pos_panel, pos_inner = self._panel(position_tab, "RESULT BY HERO POSITION")
+        pos_panel.pack(fill="both", expand=True)
+        tk.Label(position_tab, text="Position results use the same date / blinds / session filters as Game History.",
+                 bg=COLORS["bg"], fg=COLORS["muted"], font=("Segoe UI", 8)).pack(anchor="w", pady=(5, 0))
         pos_cols = ("position", "hands", "wins", "net", "bb100")
         self.poker_position_tree = ttk.Treeview(pos_inner, columns=pos_cols, show="headings", height=15)
         for col, label, width in (("position", "POSITION", 95), ("hands", "HANDS", 70),
@@ -9182,40 +9565,175 @@ class PigeonPokerApp(tk.Tk):
         self.poker_stats_sort_column = "hands"
         self.poker_stats_sort_reverse = True
         self.poker_filtered_rows: list[dict[str, Any]] = []
+        self._pokercraft_last_latest_signature = None
         self._refresh_pokercraft()
 
+    @staticmethod
+    def _pokercraft_parse_timestamp(value: Any, *, assume_utc: bool = True):
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc if assume_utc else timezone(timedelta(hours=9)))
+            return parsed
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    @classmethod
+    def _format_pokercraft_jst(cls, value: Any, fmt: str = "%Y-%m-%d %H:%M:%S"):
+        parsed = cls._pokercraft_parse_timestamp(value, assume_utc=True)
+        if parsed is None:
+            return "—"
+        return parsed.astimezone(timezone(timedelta(hours=9))).strftime(fmt) + " JST"
+
+    @staticmethod
+    def _pokercraft_blinds_label(rate: str) -> str:
+        return {
+            "NL2": "$0.01 / $0.02", "NL5": "$0.02 / $0.05",
+            "NL10": "$0.05 / $0.10", "NL25": "$0.10 / $0.25",
+            "NL50": "$0.25 / $0.50", "NL100": "$0.50 / $1",
+            "NL200": "$1 / $2", "VIP25/50": "$25 / $50",
+        }.get(str(rate), str(rate))
+
+    def _session_duration_sort_value(self, item: dict[str, Any]) -> int:
+        start = self._pokercraft_parse_timestamp(item.get("started_at"))
+        end = self._pokercraft_parse_timestamp(item.get("last_hand_at"))
+        return max(0, int((end - start).total_seconds())) if start and end else 0
+
+    def _session_duration_label(self, item: dict[str, Any]) -> str:
+        seconds = self._session_duration_sort_value(item)
+        return f"{seconds // 3600:02d}:{(seconds // 60) % 60:02d}:{seconds % 60:02d}"
+
     def _set_pokercraft_sessions(self, enabled: bool):
-        for variable in self.poker_session_vars.values():
-            variable.set(bool(enabled))
+        all_ids = {str(item.get("session_id", "")) for item in self.poker_session_meta
+                   if str(item.get("session_id", ""))}
+        if self.poker_session_selected_ids is None:
+            self.poker_session_selected_ids = set(all_ids)
+        elif enabled:
+            self.poker_session_selected_ids.update(all_ids)
+        else:
+            self.poker_session_selected_ids.difference_update(all_ids)
+        self._refresh_pokercraft_session_checks()
+        self._refresh_pokercraft()
+
+    def _sort_pokercraft_sessions(self, column: str):
+        if self.poker_session_sort_column == column:
+            self.poker_session_sort_reverse = not bool(self.poker_session_sort_reverse)
+        else:
+            self.poker_session_sort_column = column
+            self.poker_session_sort_reverse = False
+        self._refresh_pokercraft_session_checks()
+
+    def _toggle_pokercraft_session_row(self, event=None):
+        tree = getattr(self, "poker_session_tree", None)
+        if tree is None:
+            return
+        iid = tree.identify_row(event.y) if event is not None else ""
+        if not iid:
+            return
+        if self.poker_session_selected_ids is None:
+            self.poker_session_selected_ids = {
+                str(item.get("session_id", "")) for item in self.poker_session_meta
+            }
+        if iid in self.poker_session_selected_ids:
+            self.poker_session_selected_ids.remove(iid)
+        else:
+            self.poker_session_selected_ids.add(iid)
+        self._refresh_pokercraft_session_checks()
         self._refresh_pokercraft()
 
     def _refresh_pokercraft_session_checks(self):
         sessions = self.history_store.list_sessions(1000)
-        old_selection = {sid: bool(var.get()) for sid, var in self.poker_session_vars.items()}
-        old_ids = set(self.poker_session_vars)
-        new_ids = {str(item["session_id"]) for item in sessions}
-        signature = tuple((str(item.get("session_id", "")), str(item.get("table_rate", "")),
-                           int(item.get("hands", 0)), int(item.get("net", 0)),
-                           str(item.get("last_hand_at", ""))) for item in sessions)
-        if old_ids != new_ids or signature != self.poker_session_signature or not old_ids:
-            for child in self.poker_session_inner.winfo_children():
-                child.destroy()
-            self.poker_session_vars = {}
-            for index, item in enumerate(sessions):
-                sid = str(item["session_id"])
-                selected = old_selection.get(sid, True)
-                variable = tk.BooleanVar(value=selected)
-                self.poker_session_vars[sid] = variable
-                stamp = str(item.get("started_at", ""))[:16].replace("T", " ")
-                label = (f"{item['table_rate']}  •  {stamp}  •  {int(item['hands'])}H  •  "
-                         f"${int(item['net'])/100:+.2f}")
-                check = ttk.Checkbutton(self.poker_session_inner, text=label, variable=variable,
-                                        command=self._refresh_pokercraft)
-                check.grid(row=0, column=index, sticky="w", padx=(0, 12))
-            self.poker_session_canvas.configure(scrollregion=self.poker_session_canvas.bbox("all"))
+        full_ids = {str(item.get("session_id", "")) for item in sessions
+                    if str(item.get("session_id", ""))}
+        if self.poker_session_selected_ids is None:
+            self.poker_session_selected_ids = set(full_ids)
+        else:
+            newly_seen = full_ids - set(self.poker_session_known_ids)
+            self.poker_session_selected_ids.intersection_update(full_ids)
+            self.poker_session_selected_ids.update(newly_seen)
+        self.poker_session_known_ids = set(full_ids)
         self.poker_session_meta = sessions
+
+        from_text = self.poker_from_filter_var.get().strip()
+        to_text = self.poker_to_filter_var.get().strip()
+        stake = self.poker_session_stake_var.get().strip()
+        start_bound = self._pokercraft_parse_timestamp(from_text, assume_utc=False) if from_text else None
+        end_bound = self._pokercraft_parse_timestamp(to_text, assume_utc=False) if to_text else None
+        if end_bound is not None and len(to_text) == 10:
+            end_bound = end_bound.replace(hour=23, minute=59, second=59, microsecond=999999)
+        filtered = []
+        for item in sessions:
+            if stake and stake != "ALL" and str(item.get("table_rate", "")) != stake:
+                continue
+            started = self._pokercraft_parse_timestamp(item.get("started_at"))
+            if started is not None:
+                started_jst = started.astimezone(timezone(timedelta(hours=9)))
+                if start_bound is not None and started_jst < start_bound:
+                    continue
+                if end_bound is not None and started_jst > end_bound:
+                    continue
+            filtered.append(item)
+
+        signature = tuple((
+            str(item.get("session_id", "")), str(item.get("table_rate", "")),
+            int(item.get("hands", 0)), int(item.get("net", 0)),
+            str(item.get("started_at", "")), str(item.get("last_hand_at", "")),
+        ) for item in filtered)
+        filter_signature = (
+            from_text, to_text, stake, self.poker_session_sort_column,
+            bool(self.poker_session_sort_reverse),
+            tuple(sorted(self.poker_session_selected_ids or set())),
+        )
+        if (signature != self.poker_session_signature
+                or getattr(self, "poker_session_filter_signature", None) != filter_signature
+                or not self.poker_session_tree.get_children()):
+            rows = list(filtered)
+            column = self.poker_session_sort_column or "time"
+            sorters = {
+                "time": lambda item: str(item.get("started_at", "")),
+                "blinds": lambda item: str(item.get("table_rate", "")),
+                "table": lambda item: str(item.get("table_mode") or item.get("table_name")
+                                           or item.get("table_id") or item.get("table_rate", "")),
+                "hands": lambda item: int(item.get("hands", 0)),
+                "duration": lambda item: self._session_duration_sort_value(item),
+                "winloss": lambda item: int(item.get("net", 0)),
+                "include": lambda item: str(item.get("session_id", "")),
+            }
+            rows.sort(key=sorters.get(column, sorters["time"]),
+                      reverse=(self.poker_session_sort_reverse if self.poker_session_sort_column else True))
+            for child in self.poker_session_tree.get_children():
+                self.poker_session_tree.delete(child)
+            self.poker_session_vars = {}
+            for item in rows:
+                sid = str(item.get("session_id", ""))
+                selected = sid in self.poker_session_selected_ids
+                self.poker_session_vars[sid] = tk.BooleanVar(value=selected)
+                time_text = self._format_pokercraft_jst(item.get("started_at"), "%Y-%m-%d %I:%M %p")
+                rate = str(item.get("table_rate", ""))
+                default_table = ("VIP" if rate == "VIP25/50"
+                                 else ("Rush & Cash" if item.get("table_id") else "Cash"))
+                table_name = str(item.get("table_mode") or item.get("table_name") or default_table)
+                self.poker_session_tree.insert("", "end", iid=sid, values=(
+                    "✓" if selected else "□", time_text,
+                    self._pokercraft_blinds_label(str(item.get("table_rate", ""))),
+                    table_name, int(item.get("hands", 0)),
+                    self._session_duration_label(item),
+                    f"${int(item.get('net', 0))/100:+.2f}",
+                ))
+            headers = {"include": "✓", "time": "TIME (JST)", "blinds": "BLINDS",
+                       "table": "TABLE", "hands": "HANDS", "duration": "DURATION",
+                       "winloss": "WIN / LOSS"}
+            for column_name, label in headers.items():
+                arrow = ""
+                if self.poker_session_sort_column == column_name:
+                    arrow = " ↓" if self.poker_session_sort_reverse else " ↑"
+                self.poker_session_tree.heading(column_name, text=label + arrow)
         self.poker_session_signature = signature
-        return [sid for sid, variable in self.poker_session_vars.items() if variable.get()]
+        self.poker_session_filter_signature = filter_signature
+        visible_ids = {str(item.get("session_id", "")) for item in filtered}
+        return sorted(visible_ids.intersection(self.poker_session_selected_ids))
 
     def _draw_pokercraft_comparison_graph(self, canvas: tk.Canvas, rows: list[dict[str, Any]]):
         """Draw actual cumulative net and All-in EV on one shared hand axis."""
@@ -9450,7 +9968,7 @@ class PigeonPokerApp(tk.Tk):
                 stat["hands"] += 1
                 stat["net"] += row_net
                 bb_cents_for_hand = {"NL2": 2, "NL5": 5, "NL10": 10, "NL25": 25,
-                                     "NL50": 50, "NL100": 100, "NL200": 200, "VIP25/50": 2500}.get(str(row.get("table_rate", "")), 0)
+                                     "NL50": 50, "NL100": 100, "NL200": 200, "VIP25/50": 5000}.get(str(row.get("table_rate", "")), 0)
                 if bb_cents_for_hand:
                     stat["bb_units"] += row_net / bb_cents_for_hand
                 if row_net > 0:
@@ -9499,7 +10017,11 @@ class PigeonPokerApp(tk.Tk):
                 position, stat["hands"], stat["wins"], f"${net/100:+.2f}", f"{bb100:+.1f}"))
 
     def _export_pokercraft_csv(self):
-        rows = list(getattr(self, "poker_filtered_rows", []))
+        rows = []
+        for source_row in list(getattr(self, "poker_filtered_rows", [])):
+            row = dict(source_row)
+            row["played_at"] = self._format_pokercraft_jst(row.get("played_at"))
+            rows.append(row)
         if not rows:
             messagebox.showinfo("PokerCraft export", "エクスポートするハンドがありません。先にセッション／フィルターを確認してください。")
             return
@@ -9517,6 +10039,95 @@ class PigeonPokerApp(tk.Tk):
             messagebox.showinfo("PokerCraft export", f"{count:,} ハンドをCSVに出力しました。\n{path}")
         except Exception as exc:
             messagebox.showerror("PokerCraft export", f"CSV出力に失敗しました。\n{exc}")
+
+    @staticmethod
+    def _pokercraft_hand_class(cards_value: Any) -> str | None:
+        try:
+            import re
+            if isinstance(cards_value, str):
+                text = cards_value
+            else:
+                text = " ".join(str(card) for card in list(cards_value or ()))
+            matches = re.findall(r"(10|[AKQJT2-9])([SHDC♠♥♦♣])", text.upper())
+            if len(matches) != 2:
+                return None
+            rank_order = "AKQJT98765432"
+            rank_a = "T" if matches[0][0] == "10" else matches[0][0]
+            rank_b = "T" if matches[1][0] == "10" else matches[1][0]
+            if rank_a not in rank_order or rank_b not in rank_order:
+                return None
+            if rank_a == rank_b:
+                return rank_a * 2
+            high, low = sorted((rank_a, rank_b), key=rank_order.index)
+            suit_a, suit_b = matches[0][1], matches[1][1]
+            return high + low + ("s" if suit_a == suit_b else "o")
+        except (TypeError, ValueError, IndexError):
+            return None
+
+    def _refresh_pokercraft_hole_cards(self, rows: list[dict[str, Any]]):
+        grouped: dict[str, dict[str, int]] = {}
+        for row in rows:
+            hand_class = self._pokercraft_hand_class(row.get("hero_cards", ""))
+            if not hand_class:
+                continue
+            stat = grouped.setdefault(hand_class, {
+                "hand": hand_class, "hands": 0, "wins": 0, "net": 0,
+                "pot": 0, "positive_ev": 0, "ev_count": 0,
+            })
+            net = int(row.get("display_net", row.get("hero_net", 0)))
+            stat["hands"] += 1
+            stat["net"] += net
+            stat["pot"] += int(row.get("pot", 0))
+            if net > 0:
+                stat["wins"] += 1
+            if row.get("hero_allin_ev") is not None:
+                stat["positive_ev"] += int(row["hero_allin_ev"])
+                stat["ev_count"] += 1
+        self.poker_hole_cards_rows = list(grouped.values())
+        total = sum(int(item["hands"]) for item in self.poker_hole_cards_rows)
+        self.poker_hole_cards_summary_var.set(
+            f"{len(self.poker_hole_cards_rows)} starting-hand classes • {total} hands • "
+            "current PokerCraft filters applied")
+        self._render_pokercraft_hole_cards()
+
+    def _render_pokercraft_hole_cards(self):
+        tree = self.poker_hole_cards_tree
+        for child in tree.get_children():
+            tree.delete(child)
+        rows = list(self.poker_hole_cards_rows)
+        column = self.poker_hole_cards_sort_column
+        reverse = bool(self.poker_hole_cards_sort_reverse)
+        sorters = {
+            "hand": lambda item: str(item["hand"]),
+            "hands": lambda item: int(item["hands"]),
+            "winrate": lambda item: int(item["wins"]) / max(1, int(item["hands"])),
+            "net": lambda item: int(item["net"]),
+            "avgpot": lambda item: int(item["pot"]) / max(1, int(item["hands"])),
+            "avgnet": lambda item: int(item["net"]) / max(1, int(item["hands"])),
+        }
+        rows.sort(key=sorters.get(column, sorters["hands"]), reverse=reverse)
+        labels = {"hand": "HAND", "hands": "HANDS", "winrate": "WIN RATE",
+                  "net": "NET", "avgpot": "AVG POT", "avgnet": "AVG NET"}
+        for col, label in labels.items():
+            arrow = (" ↓" if reverse else " ↑") if column == col else ""
+            tree.heading(col, text=label + arrow)
+        for index, item in enumerate(rows):
+            hands = max(1, int(item["hands"]))
+            win_rate = int(item["wins"]) / hands * 100.0
+            tree.insert("", "end", iid=f"hole_{index}", values=(
+                item["hand"], int(item["hands"]), f"{win_rate:.1f}%",
+                f"${int(item['net'])/100:+.2f}",
+                f"${int(item['pot'])/hands/100:.2f}",
+                f"${int(item['net'])/hands/100:+.2f}",
+            ))
+
+    def _sort_pokercraft_hole_cards(self, column: str):
+        if self.poker_hole_cards_sort_column == column:
+            self.poker_hole_cards_sort_reverse = not bool(self.poker_hole_cards_sort_reverse)
+        else:
+            self.poker_hole_cards_sort_column = column
+            self.poker_hole_cards_sort_reverse = False
+        self._render_pokercraft_hole_cards()
 
     def _refresh_pokercraft_player_stats(self, rows: list[dict[str, Any]]):
         if not hasattr(self, "poker_stats_tree"):
@@ -9609,14 +10220,33 @@ class PigeonPokerApp(tk.Tk):
         self.poker_filter_showdown_var.set("ALL")
         self.poker_from_filter_var.set("")
         self.poker_to_filter_var.set("")
+        self.poker_session_stake_var.set("ALL")
+        self.poker_session_selected_ids = None
+        self.poker_session_sort_column = None
+        self.poker_session_sort_reverse = True
+        self.poker_history_sort_column = None
+        self.poker_history_sort_reverse = True
         self.poker_include_rake_var.set(True)
+        self._refresh_pokercraft()
+
+    def _sort_pokercraft_hands(self, column: str):
+        if self.poker_history_sort_column == column:
+            self.poker_history_sort_reverse = not bool(self.poker_history_sort_reverse)
+        else:
+            self.poker_history_sort_column = column
+            self.poker_history_sort_reverse = False
         self._refresh_pokercraft()
 
     def _refresh_pokercraft(self):
         if not hasattr(self, "history_tree"):
             return
+        previous_key = ""
+        if getattr(self, "selected_history_record", None):
+            previous_key = str(self.selected_history_record.get("hand_key", ""))
+
         selected_sessions = self._refresh_pokercraft_session_checks()
-        rows = self.history_store.list_recent(5000, session_ids=selected_sessions)
+        rows = (self.history_store.list_recent(5000, session_ids=selected_sessions)
+                if selected_sessions else [])
         stake = self.poker_filter_stake_var.get().strip()
         if stake and stake != "ALL":
             rows = [row for row in rows if row["table_rate"] == stake]
@@ -9628,21 +10258,26 @@ class PigeonPokerApp(tk.Tk):
         from_text = self.poker_from_filter_var.get().strip()
         to_text = self.poker_to_filter_var.get().strip()
         try:
-            from_dt = datetime.fromisoformat(from_text) if from_text else None
-            to_dt = datetime.fromisoformat(to_text) if to_text else None
-            # A date-only upper bound includes that entire local calendar day.
+            from_dt = self._pokercraft_parse_timestamp(from_text, assume_utc=False) if from_text else None
+            to_dt = self._pokercraft_parse_timestamp(to_text, assume_utc=False) if to_text else None
             if to_dt is not None and len(to_text) == 10:
                 to_dt = to_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
-        except ValueError:
-            messagebox.showerror("PokerCraft filter", "日時は YYYY-MM-DD または YYYY-MM-DD HH:MM 形式で入力してください。")
+        except (TypeError, ValueError):
+            messagebox.showerror(
+                "PokerCraft filter",
+                "日時は YYYY-MM-DD または YYYY-MM-DD HH:MM 形式で入力してください（日本時間）。")
             return
-        for label, bound in (("From", from_dt), ("To", to_dt)):
-            if bound and bound.tzinfo is None:
-                if label == "From": from_dt = bound.replace(tzinfo=timezone.utc)
-                else: to_dt = bound.replace(tzinfo=timezone.utc)
+        if from_dt is not None:
+            from_dt = from_dt.astimezone(timezone.utc)
+        if to_dt is not None:
+            to_dt = to_dt.astimezone(timezone.utc)
+
         filtered = []
         for row in rows:
-            played = datetime.fromisoformat(row["played_at"])
+            played = self._pokercraft_parse_timestamp(row.get("played_at"), assume_utc=True)
+            if played is None:
+                continue
+            played = played.astimezone(timezone.utc)
             if from_dt and played < from_dt:
                 continue
             if to_dt and played > to_dt:
@@ -9650,28 +10285,61 @@ class PigeonPokerApp(tk.Tk):
             row = dict(row)
             rake_share = int(row.get("hero_rake", 0))
             row["display_net"] = int(row["hero_net"] if self.poker_include_rake_var.get()
-                                      else row["hero_net"] + rake_share)
+                                     else row["hero_net"] + rake_share)
             filtered.append(row)
+
         filtered = filter_hand_results(
             filtered, self.poker_filter_result_var.get(), self.poker_filter_showdown_var.get())
-        sort_key = self.poker_sort_var.get()
-        reverse = self.poker_sort_order_var.get() == "DESC"
-        if sort_key == "POT":
-            filtered.sort(key=lambda item: item["pot"], reverse=reverse)
-        elif sort_key == "PROFIT":
-            filtered.sort(key=lambda item: item["display_net"], reverse=reverse)
-        elif sort_key == "LOSS":
-            filtered.sort(key=lambda item: item["display_net"], reverse=not reverse)
+        sorters = {
+            "date": lambda item: str(item.get("played_at", "")),
+            "session": lambda item: str(item.get("session_id", "")),
+            "stake": lambda item: str(item.get("table_rate", "")),
+            "board": lambda item: str(item.get("board", "")),
+            "hand": lambda item: str(item.get("hero_cards", "")),
+            "pot": lambda item: int(item.get("pot", 0)),
+            "rake": lambda item: int(item.get("rake", 0)),
+            "net": lambda item: int(item.get("display_net", item.get("hero_net", 0))),
+            "allin_ev": lambda item: (-10**18 if item.get("hero_allin_ev") is None
+                                      else int(item.get("hero_allin_ev"))),
+            "result": lambda item: ("WIN" if int(item.get("display_net", 0)) > 0
+                                    else "LOSS" if int(item.get("display_net", 0)) < 0 else "EVEN"),
+        }
+        sort_column = self.poker_history_sort_column
+        if sort_column:
+            filtered.sort(key=sorters.get(sort_column, sorters["date"]),
+                          reverse=bool(self.poker_history_sort_reverse))
         else:
-            filtered.sort(key=lambda item: item["played_at"], reverse=reverse)
+            sort_key = self.poker_sort_var.get()
+            reverse = self.poker_sort_order_var.get() == "DESC"
+            if sort_key == "POT":
+                filtered.sort(key=lambda item: item["pot"], reverse=reverse)
+            elif sort_key == "PROFIT":
+                filtered.sort(key=lambda item: item["display_net"], reverse=reverse)
+            elif sort_key == "LOSS":
+                filtered.sort(key=lambda item: item["display_net"], reverse=not reverse)
+            else:
+                filtered.sort(key=lambda item: item["played_at"], reverse=reverse)
+
+        headings = {
+            "date": "DATE", "session": "TABLE SESSION", "stake": "STAKE",
+            "board": "BOARD", "hand": "YOUR HAND", "pot": "POT", "rake": "RAKE",
+            "net": "NET", "allin_ev": "ALL-IN EV", "result": "RESULT",
+        }
+        if sort_column:
+            for column, label in headings.items():
+                arrow = (" ↓" if self.poker_history_sort_reverse else " ↑") if sort_column == column else ""
+                self.history_tree.heading(column, text=label + arrow)
+
         total_net = sum(item["display_net"] for item in filtered)
         total_rake = sum(int(item.get("rake", 0)) for item in filtered)
         biggest_pot = max((int(item["pot"]) for item in filtered), default=0)
         rake_mode = "after rake" if self.poker_include_rake_var.get() else "excluding hero rake share"
         self.pokercraft_summary_var.set(
-            f"{len(filtered)} hands • Net ({rake_mode}) ${total_net/100:,.2f} • Total rake ${total_rake/100:,.2f} • Biggest pot ${biggest_pot/100:,.2f}"
+            f"{len(filtered)} hands • Net ({rake_mode}) ${total_net/100:,.2f} • "
+            f"Total rake ${total_rake/100:,.2f} • Biggest pot ${biggest_pot/100:,.2f}"
         )
-        self.poker_filtered_rows = sorted(filtered, key=lambda item: (item.get("played_at", ""), item.get("hand_number", 0)))
+        self.poker_filtered_rows = sorted(
+            filtered, key=lambda item: (item.get("played_at", ""), item.get("hand_number", 0)))
         graph_rows = []
         for item in self.poker_filtered_rows:
             graph_item = dict(item)
@@ -9685,26 +10353,68 @@ class PigeonPokerApp(tk.Tk):
                 "non-all-in hands follow actual net • click a point to open that hand.")
         self._refresh_pokercraft_breakdowns(filtered)
         self._refresh_pokercraft_player_stats(filtered)
+        self._refresh_pokercraft_hole_cards(filtered)
+
         for item in self.history_tree.get_children():
             self.history_tree.delete(item)
         self.history_records = {}
+        selected_iid = None
         for index, row in enumerate(filtered):
             iid = str(index)
             self.history_records[iid] = row
-            date_text = row["played_at"].replace("T", " ").replace("+00:00", " UTC")
+            date_text = self._format_pokercraft_jst(row.get("played_at"))
             result = "WIN" if row["display_net"] > 0 else ("LOSS" if row["display_net"] < 0 else "EVEN")
             sid_short = str(row.get("session_id", ""))[:8]
             ev_value = row.get("hero_allin_ev")
             self.history_tree.insert("", "end", iid=iid, values=(
                 date_text, sid_short, row["table_rate"], row["board"] or "—", row["hero_cards"] or "—",
                 f"${row['pot']/100:.2f}", f"${row.get('rake', 0)/100:.2f}",
-                f"${row['display_net']/100:+.2f}", f"${int(ev_value)/100:+.2f}" if ev_value is not None else "—", result))
+                f"${row['display_net']/100:+.2f}",
+                f"${int(ev_value)/100:+.2f}" if ev_value is not None else "—", result))
+            if previous_key and str(row.get("hand_key", "")) == previous_key:
+                selected_iid = iid
+
         self.selected_history_record = None
+        self.selected_history_preflop_range = None
         try:
             self.history_replay_button.configure(state="disabled")
+            self.history_range_button.configure(state="disabled")
         except (AttributeError, tk.TclError):
             pass
-        self._set_history_detail("Select a hand to inspect its recorded actions.")
+        if selected_iid is not None:
+            self.history_tree.selection_set(selected_iid)
+            self.history_tree.focus(selected_iid)
+            self._show_pokercraft_hand()
+        else:
+            self._set_history_detail("Select a hand to inspect its recorded actions.")
+
+    def _tick_pokercraft_live_refresh(self):
+        try:
+            if not self.winfo_exists():
+                return
+            if getattr(self, "_active_page_key", "") == "poker_craft":
+                latest_rows = self.history_store.list_recent(1)
+                signature = None
+                if latest_rows:
+                    latest = latest_rows[0]
+                    signature = (
+                        str(latest.get("hand_key", "")),
+                        str(latest.get("played_at", "")),
+                        latest.get("hero_allin_ev"),
+                        int(latest.get("hero_net", 0)),
+                    )
+                if signature != self._pokercraft_last_latest_signature:
+                    self._pokercraft_last_latest_signature = signature
+                    self._refresh_pokercraft()
+        except (tk.TclError, RuntimeError):
+            return
+        except Exception:
+            # Live history refresh is opportunistic; it must never interrupt play.
+            pass
+        try:
+            self._pokercraft_live_refresh_job = self.after(1800, self._tick_pokercraft_live_refresh)
+        except tk.TclError:
+            pass
 
     def _set_history_detail(self, value: str):
         self.history_detail.configure(state="normal")
@@ -9726,7 +10436,7 @@ class PigeonPokerApp(tk.Tk):
             pass
         hero_rake = int(row.get("hero_rake", 0))
         allin_ev = row.get("hero_allin_ev")
-        lines = [f"{row['table_rate']} • {row['played_at']} • SESSION {row.get('session_id', '')}",
+        lines = [f"{row['table_rate']} • {self._format_pokercraft_jst(row.get('played_at'))} • SESSION {row.get('session_id', '')}",
                  f"Board: {row['board'] or '—'}", f"Hero: {row['hero_cards'] or '—'}",
                  f"Pot: ${row['pot']/100:.2f} • Net: ${row.get('display_net', row['hero_net'])/100:+.2f} "
                  f"• Total rake: ${row['rake']/100:.2f} • Hero rake share: ${hero_rake/100:.2f}",
@@ -9748,6 +10458,196 @@ class PigeonPokerApp(tk.Tk):
             elif etype == "hand_won_by_fold":
                 lines.append(f"{event.get('winner')} won by fold (${event.get('amount', 0)/100:.2f})")
         self._set_history_detail("\n".join(lines))
+        self.selected_history_preflop_range = self._historical_preflop_range_chart(row)
+        try:
+            self.history_range_button.configure(
+                state="normal" if self.selected_history_preflop_range is not None else "disabled")
+        except (AttributeError, tk.TclError):
+            pass
+
+    def _historical_preflop_range_chart(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        """Resolve only the exact screenshot-backed node at HERO's first decision."""
+        try:
+            players_data = list(row.get("players", []) or [])
+            if not players_data:
+                return None
+            id_by_name: dict[str, str] = {}
+            player_by_id: dict[str, Any] = {}
+            for item in players_data:
+                pid = str(item.get("id") or "")
+                name = str(item.get("name") or pid)
+                if not pid:
+                    continue
+                id_by_name[name] = pid
+                id_by_name[name.casefold()] = pid
+                if pid.casefold() in {"hero", "you"} or name.casefold() in {"hero", "you"}:
+                    id_by_name["YOU"] = pid
+                    id_by_name["HERO"] = pid
+                player_by_id[pid] = SimpleNamespace(
+                    player_id=pid, name=name,
+                    position=str(item.get("position") or ""),
+                    hole_cards=tuple(item.get("hole_cards") or ()),
+                    stack=100000, street_contribution=0, eligible=True,
+                )
+            hero_id = next((pid for pid, item in player_by_id.items()
+                            if pid.casefold() in {"hero", "you"}
+                            or str(getattr(item, "name", "")).casefold() in {"hero", "you"}),
+                           None)
+            if hero_id is None:
+                return None
+
+            normalized_events = []
+            hero_decision_index = None
+            for index, raw in enumerate(row.get("events", []) or []):
+                if not isinstance(raw, dict):
+                    continue
+                event = dict(raw)
+                street = str(event.get("street", "preflop")).lower().replace("-", "")
+                if street not in {"preflop", "pre"}:
+                    continue
+                actor = str(event.get("player_id") or event.get("player") or "")
+                pid = actor if actor in player_by_id else id_by_name.get(actor, id_by_name.get(actor.casefold(), actor))
+                if not pid:
+                    continue
+                event["player_id"] = pid
+                event["player"] = pid
+                event["street"] = "preflop"
+                normalized_events.append(event)
+                action = str(event.get("action", "")).lower().replace("-", "_")
+                if pid == hero_id and hero_decision_index is None and action in {
+                    "fold", "call", "check", "raise", "bet", "all_in", "allin", "limp"
+                }:
+                    hero_decision_index = len(normalized_events) - 1
+
+            if hero_decision_index is None:
+                return None
+            prior = normalized_events[:hero_decision_index]
+            if not prior:
+                prior = []
+
+            # Explicit per-player positions are used by _position_map when the
+            # player count differs from six. Add a non-seated marker to force it
+            # to use these stored positions rather than infer a button seat.
+            helper_players = list(player_by_id.values())
+            helper_players.append(SimpleNamespace(
+                player_id="__position_hint__", name="Position metadata",
+                position="UNKNOWN", hole_cards=(), stack=100000,
+                street_contribution=0, eligible=False,
+            ))
+            rate = str(row.get("table_rate", ""))
+            bb_cents = {
+                "NL2": 2, "NL5": 5, "NL10": 10, "NL25": 25,
+                "NL50": 50, "NL100": 100, "NL200": 200, "VIP25/50": 5000,
+            }.get(rate)
+            if not bb_cents:
+                return None
+            hand = SimpleNamespace(
+                players=helper_players, events=prior, big_blind=int(bb_cents),
+                dealer_index=0, street="preflop",
+            )
+            chart = preflop_gto_range_for_situation(
+                SimpleNamespace(dealer_index=0), hand, hero_id, prior_events=prior)
+            return chart
+        except Exception:
+            return None
+
+    def _open_pokercraft_history_range(self):
+        chart = getattr(self, "selected_history_preflop_range", None)
+        if not chart:
+            return
+        self._open_preflop_range_view(
+            chart,
+            title="HISTORICAL PREFLOP RANGE",
+            charge_label="Historical review • FREE",
+        )
+
+    def _open_preflop_range_view(
+        self,
+        chart: dict[str, Any],
+        *,
+        title: str,
+        charge_label: str,
+    ):
+        if not chart or len(chart.get("hand_order", [])) != 169:
+            return
+        win = tk.Toplevel(self)
+        win.title(f"PIGEON POKER • {title}")
+        win.geometry("920x710")
+        win.minsize(780, 620)
+        win.configure(bg="#080e19")
+        try:
+            win.transient(self)
+            win.lift()
+        except tk.TclError:
+            pass
+
+        header = tk.Frame(win, bg="#080e19", padx=14, pady=10)
+        header.pack(fill="x")
+        node = str(chart.get("node_id", ""))
+        position = str(chart.get("actor_position", ""))
+        tk.Label(header, text=f"{title}  •  {position}  •  {node}",
+                 bg="#080e19", fg="#f2f6fc",
+                 font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        description = str(chart.get("description", "")).strip()
+        tk.Label(header, text=description, bg="#080e19", fg="#91a3b8",
+                 font=("Segoe UI", 9)).pack(anchor="w", pady=(3, 0))
+        tk.Label(header, text=charge_label, bg="#080e19", fg="#19a974",
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(4, 0))
+
+        meta = tk.Frame(win, bg="#111c2e", padx=10, pady=7)
+        meta.pack(fill="x", padx=10, pady=(0, 7))
+        totals = chart.get("action_totals", {})
+        sizes = chart.get("raise_sizes_bb", {})
+        total_parts = [f"{str(action).upper()} {float(freq):.1f}%"
+                       for action, freq in totals.items()]
+        size_parts = [f"{action.upper()} {float(amount):g} BB"
+                      for action, amount in sizes.items()]
+        tk.Label(meta, text="    •    ".join(total_parts + size_parts),
+                 bg="#111c2e", fg="#f2f6fc",
+                 font=("Segoe UI", 9, "bold"), wraplength=860,
+                 justify="left").pack(anchor="w")
+        source = str(chart.get("source_image", "")).strip()
+        tk.Label(meta, text=f"Source: {source}  •  169 starting-hand classes",
+                 bg="#111c2e", fg="#91a3b8", font=("Segoe UI", 8)).pack(anchor="w", pady=(3, 0))
+
+        matrix_host = tk.Frame(win, bg="#080e19")
+        matrix_host.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        matrix = tk.Frame(matrix_host, bg="#080e19")
+        matrix.pack(anchor="center", expand=True)
+        order = list(chart["hand_order"])
+        hands = chart["hands"]
+        rank_abbr = {"raise": "R", "call": "C", "fold": "F",
+                     "allin": "AI", "check": "X", "limp": "L"}
+        palette = {"raise": "#b83c42", "call": "#a78335", "fold": "#3279ac",
+                   "allin": "#70449c", "check": "#267b63", "limp": "#74613b"}
+
+        for index, hand_class in enumerate(order):
+            r, col = divmod(index, 13)
+            choices = sorted(
+                hands.get(hand_class, []),
+                key=lambda item: float(item.get("frequency", 0.0)), reverse=True)
+            dominant = str(choices[0].get("action", "fold")) if choices else "fold"
+            base = dominant.replace("_", "")
+            background = palette.get(base, "#30455b")
+            parts = []
+            for item in choices[:3]:
+                action = str(item.get("action", ""))
+                abbreviation = rank_abbr.get(action, action[:2].upper())
+                parts.append(f"{abbreviation}{float(item.get('frequency', 0.0))*100:.0f}")
+            label = hand_class + "\n" + " ".join(parts)
+            cell = tk.Label(
+                matrix, text=label, width=7, height=3,
+                bg=background, fg="#ffffff", relief="solid",
+                bd=1, font=("Segoe UI", 8, "bold"), justify="center")
+            cell.grid(row=r, column=col, padx=1, pady=1, sticky="nsew")
+        footer = tk.Frame(win, bg="#080e19", padx=12, pady=6)
+        footer.pack(fill="x")
+        for action, color in (("Raise", palette["raise"]), ("Call", palette["call"]),
+                              ("Fold", palette["fold"]), ("All-in", palette["allin"]),
+                              ("Check", palette["check"])):
+            swatch = tk.Label(footer, text=f" {action} ", bg=color, fg="#fff",
+                              font=("Segoe UI", 8, "bold"), padx=5, pady=2)
+            swatch.pack(side="left", padx=3)
 
     def _open_pokercraft_replay(self):
         """Open an animated, step-based replay using only cards shown originally."""
