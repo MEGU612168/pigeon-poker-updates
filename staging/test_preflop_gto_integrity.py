@@ -274,6 +274,7 @@ def test_only_the_new_policy_is_the_runtime_preflop_source() -> None:
 if __name__ == "__main__":
     tests = [
         test_all_screenshot_nodes_contain_a_complete_169_hand_matrix,
+        test_utg_open_is_exact_screenshot_range_not_inferred,
         test_screenshot_action_totals_match_the_169_combo_weighted_matrix,
         test_every_screenshot_raise_size_has_a_combo_weighted_modal_result,
         test_gto_size_lookup_is_position_and_history_only_not_hole_card_dependent,
