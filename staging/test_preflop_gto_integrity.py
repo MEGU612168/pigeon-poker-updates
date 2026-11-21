@@ -78,26 +78,15 @@ def test_all_screenshot_nodes_contain_a_complete_169_hand_matrix() -> None:
 
 def test_screenshot_action_totals_match_the_169_combo_weighted_matrix() -> None:
     compact = json.loads(bz2.decompress(base64.b64decode(policy._DATA_B64)))
-    mismatches = []
+    combo_total = sum(combo_count(hand_class) for hand_class in policy.HAND_ORDER)
+    assert combo_total == 1326
+    conditional_nodes = set()
 
     for raw in compact["nodes"]:
         actions = list(raw["a"])
         action_totals = dict(raw.get("t", {}))
         matrix = raw["h"]
-        combo_denominator = sum(
-            combo_count(hand_class)
-            * sum(int(value) for value in matrix[hand_index]) / 10000.0
-            for hand_index, hand_class in enumerate(policy.HAND_ORDER)
-        )
-        class_denominator = sum(
-            sum(int(value) for value in matrix[hand_index]) / 10000.0
-            for hand_index in range(len(policy.HAND_ORDER))
-        )
-        assert combo_denominator > 0 and class_denominator > 0, raw["i"]
-
-        combo_matches = True
-        class_matches = True
-        diagnostics = []
+        observed = {}
         for action, reported_pct in action_totals.items():
             assert action in actions, (raw["i"], action)
             index = actions.index(action)
@@ -105,23 +94,48 @@ def test_screenshot_action_totals_match_the_169_combo_weighted_matrix() -> None:
                 combo_count(hand_class) * int(matrix[hand_index][index]) / 10000.0
                 for hand_index, hand_class in enumerate(policy.HAND_ORDER)
             )
-            class_mass = sum(
-                int(matrix[hand_index][index]) / 10000.0
-                for hand_index in range(len(policy.HAND_ORDER))
+            observed[action] = combo_mass / combo_total * 100.0
+
+        if raw.get("r", False):
+            # Range-conditioned 3bet/4bet nodes include explicit 100% folds
+            # for combos outside the prior action range. Non-fold action mass
+            # therefore reveals the prior-range share of all 1,326 combos.
+            assert abs(sum(float(v) for v in action_totals.values()) - 100.0) <= 0.2, (
+                raw["i"], action_totals
             )
-            combo_pct = combo_mass / combo_denominator * 100.0
-            class_pct = class_mass / class_denominator * 100.0
-            reported = float(reported_pct)
-            combo_matches &= abs(combo_pct - reported) <= 0.35
-            class_matches &= abs(class_pct - reported) <= 0.35
-            diagnostics.append((action, round(combo_pct, 3), round(class_pct, 3), round(reported, 3)))
+            ratios = [
+                observed[action] / float(reported)
+                for action, reported in action_totals.items()
+                if action != "fold" and float(reported) > 0.0
+            ]
+            assert ratios, (raw["i"], action_totals)
+            active_fraction = sum(ratios) / len(ratios)
+            assert 0.0 < active_fraction <= 1.0, (raw["i"], ratios)
+            assert max(ratios) - min(ratios) <= 0.012, (
+                raw["i"], "non-fold actions imply inconsistent prior-range mass", ratios
+            )
+            if "fold" in action_totals:
+                expected_fold = (
+                    (1.0 - active_fraction) * 100.0
+                    + active_fraction * float(action_totals["fold"])
+                )
+                assert abs(observed["fold"] - expected_fold) <= 0.35, (
+                    raw["i"], observed["fold"], expected_fold, active_fraction
+                )
+            conditional_nodes.add(raw["i"])
+            print("CONDITIONAL NODE", raw["i"], "prior-range share", round(active_fraction * 100, 2))
+        else:
+            for action, reported_pct in action_totals.items():
+                assert abs(observed[action] - float(reported_pct)) <= 0.35, (
+                    raw["i"], action, observed[action], reported_pct
+                )
 
-        if raw["i"] in {"25_UTG_VS_HJ_3BET", "26_BTN_VS_BB_3BET", "27_BB_VS_BTN_4BET", "28_BTN_VS_BB_5BET"}:
-            print("ADVANCED NODE META", raw["i"], raw.get("d"), raw.get("p"), raw.get("r"), diagnostics)
-        if not (combo_matches or class_matches):
-            mismatches.append((raw["i"], diagnostics))
-
-    assert not mismatches, mismatches
+    assert {
+        "25_UTG_VS_HJ_3BET",
+        "26_BTN_VS_BB_3BET",
+        "27_BB_VS_BTN_4BET",
+        "28_BTN_VS_BB_5BET",
+    }.issubset(conditional_nodes)
 
 
 def test_every_screenshot_raise_size_has_a_combo_weighted_modal_result() -> None:
