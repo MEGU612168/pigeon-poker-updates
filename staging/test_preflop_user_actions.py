@@ -53,11 +53,65 @@ def test_user_can_change_initial_size_before_submitting() -> None:
     assert "self._floating_table_action(table_id, verb, target)" in action
 
 
+
+
+def test_uncovered_preflop_history_never_uses_generic_range_policy() -> None:
+    worker = source_of("_start_cash_cpu_chain_if_needed")
+    start = worker.index(
+        'if hand.street == "preflop":\n                        # Every preflop turn'
+    )
+    end = worker.index(
+        'elif not (session is not None and session.hand_token == id(hand)',
+        start,
+    )
+    preflop_branch = worker[start:end]
+    assert "fallback_decision = choose_preflop_action(table, hand, pid, cpu, None)" in preflop_branch
+    assert "choose_range_aware_action" not in preflop_branch
+
+    recovery = worker.index(
+        'if decision is None:\n                            # If a preflop helper unexpectedly'
+    )
+    recovery_end = worker.index("if cancel_event.is_set():", recovery)
+    recovery_branch = worker[recovery:recovery_end]
+    assert 'if hand.street == "preflop":' in recovery_branch
+    assert "decision = choose_preflop_action(table, hand, pid, cpu, None)" in recovery_branch
+    assert "else:" in recovery_branch
+    assert "decision = choose_range_aware_action(" in recovery_branch
+
+
+def test_chart_size_button_is_preflop_only_and_user_editable() -> None:
+    refresh = source_of("_refresh_table_windows")
+    apply_size = source_of("_apply_preflop_chart_size")
+    action = source_of("_cash_human_action")
+
+    assert 'if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):' in refresh
+    assert 'sizes_frame, "CHART SIZE"' in refresh
+    assert 'record["chart_size_button"] = chart_button' in refresh
+    assert "self._apply_preflop_chart_size(tid)" in refresh
+    assert "preflop_chart_options(table, hand, \"hero\")" in apply_size
+    assert 'hand.next_to_act != "hero"' in apply_size
+    assert "self._set_table_bet_target(table_id, target)" in apply_size
+    assert "self.cash_table.act(\"hero\", action, amount)" in action
+    assert "_apply_preflop_chart_size" not in action
+    assert "preflop_chart_options" not in action
+
+
+def test_new_hand_reloads_chart_initial_amount_after_postflop() -> None:
+    refresh = source_of("_refresh_table_windows")
+    assert "current_hand_key = id(hand) if hand is not None else None" in refresh
+    assert "current_hand_key," in refresh
+    assert 'record["bet_target_cents"].set(target)' in refresh
+    assert "self._preflop_initial_raise_target(" in refresh
+
+
 if __name__ == "__main__":
     tests = [
         test_chart_never_gates_or_rewrites_hero_actions,
         test_preflop_chart_only_sets_the_initial_editable_raise_size,
         test_user_can_change_initial_size_before_submitting,
+        test_uncovered_preflop_history_never_uses_generic_range_policy,
+        test_chart_size_button_is_preflop_only_and_user_editable,
+        test_new_hand_reloads_chart_initial_amount_after_postflop,
     ]
     for test in tests:
         test()
