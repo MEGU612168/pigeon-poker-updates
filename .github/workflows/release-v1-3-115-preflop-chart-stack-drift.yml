@@ -161,8 +161,7 @@ jobs:
               "_position_for_player",
               "_fallback_position_adjustment",
               "Position-specific adjustment to the fallback preflop range-strength cutoff",
-              "def _has_six_dealt_players(hand: Any) -> bool:",
-              "Stack drift after winning or losing chips must not send every CPU to the",
+
               "_response_action_probabilities",
               "_bet_response_branch_metrics",
               "call_only_probability",
@@ -171,6 +170,10 @@ jobs:
           for marker in required_reasoning_markers:
               if marker not in reasoning_source:
                   raise SystemExit("Required bot performance behavior missing: " + marker)
+          if "def _has_six_dealt_players(hand: Any) -> bool:" not in ranges_source:
+              raise SystemExit("Missing six-dealt-player validation for BOT chart dispatch")
+          if "def _node_for_actor(" not in ranges_source or "return _node_for_situation_size(table, hand, actor_id)" not in ranges_source:
+              raise SystemExit("BOT chart dispatch must preserve exact position/action-history resolver")
           if "def preflop_situation_size(" not in ranges_source or "def _node_for_situation_size(" not in ranges_source:
               raise SystemExit("Missing position/history-only preflop sizing resolver")
           if "node_id = _node_for_situation_size(table, hand, str(actor_id))" not in ranges_source:
