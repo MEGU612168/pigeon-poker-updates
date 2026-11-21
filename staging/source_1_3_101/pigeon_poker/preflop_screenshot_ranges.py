@@ -585,18 +585,35 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
                 fold_rate = clean.get("fold_to_bet_rate", 0.55)
                 call_rate = clean.get("postflop_call_rate", 0.30)
                 aggression = clean.get("postflop_aggression_rate", 0.22)
+                three_bet_opp = clean.get("three_bet_opportunities", 0.0)
+                three_bet_rate = clean.get("three_bet_rate", 0.07)
+                four_bet_opp = clean.get("four_bet_opportunities", 0.0)
+                four_bet_rate = clean.get("four_bet_rate", 0.04)
                 learned_archetype = None
+                learned_basis = ""
                 # Require enough real hands/opportunities before classifying a CPU.
                 if hands >= 12 and fold_opp >= 12 and fold_rate >= 0.72:
                     learned_archetype = "overfolder"
+                    learned_basis = "fold_to_bet"
                 elif (hands >= 20 and vpip >= 0.30 and vpip - pfr >= 0.17
                       and call_opp >= 16 and call_rate >= 0.38):
                     learned_archetype = "calling_station"
-                elif hands >= 24 and call_opp >= 24 and aggression >= 0.31 and pfr >= 0.18:
+                    learned_basis = "vpip_gap_and_postflop_calls"
+                elif (hands >= 24 and (
+                      (call_opp >= 24 and aggression >= 0.31 and pfr >= 0.18)
+                      or (three_bet_opp >= 16 and three_bet_rate >= 0.18 and pfr >= 0.18)
+                      or (four_bet_opp >= 10 and four_bet_rate >= 0.18 and pfr >= 0.18)
+                )):
                     learned_archetype = "aggressive"
+                    learned_basis = (
+                        "three_bet_rate" if three_bet_opp >= 16 and three_bet_rate >= 0.18
+                        else ("four_bet_rate" if four_bet_opp >= 10 and four_bet_rate >= 0.18
+                              else "postflop_aggression")
+                    )
                 if learned_archetype is not None:
                     row["archetype"] = learned_archetype
                     row["learned_archetype"] = learned_archetype
+                    row["learned_archetype_basis"] = learned_basis
                 row["learned_behavior_confidence"] = min(0.85, hands / (hands + 30.0)) if hands > 0 else 0.0
 
     return {
