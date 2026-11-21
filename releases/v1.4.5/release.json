@@ -6,5 +6,23 @@
   "package_mode": "full",
   "source_version": "1.3.101",
   "source_directory": "staging/source_1_3_101",
-  "release_notes": "プレイ中ハンド履歴をGGPOKER型の蓄積・スクロール一覧に変更（実カード・勝者・ポット表示）。レンジ確認はGTO Wizard型の169マス色分割チャートだけを表示。レンジアイコンはクリック可能にし、該当ノードがない場合は理由を表示して課金しない。同一ハンド内の初回1BB課金・再表示無料を維持。履歴DB・ウォレットDB・CPU学習DB・最新スクリーンショット由来プリフロップ戦略を保持。"
+  "release_notes": "プレイ中ハンド履歴をGGPOKER型の蓄積・スクロール一覧に変更（実カード・勝者・ポット表示）。レンジ確認はGTO Wizard型の169マス色分割チャートだけを表示。レンジアイコンはクリック可能にし、該当ノードがない場合は理由を表示して課金しない。同一ハンド内の初回1BB課金・再表示無料を維持。履歴DB・ウォレットDB・CPU学習DB・最新スクリーンショット由来プリフロップ戦略を保持。",
+  "published_at": "2026-11-21T15:43:03Z",
+  "payload_sha256": "22c8b6803697a646c8f16106a67438a48efc023add8eb427e8890a7d83db0f41",
+  "payload_size": 275305,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/cpu_learning.py",
+    "pigeon_poker/poker_reasoning.py",
+    "pigeon_poker/preflop_cleanup.py",
+    "pigeon_poker/preflop_gto_strategy.py",
+    "pigeon_updater.py"
+  ],
+  "updater_actual_extract_validation": "passed",
+  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
+  "preflop_strategy_bundle_validation": "passed"
 }

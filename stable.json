@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.4.4",
-  "published_at": "2026-11-21T15:03:53Z",
-  "release_notes": "PokerCraftをPokerCraft型のセッション・ハンド分析ページへ拡張。プレイ履歴は1.8秒間隔でライブ更新し、JST表示・JST日付検索・各列クリックで昇順/降順ソート・CSVのJST出力を搭載。分析タブはGame History、EV Graph、Hole Cards、Position、Opponents、Player Statsに分離し、履歴行からハンド再生と該当時点のプリフロップレンジ確認を開ける。プレイ中テーブルの左上に、黒背景・白い実カード2枚を左へ10度傾けた直近ハンドフローアイコンを追加。右隣にマス目型レンジ確認アイコンを追加し、正確なスクリーンショット由来ノードが一致するときだけ有効化。リアルタイム確認は共有Wallet残高から1BBをSQLiteのBEGIN IMMEDIATEで1回だけ差し引き、同じハンド中の再表示は無料。テーブルスタックは変更しない。履歴からのレンジ確認は無料だが、ヒーローの最初のプリフロップ判断直前のアクション履歴から正確な画像由来ノードが解決できる場合だけ表示し、データがない場合はボタンを無効にする。履歴DB・ウォレットDB・CPU学習DBを保持。",
+  "version": "1.4.5",
+  "published_at": "2026-11-21T15:43:03Z",
+  "release_notes": "プレイ中ハンド履歴をGGPOKER型の蓄積・スクロール一覧に変更（実カード・勝者・ポット表示）。レンジ確認はGTO Wizard型の169マス色分割チャートだけを表示。レンジアイコンはクリック可能にし、該当ノードがない場合は理由を表示して課金しない。同一ハンド内の初回1BB課金・再表示無料を維持。履歴DB・ウォレットDB・CPU学習DB・最新スクリーンショット由来プリフロップ戦略を保持。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.4/payload-updater.zip.b64?v=9116d290bb532ceff6826cac4f4a16a4f5ba28591126731489a38c019db1fa54",
-  "payload_sha256": "9116d290bb532ceff6826cac4f4a16a4f5ba28591126731489a38c019db1fa54",
-  "payload_size": 273718
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.5/payload-updater.zip.b64?v=22c8b6803697a646c8f16106a67438a48efc023add8eb427e8890a7d83db0f41",
+  "payload_sha256": "22c8b6803697a646c8f16106a67438a48efc023add8eb427e8890a7d83db0f41",
+  "payload_size": 275305
 }
