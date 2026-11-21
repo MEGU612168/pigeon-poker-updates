@@ -76,6 +76,27 @@ def test_all_screenshot_nodes_contain_a_complete_169_hand_matrix() -> None:
                 )
 
 
+def test_screenshot_action_totals_match_the_169_combo_weighted_matrix() -> None:
+    compact = json.loads(bz2.decompress(base64.b64decode(policy._DATA_B64)))
+    denominator = sum(combo_count(hand_class) for hand_class in policy.HAND_ORDER)
+    assert denominator == 1326
+
+    for raw in compact["nodes"]:
+        actions = list(raw["a"])
+        action_totals = dict(raw.get("t", {}))
+        matrix = raw["h"]
+        for action, reported_pct in action_totals.items():
+            assert action in actions, (raw["i"], action)
+            index = actions.index(action)
+            observed_pct = sum(
+                combo_count(hand_class) * int(matrix[hand_index][index]) / 10000.0
+                for hand_index, hand_class in enumerate(policy.HAND_ORDER)
+            ) / denominator * 100.0
+            assert abs(observed_pct - float(reported_pct)) <= 0.35, (
+                raw["i"], action, observed_pct, reported_pct
+            )
+
+
 def test_every_screenshot_raise_size_has_a_combo_weighted_modal_result() -> None:
     data = policy._data()
     exact_nodes = [node for node in data["nodes"] if not node.get("inferred", False)]
@@ -124,6 +145,7 @@ def test_only_the_new_policy_is_the_runtime_preflop_source() -> None:
 if __name__ == "__main__":
     tests = [
         test_all_screenshot_nodes_contain_a_complete_169_hand_matrix,
+        test_screenshot_action_totals_match_the_169_combo_weighted_matrix,
         test_every_screenshot_raise_size_has_a_combo_weighted_modal_result,
         test_gto_size_lookup_is_position_and_history_only_not_hole_card_dependent,
         test_only_the_new_policy_is_the_runtime_preflop_source,
