@@ -9,6 +9,7 @@ import sys
 from ctypes import wintypes
 from pathlib import Path
 import tkinter as tk
+from tkinter import messagebox
 
 
 SOURCE = Path(__file__).with_name("source_1_3_101") / "PigeonPoker.pyw"
@@ -118,7 +119,7 @@ def load_full_range_view_method():
     namespace = {
         "tk": tk,
         "time": __import__("time"),
-        "messagebox": __import__("tkinter").messagebox,
+        "messagebox": messagebox,
         "_fit_toplevel_to_monitor_work_area": load_fit_helper(),
         "create_range_photo": create_range_photo,
         "RangeImageCatalogError": RangeImageCatalogError,
