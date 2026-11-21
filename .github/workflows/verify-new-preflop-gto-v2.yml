@@ -4,8 +4,11 @@ on:
   push:
     branches:
       - feature/new-preflop-gto-v2
+      - main
     paths:
       - "staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py"
+      - "staging/source_1_3_101/pigeon_poker/preflop_cleanup.py"
+      - "staging/test_preflop_legacy_cleanup.py"
       - "staging/source_1_3_101/pigeon_gto_plus/live_range_builder.py"
       - "staging/test_preflop_gto_policy.py"
       - "staging/test_preflop_gto_integrity.py"
@@ -41,6 +44,7 @@ jobs:
       - name: Compile screenshot-trained GTO policy modules
         run: |
           python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_cleanup.py
           python -m py_compile staging/source_1_3_101/pigeon_gto_plus/live_range_builder.py
       - name: Verify screenshot-trained ranges and inferred branches
         run: |
