@@ -881,6 +881,73 @@ def test_multiway_donk_gate_requires_set_or_exceptional_draw() -> None:
     assert set_value is True
 
 
+
+
+def test_chart_derived_preflop_ranges_detect_opponent_nut_advantage() -> None:
+    players = [
+        FakePlayer("hero", ("As", "Kd")),
+        FakePlayer("villain", ("2c", "3d")),
+    ]
+    hand = FakeHand(
+        players, board=("8s", "7d", "6c"), pot=500,
+        street="flop", to_call=0, actions=("check", "bet"),
+    )
+    calls = []
+
+    def chart_estimator(*, table, hand, exclude_player_id=None):
+        calls.append(exclude_player_id)
+        return {
+            "supported": True,
+            "players": {
+                "hero": {
+                    "supported": True,
+                    "hand_class_probabilities": {"AA": 0.50, "KK": 0.50},
+                },
+                "villain": {
+                    "supported": True,
+                    "hand_class_probabilities": {
+                        "88": 0.40, "77": 0.40, "87s": 0.20,
+                    },
+                },
+            },
+        }
+
+    profile = module._preflop_range_advantage_profile(
+        FakeTable(), hand, "hero", hand.board, chart_estimator
+    )
+    assert calls == [None]
+    assert profile["supported"] is True
+    assert profile["mean_advantage"] < 0
+    assert profile["top_decile_advantage"] < 0
+    assert profile["range_disadvantage"] is True
+
+
+def test_unmatched_preflop_line_falls_back_from_exact_range_profile() -> None:
+    players = [
+        FakePlayer("hero", ("As", "Kd")),
+        FakePlayer("villain", ("2c", "3d")),
+    ]
+    hand = FakeHand(
+        players, board=("8s", "7d", "6c"), pot=500,
+        street="flop", to_call=0, actions=("check", "bet"),
+    )
+
+    def unsupported_estimator(*, table, hand, exclude_player_id=None):
+        return {
+            "supported": True,
+            "players": {
+                "hero": {"supported": False, "reason": "custom preflop size"},
+                "villain": {"supported": True, "hand_class_probabilities": {"88": 1.0}},
+            },
+        }
+
+    profile = module._preflop_range_advantage_profile(
+        FakeTable(), hand, "hero", hand.board, unsupported_estimator
+    )
+    assert profile["supported"] is False
+    assert profile["range_disadvantage"] is False
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
