@@ -1138,7 +1138,7 @@ def _choose_range_aware_action_impl(
     stack = max(0, int(getattr(player, "stack", 0) or 0))
     street = str(getattr(hand, "street", "preflop")).lower()
     board = [str(card) for card in list(getattr(hand, "board", ()) or ())]
-    ranges = infer_opponent_ranges(table, hand, player_id, ranges_estimator=range_estimator)
+    ranges = infer_opponent_ranges(table, hand, player_id, range_estimator=range_estimator)
     equity, samples = _equity_vs_ranges(hand, player_id, ranges, cpu)
     blocker_metrics = _blocker_removal_metrics(hand, player_id, ranges)
     board_role = _postflop_board_role_context(table, hand, player_id) if street != "preflop" else {
