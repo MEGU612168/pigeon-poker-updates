@@ -928,6 +928,193 @@ def _best_passive_action(legal_actions: set[str]) -> str:
     return next(iter(legal_actions))
 
 
+def _postflop_board_role_context(table: Any, hand: Any, player_id: str) -> dict[str, Any]:
+    """Estimate preflop-aggressor / board-texture fit and detect a true flop donk spot.
+
+    This is a conservative board-role heuristic, not a solver range-frequency claim.
+    It uses the actual preflop aggressor and public flop texture; unsupported or
+    ambiguous histories return neutral flags rather than guessing.
+    """
+    players = list(getattr(hand, "players", ()) or ())
+    ids = {
+        str(getattr(player, "player_id", "")): str(getattr(player, "player_id", ""))
+        for player in players
+        if str(getattr(player, "player_id", ""))
+    }
+    names = {
+        str(getattr(player, "name", "")): str(getattr(player, "player_id", ""))
+        for player in players
+        if str(getattr(player, "player_id", "")) and str(getattr(player, "name", ""))
+    }
+
+    def actor_id(event: dict[str, Any]) -> str | None:
+        raw = str(event.get("player_id") or event.get("player") or "")
+        return ids.get(raw) or names.get(raw)
+
+    aggressor = None
+    for event in list(getattr(hand, "events", ()) or ()):
+        if not isinstance(event, dict) or event.get("type") != "action":
+            continue
+        event_street = str(event.get("street", "preflop")).lower().replace("-", "")
+        if event_street != "preflop" or _event_action(event) not in {"raise", "allin"}:
+            continue
+        aggressor = actor_id(event)
+
+    board = [str(card) for card in list(getattr(hand, "board", ()) or ())]
+    ranks = []
+    suits: dict[str, int] = {}
+    for card in board:
+        if len(card) < 2 or card[0] not in RANKS:
+            continue
+        ranks.append(RANKS.index(card[0]) + 2)
+        suits[card[1]] = suits.get(card[1], 0) + 1
+    unique = sorted(set(ranks))
+    paired = len(unique) < len(ranks)
+    span = unique[-1] - unique[0] if len(unique) >= 2 else 0
+    gaps = sum(1 for left, right in zip(unique, unique[1:]) if right - left <= 3)
+    low_connected = bool(
+        len(unique) >= 3 and max(unique, default=14) <= 10
+        and span <= 6 and gaps >= 2
+    )
+    max_suit = max(suits.values(), default=0)
+    monotone = max_suit >= 3
+    wet_low = bool(max_suit >= 2 and max(unique, default=14) <= 11 and span <= 7)
+    caller_favored = bool(
+        len(board) == 3 and (low_connected or (monotone and max(unique, default=14) <= 12) or wet_low)
+    )
+    aggressor_favored = bool(
+        len(board) == 3 and max(unique, default=0) >= 12
+        and not paired and not monotone and not low_connected
+        and span >= 5
+    )
+    is_hero_aggressor = bool(aggressor and aggressor == str(player_id))
+    range_disadvantage = bool(
+        aggressor and (
+            (is_hero_aggressor and caller_favored)
+            or (not is_hero_aggressor and aggressor_favored)
+        )
+    )
+
+    # Postflop action begins left of the button. A non-aggressor acting before
+    # an unacted preflop raiser on the flop is the classic donk-lead opportunity.
+    dealer = getattr(table, "dealer_index", None)
+    if dealer is None:
+        dealer = getattr(hand, "dealer_index", None)
+    seat_by_id = getattr(hand, "seat_by_id", {}) or {}
+    try:
+        dealer = int(dealer) % max(1, len(players)) if dealer is not None else None
+    except (TypeError, ValueError):
+        dealer = None
+
+    def action_order(pid: str) -> int | None:
+        if dealer is None or not players:
+            return None
+        seat = None
+        if isinstance(seat_by_id, dict) and pid in seat_by_id:
+            seat = seat_by_id[pid]
+        else:
+            seat = next(
+                (index for index, player in enumerate(players)
+                 if str(getattr(player, "player_id", "")) == pid),
+                None,
+            )
+        try:
+            distance = (int(seat) - dealer) % len(players)
+        except (TypeError, ValueError):
+            return None
+        return distance if distance else len(players)
+
+    current_street = str(getattr(hand, "street", "")).lower()
+    acted_this_street = {
+        actor for event in list(getattr(hand, "events", ()) or ())
+        if isinstance(event, dict) and event.get("type") == "action"
+        and str(event.get("street", "")).lower() == current_street
+        for actor in [actor_id(event)] if actor
+    }
+    hero_order = action_order(str(player_id))
+    aggressor_order = action_order(str(aggressor)) if aggressor else None
+    donk_lead = bool(
+        current_street == "flop" and len(board) == 3 and aggressor
+        and aggressor != str(player_id) and aggressor not in acted_this_street
+        and hero_order is not None and aggressor_order is not None
+        and hero_order < aggressor_order
+    )
+    return {
+        "preflop_aggressor": aggressor,
+        "hero_is_preflop_aggressor": is_hero_aggressor,
+        "caller_favored_board": caller_favored,
+        "aggressor_favored_board": aggressor_favored,
+        "preflop_range_disadvantage": range_disadvantage,
+        "donk_lead": donk_lead,
+    }
+
+
+def _postflop_aggression_gates(
+    value_gate: bool,
+    bluff_gate: bool,
+    *,
+    street: str,
+    to_call: int,
+    donk_lead: bool,
+    range_disadvantage: bool,
+    made_category: int,
+    draw_strength: float,
+    expected_callers: float,
+    called_equity: float,
+    value_threshold: float,
+    fold_probability: float,
+    required_success: float,
+    uncertainty_margin: float,
+) -> tuple[bool, bool]:
+    """Stop thin raises and unsupported donk leads without neutering normal value bets."""
+    if str(street).lower() == "preflop":
+        return bool(value_gate), bool(bluff_gate)
+
+    draw = max(0.0, min(1.0, float(draw_strength)))
+    callers = max(0.0, float(expected_callers))
+    category = max(0, int(made_category))
+    if int(to_call) > 0:
+        # Raising is not just a larger call: require stronger equity when called.
+        # Multiway pots and board textures that favor the opposing preflop range
+        # demand an additional margin. Semi-bluff raises need a real high-equity draw.
+        raise_floor = 0.60 + 0.045 * max(0.0, callers - 1.0)
+        raise_floor += max(0.0, min(0.12, float(uncertainty_margin) * 0.10))
+        if range_disadvantage:
+            raise_floor += 0.07
+        value_gate = bool(value_gate and float(called_equity) >= max(
+            float(value_threshold), raise_floor
+        ))
+        draw_floor = 0.84 if range_disadvantage else 0.68
+        bluff_gate = bool(
+            bluff_gate and draw >= draw_floor
+            and float(fold_probability) >= float(required_success) + 0.08
+            + max(0.0, float(uncertainty_margin)) * 0.5
+        )
+    elif donk_lead:
+        # A lead into the preflop aggressor is an exception, not a default
+        # continuation bet. Keep it to two-pair+ HU, sets+ multiway, or a
+        # genuinely strong combo draw.
+        made_floor = 3 if callers >= 1.5 else 2
+        draw_floor = 0.92 if callers >= 1.5 else 0.82
+        strong_donk_hand = category >= made_floor or draw >= draw_floor
+        value_gate = bool(value_gate and strong_donk_hand)
+        bluff_gate = bool(
+            bluff_gate and draw >= max(draw_floor, 0.90)
+            and not range_disadvantage
+        )
+    elif range_disadvantage:
+        # On a board that is a poor fit for our preflop line, avoid turning
+        # medium-strength made hands into low-equity stabs.
+        if category < 1:
+            value_gate = False
+            bluff_gate = bool(bluff_gate and draw >= 0.78)
+        else:
+            value_gate = bool(
+                value_gate and float(called_equity) >= float(value_threshold) + 0.035
+            )
+    return bool(value_gate), bool(bluff_gate)
+
+
 def _choose_range_aware_action_impl(
     table: Any,
     hand: Any,
@@ -951,9 +1138,23 @@ def _choose_range_aware_action_impl(
     stack = max(0, int(getattr(player, "stack", 0) or 0))
     street = str(getattr(hand, "street", "preflop")).lower()
     board = [str(card) for card in list(getattr(hand, "board", ()) or ())]
-    ranges = infer_opponent_ranges(table, hand, player_id, range_estimator)
+    ranges = infer_opponent_ranges(table, hand, player_id, ranges_estimator=range_estimator)
     equity, samples = _equity_vs_ranges(hand, player_id, ranges, cpu)
     blocker_metrics = _blocker_removal_metrics(hand, player_id, ranges)
+    board_role = _postflop_board_role_context(table, hand, player_id) if street != "preflop" else {
+        "preflop_aggressor": None, "hero_is_preflop_aggressor": False,
+        "caller_favored_board": False, "aggressor_favored_board": False,
+        "preflop_range_disadvantage": False, "donk_lead": False,
+    }
+    hero_cards = tuple(str(card) for card in list(getattr(player, "hole_cards", ()) or ()))
+    if street != "preflop" and len(hero_cards) == 2 and len(board) >= 3:
+        try:
+            hero_hand_category = int(evaluate_seven(list(hero_cards) + board)[0])
+            _hero_made_strength, hero_draw_strength = _board_metrics(hero_cards, board)
+        except (TypeError, ValueError, IndexError):
+            hero_hand_category, hero_draw_strength = 0, 0.0
+    else:
+        hero_hand_category, hero_draw_strength = 0, 0.0
 
     level = min(5, max(1, int(getattr(cpu, "level", 3) or 3)))
     archetype = str(getattr(cpu, "archetype", "balanced") or "balanced")
@@ -1112,6 +1313,22 @@ def _choose_range_aware_action_impl(
                 >= required_success + 0.04 + uncertainty_margin - blocker_bluff_pressure
                 and candidate_called_equity < 0.48
             )
+            value_gate, bluff_gate = _postflop_aggression_gates(
+                value_gate,
+                bluff_gate,
+                street=street,
+                to_call=to_call,
+                donk_lead=bool(board_role.get("donk_lead", False)),
+                range_disadvantage=bool(board_role.get("preflop_range_disadvantage", False)),
+                made_category=hero_hand_category,
+                draw_strength=hero_draw_strength,
+                expected_callers=candidate_expected_callers,
+                called_equity=candidate_called_equity,
+                value_threshold=value_threshold,
+                fold_probability=candidate_fold_probability,
+                required_success=required_success,
+                uncertainty_margin=uncertainty_margin,
+            )
             premium_preflop = False
             if street == "preflop":
                 try:
@@ -1172,7 +1389,11 @@ def _choose_range_aware_action_impl(
         f"{blocker_metrics['draw_call_combos_blocked']:.1%}; "
         f"ranges {len(ranges)}; samples {samples + response_samples}; uncertainty {uncertainty:.2f}; "
         f"policy penalty {guardrail_penalty}; EV≈{best_ev:.1f}; "
-        "source=range-aware multiway response model (not solver exact)"
+        f"preflop aggressor={board_role.get('preflop_aggressor') or 'unknown'}; "
+        f"range-disadvantage={bool(board_role.get('preflop_range_disadvantage', False))}; "
+        f"donk-lead={bool(board_role.get('donk_lead', False))}; "
+        f"hero-made-category={hero_hand_category}; draw={hero_draw_strength:.2f}; "
+        "source=range-aware multiway response model with postflop aggression guardrails (not solver exact)"
     )
     return CPUAction(
         player_id=str(player_id),
