@@ -1322,7 +1322,7 @@ def _choose_range_aware_action_impl(
                 range_disadvantage=bool(board_role.get("preflop_range_disadvantage", False)),
                 made_category=hero_hand_category,
                 draw_strength=hero_draw_strength,
-                expected_callers=candidate_expected_callers,
+                expected_callers=max(candidate_expected_callers, expected_opponents),
                 called_equity=candidate_called_equity,
                 value_threshold=value_threshold,
                 fold_probability=candidate_fold_probability,
