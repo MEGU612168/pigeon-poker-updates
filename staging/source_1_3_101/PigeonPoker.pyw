@@ -9219,38 +9219,167 @@ class PigeonPokerApp(tk.Tk):
         self._pokercraft_last_latest_signature = None
         self._refresh_pokercraft()
 
+    @staticmethod
+    def _pokercraft_parse_timestamp(value: Any, *, assume_utc: bool = True):
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc if assume_utc else timezone(timedelta(hours=9)))
+            return parsed
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    @classmethod
+    def _format_pokercraft_jst(cls, value: Any, fmt: str = "%Y-%m-%d %H:%M:%S"):
+        parsed = cls._pokercraft_parse_timestamp(value, assume_utc=True)
+        if parsed is None:
+            return "—"
+        return parsed.astimezone(timezone(timedelta(hours=9))).strftime(fmt) + " JST"
+
+    @staticmethod
+    def _pokercraft_blinds_label(rate: str) -> str:
+        return {
+            "NL2": "$0.01 / $0.02", "NL5": "$0.02 / $0.05",
+            "NL10": "$0.05 / $0.10", "NL25": "$0.10 / $0.25",
+            "NL50": "$0.25 / $0.50", "NL100": "$0.50 / $1",
+            "NL200": "$1 / $2", "VIP25/50": "$25 / $50",
+        }.get(str(rate), str(rate))
+
+    def _session_duration_sort_value(self, item: dict[str, Any]) -> int:
+        start = self._pokercraft_parse_timestamp(item.get("started_at"))
+        end = self._pokercraft_parse_timestamp(item.get("last_hand_at"))
+        return max(0, int((end - start).total_seconds())) if start and end else 0
+
+    def _session_duration_label(self, item: dict[str, Any]) -> str:
+        seconds = self._session_duration_sort_value(item)
+        return f"{seconds // 3600:02d}:{(seconds // 60) % 60:02d}:{seconds % 60:02d}"
+
     def _set_pokercraft_sessions(self, enabled: bool):
-        for variable in self.poker_session_vars.values():
-            variable.set(bool(enabled))
+        all_ids = {str(item.get("session_id", "")) for item in self.poker_session_meta
+                   if str(item.get("session_id", ""))}
+        if self.poker_session_selected_ids is None:
+            self.poker_session_selected_ids = set(all_ids)
+        elif enabled:
+            self.poker_session_selected_ids.update(all_ids)
+        else:
+            self.poker_session_selected_ids.difference_update(all_ids)
+        self._refresh_pokercraft_session_checks()
+        self._refresh_pokercraft()
+
+    def _sort_pokercraft_sessions(self, column: str):
+        if self.poker_session_sort_column == column:
+            self.poker_session_sort_reverse = not bool(self.poker_session_sort_reverse)
+        else:
+            self.poker_session_sort_column = column
+            self.poker_session_sort_reverse = False
+        self._refresh_pokercraft_session_checks()
+
+    def _toggle_pokercraft_session_row(self, event=None):
+        tree = getattr(self, "poker_session_tree", None)
+        if tree is None:
+            return
+        iid = tree.identify_row(event.y) if event is not None else ""
+        if not iid:
+            return
+        if self.poker_session_selected_ids is None:
+            self.poker_session_selected_ids = {
+                str(item.get("session_id", "")) for item in self.poker_session_meta
+            }
+        if iid in self.poker_session_selected_ids:
+            self.poker_session_selected_ids.remove(iid)
+        else:
+            self.poker_session_selected_ids.add(iid)
+        self._refresh_pokercraft_session_checks()
         self._refresh_pokercraft()
 
     def _refresh_pokercraft_session_checks(self):
         sessions = self.history_store.list_sessions(1000)
-        old_selection = {sid: bool(var.get()) for sid, var in self.poker_session_vars.items()}
-        old_ids = set(self.poker_session_vars)
-        new_ids = {str(item["session_id"]) for item in sessions}
-        signature = tuple((str(item.get("session_id", "")), str(item.get("table_rate", "")),
-                           int(item.get("hands", 0)), int(item.get("net", 0)),
-                           str(item.get("last_hand_at", ""))) for item in sessions)
-        if old_ids != new_ids or signature != self.poker_session_signature or not old_ids:
-            for child in self.poker_session_inner.winfo_children():
-                child.destroy()
-            self.poker_session_vars = {}
-            for index, item in enumerate(sessions):
-                sid = str(item["session_id"])
-                selected = old_selection.get(sid, True)
-                variable = tk.BooleanVar(value=selected)
-                self.poker_session_vars[sid] = variable
-                stamp = str(item.get("started_at", ""))[:16].replace("T", " ")
-                label = (f"{item['table_rate']}  •  {stamp}  •  {int(item['hands'])}H  •  "
-                         f"${int(item['net'])/100:+.2f}")
-                check = ttk.Checkbutton(self.poker_session_inner, text=label, variable=variable,
-                                        command=self._refresh_pokercraft)
-                check.grid(row=0, column=index, sticky="w", padx=(0, 12))
-            self.poker_session_canvas.configure(scrollregion=self.poker_session_canvas.bbox("all"))
+        full_ids = {str(item.get("session_id", "")) for item in sessions
+                    if str(item.get("session_id", ""))}
+        if self.poker_session_selected_ids is None:
+            self.poker_session_selected_ids = set(full_ids)
+        else:
+            newly_seen = full_ids - set(self.poker_session_known_ids)
+            self.poker_session_selected_ids.intersection_update(full_ids)
+            self.poker_session_selected_ids.update(newly_seen)
+        self.poker_session_known_ids = set(full_ids)
         self.poker_session_meta = sessions
+
+        from_text = self.poker_from_filter_var.get().strip()
+        to_text = self.poker_to_filter_var.get().strip()
+        stake = self.poker_session_stake_var.get().strip()
+        start_bound = self._pokercraft_parse_timestamp(from_text, assume_utc=False) if from_text else None
+        end_bound = self._pokercraft_parse_timestamp(to_text, assume_utc=False) if to_text else None
+        if end_bound is not None and len(to_text) == 10:
+            end_bound = end_bound.replace(hour=23, minute=59, second=59, microsecond=999999)
+        filtered = []
+        for item in sessions:
+            if stake and stake != "ALL" and str(item.get("table_rate", "")) != stake:
+                continue
+            started = self._pokercraft_parse_timestamp(item.get("started_at"))
+            if started is not None:
+                started_jst = started.astimezone(timezone(timedelta(hours=9)))
+                if start_bound is not None and started_jst < start_bound:
+                    continue
+                if end_bound is not None and started_jst > end_bound:
+                    continue
+            filtered.append(item)
+
+        signature = tuple((
+            str(item.get("session_id", "")), str(item.get("table_rate", "")),
+            int(item.get("hands", 0)), int(item.get("net", 0)),
+            str(item.get("started_at", "")), str(item.get("last_hand_at", "")),
+        ) for item in filtered)
+        filter_signature = (from_text, to_text, stake, self.poker_session_sort_column,
+                            bool(self.poker_session_sort_reverse))
+        if (signature != self.poker_session_signature
+                or getattr(self, "poker_session_filter_signature", None) != filter_signature
+                or not self.poker_session_tree.get_children()):
+            rows = list(filtered)
+            column = self.poker_session_sort_column or "time"
+            sorters = {
+                "time": lambda item: str(item.get("started_at", "")),
+                "blinds": lambda item: str(item.get("table_rate", "")),
+                "table": lambda item: str(item.get("table_mode") or item.get("table_name")
+                                           or item.get("table_id") or item.get("table_rate", "")),
+                "hands": lambda item: int(item.get("hands", 0)),
+                "duration": lambda item: self._session_duration_sort_value(item),
+                "winloss": lambda item: int(item.get("net", 0)),
+                "include": lambda item: str(item.get("session_id", "")),
+            }
+            rows.sort(key=sorters.get(column, sorters["time"]),
+                      reverse=(self.poker_session_sort_reverse if self.poker_session_sort_column else True))
+            for child in self.poker_session_tree.get_children():
+                self.poker_session_tree.delete(child)
+            self.poker_session_vars = {}
+            for item in rows:
+                sid = str(item.get("session_id", ""))
+                selected = sid in self.poker_session_selected_ids
+                self.poker_session_vars[sid] = tk.BooleanVar(value=selected)
+                time_text = self._format_pokercraft_jst(item.get("started_at"), "%Y-%m-%d %I:%M %p")
+                table_name = str(item.get("table_mode") or item.get("table_name")
+                                 or ("Rush & Cash" if item.get("table_id") else "Cash"))
+                self.poker_session_tree.insert("", "end", iid=sid, values=(
+                    "✓" if selected else "□", time_text,
+                    self._pokercraft_blinds_label(str(item.get("table_rate", ""))),
+                    table_name, int(item.get("hands", 0)),
+                    self._session_duration_label(item),
+                    f"${int(item.get('net', 0))/100:+.2f}",
+                ))
+            headers = {"include": "✓", "time": "TIME (JST)", "blinds": "BLINDS",
+                       "table": "TABLE", "hands": "HANDS", "duration": "DURATION",
+                       "winloss": "WIN / LOSS"}
+            for column_name, label in headers.items():
+                arrow = ""
+                if self.poker_session_sort_column == column_name:
+                    arrow = " ↓" if self.poker_session_sort_reverse else " ↑"
+                self.poker_session_tree.heading(column_name, text=label + arrow)
         self.poker_session_signature = signature
-        return [sid for sid, variable in self.poker_session_vars.items() if variable.get()]
+        self.poker_session_filter_signature = filter_signature
+        visible_ids = {str(item.get("session_id", "")) for item in filtered}
+        return sorted(visible_ids.intersection(self.poker_session_selected_ids))
 
     def _draw_pokercraft_comparison_graph(self, canvas: tk.Canvas, rows: list[dict[str, Any]]):
         """Draw actual cumulative net and All-in EV on one shared hand axis."""
