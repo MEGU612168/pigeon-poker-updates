@@ -132,6 +132,15 @@ def test_new_hand_reloads_chart_initial_amount_after_postflop() -> None:
     assert "self._preflop_initial_raise_target(" in refresh
 
 
+
+def test_chart_size_button_reports_applied_unmatched_and_error_states() -> None:
+    apply_size = source_of("_apply_preflop_chart_size")
+    assert 'record["status"].set' in apply_size
+    assert "CHART SIZE APPLIED" in apply_size
+    assert "NO MATCHING 75-NODE SIZE" in apply_size
+    assert "except Exception as exc:" in apply_size
+    assert "CHART SIZE ERROR" in apply_size
+
 if __name__ == "__main__":
     tests = [
         test_chart_never_gates_or_rewrites_hero_actions,
@@ -141,6 +150,7 @@ if __name__ == "__main__":
         test_chart_size_button_is_preflop_only_and_user_editable,
         test_situation_size_helper_is_only_for_hero_ui_and_bot_keeps_hand_range_policy,
         test_new_hand_reloads_chart_initial_amount_after_postflop,
+        test_chart_size_button_reports_applied_unmatched_and_error_states,
     ]
     for test in tests:
         test()
