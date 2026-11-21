@@ -720,6 +720,7 @@ class PigeonPokerApp(tk.Tk):
             "cash_session_id": self.cash_session_id,
             "cash_hand_instance": self.cash_hand_instance,
             "cash_current_hand_key": self.cash_current_hand_key,
+            "range_paid_hand_key": slot_state.get("range_paid_hand_key"),
             "cash_cpu_profiles": dict(self.cash_cpu_profiles),
             "vip_cpu_roles": dict(self.vip_cpu_roles),
             "cash_visible_board": list(self.cash_visible_board),
@@ -780,6 +781,7 @@ class PigeonPokerApp(tk.Tk):
         self.cash_session_id = state.get("cash_session_id", uuid.uuid4().hex)
         self.cash_hand_instance = int(state.get("cash_hand_instance", 0))
         self.cash_current_hand_key = state.get("cash_current_hand_key")
+        state["range_paid_hand_key"] = state.get("range_paid_hand_key")
         self.cash_cpu_profiles = dict(state.get("cash_cpu_profiles", {}))
         self.vip_cpu_roles = dict(state.get("vip_cpu_roles", {}))
         self.cash_visible_board = list(state.get("cash_visible_board", []))
@@ -3748,6 +3750,54 @@ class PigeonPokerApp(tk.Tk):
         except tk.TclError:
             pass
 
+    @staticmethod
+    def _rotate_card_points(points, angle_degrees, center_x, center_y):
+        import math
+        angle = math.radians(float(angle_degrees))
+        cosine, sine = math.cos(angle), math.sin(angle)
+        rotated = []
+        for x, y in points:
+            dx, dy = float(x) - center_x, float(y) - center_y
+            rotated.append((center_x + dx*cosine - dy*sine,
+                            center_y + dx*sine + dy*cosine))
+        return rotated
+
+    def _draw_history_cards_icon(self, canvas: tk.Canvas):
+        """Draw two real overlapping playing cards, rotated 10 degrees left."""
+        canvas.delete("all")
+        canvas.create_rectangle(0, 0, 40, 34, fill="#080e19", outline="")
+        def card(x, y, rank, suit, foreground, front=False):
+            width, height = 17.0, 24.0
+            points = self._rotate_card_points(
+                [(x, y), (x+width, y), (x+width, y+height), (x, y+height)],
+                -10.0, x+width/2, y+height/2)
+            flattened = [coordinate for point in points for coordinate in point]
+            canvas.create_polygon(*flattened, fill="#ffffff", outline="#05080d",
+                                  width=1.35, joinstyle="round")
+            if front:
+                canvas.create_text(x+4.5, y+6.2, text=rank, fill=foreground,
+                                   font=("Georgia", 7, "bold"))
+                canvas.create_text(x+4.5, y+12.2, text=suit, fill=foreground,
+                                   font=("Segoe UI Symbol", 7, "bold"))
+                canvas.create_text(x+12.2, y+20.0, text=suit, fill=foreground,
+                                   font=("Segoe UI Symbol", 5, "bold"))
+        card(15, 2, "K", "♠", "#111111", False)
+        card(5, 5, "A", "♠", "#111111", True)
+        canvas.create_rectangle(0, 0, 40, 34, outline="#080e19", width=1)
+
+    def _draw_range_grid_icon(self, canvas: tk.Canvas, *, enabled: bool):
+        canvas.delete("all")
+        canvas.create_rectangle(0, 0, 34, 34, fill="#080e19", outline="")
+        color = "#ffffff" if enabled else "#586575"
+        canvas.create_rectangle(6, 5, 28, 29, outline=color, width=1.5)
+        canvas.create_line(6, 10, 28, 10, fill=color, width=1.4)
+        canvas.create_line(13.3, 10, 13.3, 29, fill=color, width=1.1)
+        canvas.create_line(20.6, 10, 20.6, 29, fill=color, width=1.1)
+        canvas.create_line(6, 16.3, 28, 16.3, fill=color, width=1.1)
+        canvas.create_line(6, 22.6, 28, 22.6, fill=color, width=1.1)
+        canvas.create_line(11, 3, 11, 7, fill=color, width=1.8)
+        canvas.create_line(23, 3, 23, 7, fill=color, width=1.8)
+
     def _create_table_window(self, table_id: str):
         """Create a compact, self-contained Rush & Cash table window."""
         if table_id in self.table_windows:
@@ -3784,6 +3834,17 @@ class PigeonPokerApp(tk.Tk):
                  font=("Segoe UI", 12, "bold")).pack(side="left", padx=(10, 1))
         tk.Label(header, text="POKER", bg="#080e19", fg=COLORS["green"],
                  font=("Segoe UI", 12, "bold")).pack(side="left")
+        history_icon = tk.Canvas(header, width=40, height=34, bg="#080e19",
+                                 highlightthickness=0, bd=0, cursor="hand2")
+        history_icon.pack(side="left", padx=(9, 2))
+        self._draw_history_cards_icon(history_icon)
+        history_icon.bind("<Button-1>", lambda _e, tid=table_id: self._open_live_hand_flow(tid))
+        range_icon = tk.Canvas(header, width=34, height=34, bg="#080e19",
+                               highlightthickness=0, bd=0, cursor="hand2")
+        range_icon.pack(side="left", padx=(1, 7))
+        self._draw_range_grid_icon(range_icon, enabled=False)
+        range_icon.configure(state="disabled")
+        range_icon.bind("<Button-1>", lambda _e, tid=table_id: self._open_realtime_preflop_range(tid))
         tk.Label(header, textvariable=title_var, bg="#080e19", fg=COLORS["gold"],
                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=12)
         tk.Label(header, textvariable=status_var, bg="#080e19", fg=COLORS["text"],
@@ -3908,6 +3969,8 @@ class PigeonPokerApp(tk.Tk):
             "timer": timer_var, "timer_label": timer_label,
             "detail": detail_var, "event": event_var,
             "wallet": wallet_var, "canvas": canvas, "event_label": event_label,
+            "history_icon": history_icon, "range_icon": range_icon,
+            "range_chart_cache": None, "range_chart_cache_key": None,
             "actions": actions, "size_actions": size_actions,
             "situation_actions": situation_actions, "utility_actions": utility_actions,
             "fold_button": fold_button,
