@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.4.5",
-  "published_at": "2026-11-21T15:45:15Z",
-  "release_notes": "プレイ中ハンド履歴をGGPOKER型の蓄積・スクロール一覧に変更（実カード・勝者・ポット表示）。レンジ確認はGTO Wizard型の169マス色分割チャートだけを表示。レンジアイコンはクリック可能にし、該当ノードがない場合は理由を表示して課金しない。同一ハンド内の初回1BB課金・再表示無料を維持。履歴DB・ウォレットDB・CPU学習DB・最新スクリーンショット由来プリフロップ戦略を保持。",
+  "version": "1.4.6",
+  "published_at": "2026-11-21T15:52:15Z",
+  "release_notes": "プレイ中のプリフロップレンジをテーブル画面上の最前面オーバーレイに変更。別画面・別ページへの移動をなくし、レンジ確認中は現在のハンドのアクション残り時間を一時停止、閉じると残り時間から再開。GGPOKERのTime Bank Card仕様を確認。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.5/payload-updater.zip.b64?v=359aff5b2eaa82861ce6d34793fb84f40c158e18e2d9d98cf4396f0ee68a0380",
-  "payload_sha256": "359aff5b2eaa82861ce6d34793fb84f40c158e18e2d9d98cf4396f0ee68a0380",
-  "payload_size": 275313
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.6/payload-updater.zip.b64?v=2007d43b41910a6ee700ccac5ad1f2ee787de041f9de1147835f6986f140af5c",
+  "payload_sha256": "2007d43b41910a6ee700ccac5ad1f2ee787de041f9de1147835f6986f140af5c",
+  "payload_size": 276389
 }
