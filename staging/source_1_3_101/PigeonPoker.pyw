@@ -143,7 +143,34 @@ class PigeonPokerApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Pigeon Poker | Cash & Rush")
-        self.geometry("1480x900")
+        # Respect the Windows work area (which excludes the taskbar). The
+        # previous fixed 1480x900 geometry could extend below it on shorter
+        # displays and make the taskbar appear to have vanished.
+        initial_width, initial_height = 1480, 900
+        try:
+            import ctypes
+            from ctypes import wintypes
+            class _WorkAreaRect(ctypes.Structure):
+                _fields_ = [
+                    ("left", wintypes.LONG), ("top", wintypes.LONG),
+                    ("right", wintypes.LONG), ("bottom", wintypes.LONG),
+                ]
+            work_area = _WorkAreaRect()
+            ok = ctypes.windll.user32.SystemParametersInfoW(
+                0x0030, 0, ctypes.byref(work_area), 0
+            )
+            if ok:
+                work_width = max(900, work_area.right - work_area.left)
+                work_height = max(650, work_area.bottom - work_area.top)
+                initial_width = min(initial_width, work_width)
+                initial_height = min(initial_height, work_height)
+                x = work_area.left + (work_width - initial_width) // 2
+                y = work_area.top + (work_height - initial_height) // 2
+                self.geometry(f"{initial_width}x{initial_height}+{x}+{y}")
+            else:
+                self.geometry("1480x900")
+        except Exception:
+            self.geometry("1480x900")
         self.minsize(1180, 720)
         self.configure(bg=COLORS["bg"])
         self.config_data = load_config()
