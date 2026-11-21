@@ -101,6 +101,24 @@ def test_chart_size_button_is_preflop_only_and_user_editable() -> None:
     assert "preflop_chart_options" not in action
 
 
+
+def test_situation_size_helper_is_only_for_hero_ui_and_bot_keeps_hand_range_policy() -> None:
+    helper = source_of("_apply_preflop_chart_size")
+    worker = source_of("_start_cash_cpu_chain_if_needed")
+    size_module = Path(__file__).with_name("source_1_3_101") / "pigeon_poker" / "preflop_screenshot_ranges.py"
+    size_source = size_module.read_text(encoding="utf-8")
+    choose_start = size_source.index("def choose_preflop_action(")
+    choose_end = size_source.index("def preflop_chart_options(", choose_start)
+    bot_chart_policy = size_source[choose_start:choose_end]
+
+    assert "preflop_situation_size(table, hand, \"hero\")" in helper
+    assert "preflop_situation_size" not in worker
+    assert "preflop_situation_size" not in bot_chart_policy
+    # CPU preflop decisions still use its own two-card class and chart action frequencies.
+    assert "hand_class_from_cards" in bot_chart_policy
+    assert "_decision_choices(node, combo, hand" in bot_chart_policy
+    assert "choose_preflop_action(table, hand, pid, cpu, None)" in worker
+
 def test_new_hand_reloads_chart_initial_amount_after_postflop() -> None:
     refresh = source_of("_refresh_table_windows")
     assert "current_hand_key = id(hand) if hand is not None else None" in refresh
