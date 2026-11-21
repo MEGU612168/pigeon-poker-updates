@@ -1274,6 +1274,71 @@ def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
 def _node_for_situation_size(table: Any, hand: Any, actor_id: str) -> str | None:
     return _node_for_actor(table, hand, actor_id)
 
+
+def preflop_gto_range_for_situation(
+    table: Any,
+    hand: Any,
+    player_id: str,
+    prior_events: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Return a complete, source-backed 169-cell chart only for an exact node.
+
+    This is deliberately stricter than CPU policy lookup: uncovered situations
+    are not inferred or approximated for display. Historical review can pass
+    only the action events preceding the player's first preflop decision.
+    """
+    spot = _resolve_spot(table, hand, player_id, prior_events=prior_events)
+    node_id = spot.get("node_id")
+    if not node_id:
+        return None
+    node = _data()["nodes_by_id"].get(str(node_id))
+    if not node or bool(node.get("inferred", False)) or not str(node.get("source_image", "")).strip():
+        return None
+
+    hands: dict[str, list[dict[str, Any]]] = {}
+    action_names: list[str] = []
+    raise_sizes: dict[str, float] = {}
+    for hand_class in HAND_ORDER:
+        choices = node.get("hands", {}).get(hand_class)
+        if not choices:
+            return None
+        clean_choices = []
+        total = 0.0
+        for item in choices:
+            action = str(item.get("action", "")).lower()
+            frequency = max(0.0, min(1.0, float(item.get("frequency", 0.0))))
+            amount = item.get("amount_bb")
+            if not action or frequency <= 0.00005:
+                continue
+            if action not in action_names:
+                action_names.append(action)
+            if action.startswith("raise") and amount is not None:
+                raise_sizes[action] = float(amount)
+            clean_choices.append({
+                "action": action,
+                "frequency": frequency,
+                "amount_bb": None if amount is None else float(amount),
+            })
+            total += frequency
+        if not clean_choices or abs(total - 1.0) > 0.003:
+            return None
+        hands[hand_class] = clean_choices
+
+    return {
+        "node_id": str(node_id),
+        "description": str(node.get("description", "")),
+        "source_image": str(node.get("source_image", "")),
+        "action_totals": dict(node.get("action_totals", {})),
+        "active_range": bool(node.get("active_range", False)),
+        "actions": action_names,
+        "raise_sizes_bb": raise_sizes,
+        "hand_order": list(HAND_ORDER),
+        "hands": hands,
+        "actor_position": str(spot.get("actor_position", "")),
+        "opener_position": str(spot.get("opener_position") or ""),
+        "open_size_bb": float(spot.get("open_size_bb") or 0.0),
+    }
+
 def coverage_summary() -> dict[str, Any]:
     data = _data()
     return {
