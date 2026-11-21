@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.4.8",
+  "package_mode": "full",
+  "source_version": "1.3.101",
+  "source_directory": "staging/source_1_3_101",
+  "release_notes": "レンジ表示の描画修正に加え、Windowsの作業領域に合わせてメイン画面を配置し、タスクバーを隠さないよう修正。ライブレンジ回帰テストをCIで実行。",
+  "updater_actual_extract_validation": "passed",
+  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
+  "preflop_strategy_bundle_validation": "passed"
+}
