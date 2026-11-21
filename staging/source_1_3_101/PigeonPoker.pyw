@@ -17,6 +17,8 @@ import time
 import uuid
 import tkinter as tk
 from pathlib import Path
+from pigeon_poker.preflop_cleanup import cleanup_retired_preflop_modules
+cleanup_retired_preflop_modules()
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable
 
