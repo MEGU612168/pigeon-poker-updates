@@ -179,7 +179,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stable.json releases/v1.4.3/release.json releases/v1.4.3/payload-updater.zip.b64 staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py staging/test_preflop_gto_integrity.py staging/test_preflop_gto_policy.py releases/v1.4.3/utg-open-range.json
+          git add stable.json releases/v1.4.3/release.json releases/v1.4.3/payload-updater.zip.b64 staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py staging/test_preflop_gto_integrity.py staging/test_preflop_gto_policy.py staging/apply_utg_open_range.py releases/v1.4.3/utg-open-range.json
           git rm --ignore-unmatch releases/v1.4.3/payload.ready
           git commit -m "Publish verified Pigeon Poker v1.4.3 update"
           git push
