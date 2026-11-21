@@ -169,8 +169,8 @@ def test_paid_range_window_is_clamped_and_renderer_retries_safely():
     assert "def safe_draw(_event=None):" in view
     assert "RANGE DISPLAY ERROR" in view
     assert "win.after_idle(safe_draw)" in view
-    assert "win.after(120, safe_draw)" in view
-    assert "win.after(360, safe_draw)" in view
+    assert "win.after(180, safe_draw)" in view
+    assert "win.after(420, safe_draw)" in view
     assert "top_left_of_anchor=True" in view
     assert "x = px + 12" in view and "y = py + 12" in view
     assert "if top_left_of_anchor:" in source_of("_fit_toplevel_to_monitor_work_area")
