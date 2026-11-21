@@ -7,7 +7,22 @@
   "source_version": "1.3.101",
   "source_directory": "staging/source_1_3_101",
   "release_notes": "Windowsのタスクバーを隠さないよう、Tkのクライアント領域ではなくネイティブウィンドウ枠をモニター作業領域内に配置。テーブル・有料レンジ窓も同じ作業領域で制限。レンジ描画をDPIレイアウト後に再試行し、描画例外時は黒画面の代わりにエラーを表示。",
-  "updater_actual_extract_validation": "pending",
+  "updater_actual_extract_validation": "passed",
   "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
-  "preflop_strategy_bundle_validation": "pending"
+  "preflop_strategy_bundle_validation": "passed",
+  "published_at": "2026-11-21T21:11:05Z",
+  "payload_sha256": "de8b08beffc826b80ef34b65ca91ea91902f8d867e515dd27689394d50e637a6",
+  "payload_size": 278532,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/cpu_learning.py",
+    "pigeon_poker/poker_reasoning.py",
+    "pigeon_poker/preflop_cleanup.py",
+    "pigeon_poker/preflop_gto_strategy.py",
+    "pigeon_updater.py"
+  ]
 }

@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.4.8",
-  "published_at": "2026-11-21T16:27:57Z",
-  "release_notes": "レンジ表示の描画修正に加え、Windowsの作業領域に合わせてメイン画面を配置し、タスクバーを隠さないよう修正。ライブレンジ回帰テストをCIで実行。",
+  "version": "1.4.9",
+  "published_at": "2026-11-21T21:11:05Z",
+  "release_notes": "Windowsのタスクバーを隠さないよう、Tkのクライアント領域ではなくネイティブウィンドウ枠をモニター作業領域内に配置。テーブル・有料レンジ窓も同じ作業領域で制限。レンジ描画をDPIレイアウト後に再試行し、描画例外時は黒画面の代わりにエラーを表示。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.8/payload-updater.zip.b64?v=21df1aa4f60b76eb6e57f01fd0e75826b630cf19b9ebff9ac4f6bbf67bc271f6",
-  "payload_sha256": "21df1aa4f60b76eb6e57f01fd0e75826b630cf19b9ebff9ac4f6bbf67bc271f6",
-  "payload_size": 277155
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.9/payload-updater.zip.b64?v=de8b08beffc826b80ef34b65ca91ea91902f8d867e515dd27689394d50e637a6",
+  "payload_sha256": "de8b08beffc826b80ef34b65ca91ea91902f8d867e515dd27689394d50e637a6",
+  "payload_size": 278532
 }

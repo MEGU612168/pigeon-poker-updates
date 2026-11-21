@@ -1,3 +1,0 @@
-Build v1.4.9 with native outer-frame work-area fitting, table/range monitor bounds, safe paid-range redraw.
-Retry build after tightening regression checks.
-Retry after updating the range redraw regression assertion.
