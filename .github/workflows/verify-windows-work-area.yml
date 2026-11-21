@@ -1,0 +1,28 @@
+name: Verify Pigeon Poker native Windows work-area bounds
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "staging/source_1_3_101/PigeonPoker.pyw"
+      - "staging/test_windows_work_area.py"
+      - ".github/workflows/verify-windows-work-area.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-work-area-smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run native Tk and Win32 work-area assertions
+        shell: pwsh
+        run: python staging/test_windows_work_area.py
