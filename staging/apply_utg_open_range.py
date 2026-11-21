@@ -98,8 +98,9 @@ def replace_utg_open_range() -> dict:
         raise RuntimeError("Could not remove the obsolete inferred UTG range block")
 
     source = source.replace(
-        "27 screenshot-derived core nodes; hand-class matrix calibrated to ",
-        "28 screenshot-derived nodes, including the exact UTG first-in matrix; remaining missing branches use ",
+        "27 screenshot-derived core nodes; hand-class matrix calibrated to "
+        "the screenshot's aggregate action frequencies. Missing branches use ",
+        "28 screenshot-derived nodes with hand-class frequencies transcribed from their source charts. Missing branches use ",
     )
     SOURCE.write_text(source, encoding="utf-8")
 
