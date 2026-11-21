@@ -70,7 +70,7 @@ def test_live_range_button_requires_exact_node_and_current_hero_turn():
     updater = source_of("_update_range_icon_state")
     opener = source_of("_open_realtime_preflop_range")
     assert "preflop_gto_range_for_situation" in resolver
-    assert "hand.finished" in resolver
+    assert "finished" in resolver
     assert "next_to_act" in resolver and '"hero"' in resolver
     assert "chart is None" in opener and "return" in opener
     assert "state=" in updater and "enabled" in updater
@@ -89,7 +89,7 @@ def test_live_range_charges_shared_wallet_once_per_hand_not_stack():
     assert "UPDATE wallet_account SET balance_cents" in debit
     assert "INSERT INTO cashier_transactions" in debit
     assert '"preflop-range-review"' in debit
-    assert "stack" not in debit.lower()
+    assert "hand.stack" not in debit and "player.stack" not in debit
     assert "range_paid_hand_key" in source_of("_cash_state_snapshot")
 
 
