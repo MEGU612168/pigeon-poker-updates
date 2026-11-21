@@ -9386,7 +9386,8 @@ class PigeonPokerApp(tk.Tk):
         hands_host, hands_tab = self._make_scrollable_tab(notebook, "Game History", COLORS["bg"])
         analytics_host, analytics_tab = self._make_scrollable_tab(notebook, "EV Graph", COLORS["bg"])
         hole_cards_host, hole_cards_tab = self._make_scrollable_tab(notebook, "Hole Cards", COLORS["bg"])
-        breakdown_host, breakdown_tab = self._make_scrollable_tab(notebook, "Position / Opponents", COLORS["bg"])
+        position_host, position_tab = self._make_scrollable_tab(notebook, "Position", COLORS["bg"])
+        breakdown_host, breakdown_tab = self._make_scrollable_tab(notebook, "Opponents", COLORS["bg"])
         stats_host, stats_tab = self._make_scrollable_tab(notebook, "Player Stats", COLORS["bg"])
 
         hole_header = tk.Frame(hole_cards_tab, bg=COLORS["bg"])
@@ -9524,8 +9525,10 @@ class PigeonPokerApp(tk.Tk):
             self.poker_opponent_tree.heading(col, text=label)
             self.poker_opponent_tree.column(col, width=width, anchor="center")
         self.poker_opponent_tree.pack(fill="both", expand=True)
-        pos_panel, pos_inner = self._panel(breakdowns, "RESULT BY HERO POSITION")
-        pos_panel.pack(side="left", fill="both", expand=True, padx=(5, 0))
+        pos_panel, pos_inner = self._panel(position_tab, "RESULT BY HERO POSITION")
+        pos_panel.pack(fill="both", expand=True)
+        tk.Label(position_tab, text="Position results use the same date / blinds / session filters as Game History.",
+                 bg=COLORS["bg"], fg=COLORS["muted"], font=("Segoe UI", 8)).pack(anchor="w", pady=(5, 0))
         pos_cols = ("position", "hands", "wins", "net", "bb100")
         self.poker_position_tree = ttk.Treeview(pos_inner, columns=pos_cols, show="headings", height=15)
         for col, label, width in (("position", "POSITION", 95), ("hands", "HANDS", 70),
@@ -10034,18 +10037,23 @@ class PigeonPokerApp(tk.Tk):
     @staticmethod
     def _pokercraft_hand_class(cards_value: Any) -> str | None:
         try:
-            cards = (str(cards_value).split() if isinstance(cards_value, str)
-                     else [str(card) for card in list(cards_value or ())])
-            if len(cards) != 2 or any(not card for card in cards):
+            import re
+            if isinstance(cards_value, str):
+                text = cards_value
+            else:
+                text = " ".join(str(card) for card in list(cards_value or ()))
+            matches = re.findall(r"(10|[AKQJT2-9])([SHDC♠♥♦♣])", text.upper())
+            if len(matches) != 2:
                 return None
             rank_order = "AKQJT98765432"
-            rank_a, rank_b = cards[0][0].upper(), cards[1][0].upper()
+            rank_a = "T" if matches[0][0] == "10" else matches[0][0]
+            rank_b = "T" if matches[1][0] == "10" else matches[1][0]
             if rank_a not in rank_order or rank_b not in rank_order:
                 return None
             if rank_a == rank_b:
                 return rank_a * 2
             high, low = sorted((rank_a, rank_b), key=rank_order.index)
-            suit_a, suit_b = cards[0][-1:].lower(), cards[1][-1:].lower()
+            suit_a, suit_b = matches[0][1], matches[1][1]
             return high + low + ("s" if suit_a == suit_b else "o")
         except (TypeError, ValueError, IndexError):
             return None
