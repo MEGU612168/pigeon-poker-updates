@@ -1290,6 +1290,173 @@ def test_verified_caller_range_edge_allows_strong_top_pair_donk():
     assert bluff_gate is False
 
 
+
+def test_current_showdown_equity_excludes_future_draw_equity():
+    players = [
+        FakePlayer("hero", ("As", "Kd")),
+        FakePlayer("villain", ()),
+    ]
+    hand = FakeHand(
+        players, board=("Jc", "7d", "2s"), pot=1000, street="flop",
+        to_call=0, actions=("check", "bet"),
+    )
+    opponent = module.OpponentRange(
+        player_id="villain",
+        combos=((("Qc", "Qd"), 1.0),),
+        source="exact-test-combo",
+        confidence=1.0,
+    )
+    current, samples = module._current_showdown_equity(
+        hand, "hero", {"villain": opponent}, FakeCPU(5)
+    )
+    # A-high is behind QQ on the current flop; turn/river improvement outs
+    # belong to runout equity and must not be mislabelled as current SDV.
+    assert current == 0.0
+    assert samples >= 100
+
+
+def test_current_showdown_equity_respects_joint_blockers_and_participation():
+    players = [
+        FakePlayer("hero", ("As", "Ah")),
+        FakePlayer("villain1", ()),
+        FakePlayer("villain2", ()),
+    ]
+    hand = FakeHand(
+        players, board=("Jc", "7d", "2s"), pot=1000, street="flop",
+        to_call=0, actions=("check", "bet"),
+    )
+    strong = module.OpponentRange(
+        player_id="villain1", combos=((("Qc", "Qd"), 1.0),),
+        source="test", confidence=1.0, participation_probability=1.0,
+    )
+    folded = module.OpponentRange(
+        player_id="villain2", combos=((("Kc", "Kd"), 1.0),),
+        source="test", confidence=1.0, participation_probability=0.0,
+    )
+    current, _ = module._current_showdown_equity(
+        hand, "hero", {"villain1": strong, "villain2": folded}, FakeCPU(5)
+    )
+    assert current == 1.0
+
+
+def test_equity_realization_respects_position_street_and_multiway_pressure():
+    ip = module._equity_realization_factor(
+        "flop", in_position=True, position_known=True,
+        expected_opponents=1.0, made_category=1, draw_strength=0.2,
+    )
+    oop = module._equity_realization_factor(
+        "flop", in_position=False, position_known=True,
+        expected_opponents=1.0, made_category=1, draw_strength=0.2,
+    )
+    multiway = module._equity_realization_factor(
+        "flop", in_position=False, position_known=True,
+        expected_opponents=3.0, made_category=1, draw_strength=0.2,
+    )
+    river = module._equity_realization_factor(
+        "river", in_position=False, position_known=True,
+        expected_opponents=4.0, made_category=0, draw_strength=0.0,
+    )
+    assert ip > oop
+    assert multiway < oop
+    assert river == 1.0
+
+
+def test_postflop_position_profile_identifies_last_to_act():
+    players = [
+        FakePlayer("hero", ("As", "Kd")),
+        FakePlayer("villain", ()),
+        FakePlayer("other", ()),
+    ]
+    hand = FakeHand(
+        players, board=("Jc", "7d", "2s"), pot=1000, street="flop",
+        to_call=0, actions=("check", "bet"),
+    )
+    # Seat 0 is the dealer/button and acts last postflop.
+    profile = module._postflop_position_profile(FakeTable(), hand, "hero")
+    assert profile["known"] is True
+    assert profile["in_position"] is True
+    assert profile["opponents_after"] == 0
+
+    hand.seat_by_id = {"hero": 1, "villain": 0, "other": 2}
+    profile_oop = module._postflop_position_profile(FakeTable(), hand, "hero")
+    assert profile_oop["known"] is True
+    assert profile_oop["in_position"] is False
+    assert profile_oop["opponents_after"] == 1
+
+
+def test_postflop_action_posterior_shifts_range_toward_stronger_made_hands():
+    players = [
+        FakePlayer("hero", ("As", "Kd")),
+        FakePlayer("villain", ()),
+    ]
+    hand = FakeHand(
+        players, board=("Jc", "7d", "2s"), pot=1000, street="flop",
+        to_call=0, actions=("check", "bet"),
+    )
+    row = {
+        "supported": True,
+        "hand_class_probabilities": {"JJ": 0.50, "A4o": 0.50},
+        "archetype": "balanced",
+    }
+    before = module._action_updated_range_board_profile(
+        row, hand, "villain", list(hand.board)
+    )
+    hand.events = [
+        {"type": "street", "street": "flop", "board": ["Jc", "7d", "2s"]},
+        {"type": "action", "street": "flop", "player": "villain", "action": "bet",
+         "target": 2000, "paid": 2000, "pot_before": 1000, "to_call_before": 0},
+    ]
+    after = module._action_updated_range_board_profile(
+        row, hand, "villain", list(hand.board)
+    )
+    assert before is not None and after is not None
+    assert after["mean_strength"] > before["mean_strength"]
+    assert after["two_pair_plus_mass"] >= before["two_pair_plus_mass"]
+
+
+def test_near_indifferent_actions_use_a_controlled_mix_at_high_cpu_level():
+    candidates = [
+        ("check", None, 100.0),
+        ("bet", 300, 99.5),
+        ("bet", 600, 98.0),
+    ]
+    action, amount, mixed, count = module._sample_near_optimal_action(
+        candidates, best_ev=100.0, pot=1000, level=5, rng=FixedRandom()
+    )
+    assert action in {"check", "bet"}
+    assert amount in {None, 300}
+    assert mixed is True
+    assert count == 2
+
+
+def test_low_cpu_level_keeps_near_optimal_policy_deterministic():
+    candidates = [
+        ("check", None, 100.0),
+        ("bet", 300, 99.9),
+    ]
+    action, amount, mixed, count = module._sample_near_optimal_action(
+        candidates, best_ev=100.0, pot=1000, level=3, rng=FixedRandom()
+    )
+    assert (action, amount) == ("check", None)
+    assert mixed is False
+    assert count == 1
+
+
+def test_draw_equity_does_not_automatically_qualify_as_thin_value():
+    value, bluff = module._postflop_aggression_gates(
+        True, True,
+        street="flop", to_call=0, donk_lead=False,
+        range_disadvantage=False, made_category=0, draw_strength=0.90,
+        expected_callers=1.0, called_equity=0.62,
+        value_threshold=0.56, fold_probability=0.65,
+        required_success=0.35, uncertainty_margin=0.02,
+        called_current_equity=0.18,
+    )
+    assert value is False
+    # A strong draw can still be used as a semi-bluff, subject to fold equity.
+    assert bluff is True
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
