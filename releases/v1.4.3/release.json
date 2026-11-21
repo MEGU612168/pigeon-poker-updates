@@ -6,5 +6,23 @@
   "package_mode": "full",
   "source_version": "1.3.101",
   "source_directory": "staging/source_1_3_101",
-  "release_notes": "UTG初回オープンの推定レンジを廃止し、2026-11-21に提供されたGTO WizardのUTG未オープン局面スクリーンショットから読み取った169ハンドクラスのレンジへ置換。Raise 2.0 BB（100 BB effective）、Raise 17.6%（233.26コンボ）、Fold 82.4%、All-in 0%。UTGの旧推定分岐自体を削除し、01_UTG_OPENを画像由来の正式ノードとして登録。ハンド別頻度、2.0 BBサイズ、集計コンボ数、GTO SIZEの履歴ベース参照をテストする。その他の既存チャートノード、ユーザーの自由なアクション、旧実装ファイルの起動時クリーンアップ、ウォレット・履歴・設定・CPU学習データ保護は維持。"
+  "release_notes": "UTG初回オープンの推定レンジを廃止し、2026-11-21に提供されたGTO WizardのUTG未オープン局面スクリーンショットから読み取った169ハンドクラスのレンジへ置換。Raise 2.0 BB（100 BB effective）、Raise 17.6%（233.26コンボ）、Fold 82.4%、All-in 0%。UTGの旧推定分岐自体を削除し、01_UTG_OPENを画像由来の正式ノードとして登録。ハンド別頻度、2.0 BBサイズ、集計コンボ数、GTO SIZEの履歴ベース参照をテストする。その他の既存チャートノード、ユーザーの自由なアクション、旧実装ファイルの起動時クリーンアップ、ウォレット・履歴・設定・CPU学習データ保護は維持。",
+  "published_at": "2026-11-21T13:20:08Z",
+  "payload_sha256": "45730857403d26d593dc13a7a306dd7a9b2696e574c8df611039685620472d3a",
+  "payload_size": 263481,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/cpu_learning.py",
+    "pigeon_poker/poker_reasoning.py",
+    "pigeon_poker/preflop_cleanup.py",
+    "pigeon_poker/preflop_gto_strategy.py",
+    "pigeon_updater.py"
+  ],
+  "updater_actual_extract_validation": "passed",
+  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
+  "preflop_strategy_bundle_validation": "passed"
 }
