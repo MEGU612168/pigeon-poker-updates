@@ -7,9 +7,9 @@
   "source_version": "1.3.101",
   "source_directory": "staging/source_1_3_101",
   "release_notes": "プレイ中ハンド履歴をGGPOKER型の蓄積・スクロール一覧に変更（実カード・勝者・ポット表示）。レンジ確認はGTO Wizard型の169マス色分割チャートだけを表示。レンジアイコンはクリック可能にし、該当ノードがない場合は理由を表示して課金しない。同一ハンド内の初回1BB課金・再表示無料を維持。履歴DB・ウォレットDB・CPU学習DB・最新スクリーンショット由来プリフロップ戦略を保持。",
-  "published_at": "2026-11-21T15:43:03Z",
-  "payload_sha256": "22c8b6803697a646c8f16106a67438a48efc023add8eb427e8890a7d83db0f41",
-  "payload_size": 275305,
+  "published_at": "2026-11-21T15:45:15Z",
+  "payload_sha256": "359aff5b2eaa82861ce6d34793fb84f40c158e18e2d9d98cf4396f0ee68a0380",
+  "payload_size": 275313,
   "files": [
     "PigeonPoker.pyw",
     "VERSION.txt",
