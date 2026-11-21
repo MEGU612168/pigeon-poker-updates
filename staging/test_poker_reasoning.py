@@ -638,6 +638,71 @@ def test_candidate_ev_simulation_budget_is_smaller_than_full_equity_budget():
     assert 0 < candidate_samples < full_samples
 
 
+
+def test_empirical_opponent_stats_change_postflop_action_and_response_models():
+    observed_call = module._action_likelihood(
+        "call", 0.08, 0.0, 0.75, "flop", "balanced",
+        {"sample_hands": 120, "postflop_call_rate": 0.78},
+    )
+    baseline_call = module._action_likelihood(
+        "call", 0.08, 0.0, 0.75, "flop", "balanced",
+    )
+    observed_aggression = module._action_likelihood(
+        "bet", 0.08, 0.0, 0.75, "flop", "balanced",
+        {"sample_hands": 120, "postflop_aggression_rate": 0.68},
+    )
+    baseline_aggression = module._action_likelihood(
+        "bet", 0.08, 0.0, 0.75, "flop", "balanced",
+    )
+    sticky_response = module._response_continue_probability(
+        0.12, 0.05, 0.75, "flop", "balanced",
+        {"sample_hands": 120, "fold_to_bet_rate": 0.18, "postflop_call_rate": 0.72},
+    )
+    tight_response = module._response_continue_probability(
+        0.12, 0.05, 0.75, "flop", "balanced",
+        {"sample_hands": 120, "fold_to_bet_rate": 0.88, "postflop_call_rate": 0.10},
+    )
+    baseline_response = module._response_continue_probability(
+        0.12, 0.05, 0.75, "flop", "balanced",
+    )
+    assert observed_call > baseline_call
+    assert observed_aggression > baseline_aggression
+    assert sticky_response > baseline_response > tight_response
+
+
+def test_inferred_opponent_range_carries_persistent_behavioral_profile():
+    players = [
+        FakePlayer("UTG", ("2c", "3d")),
+        FakePlayer("CO", ("As", "Ah")),
+    ]
+    hand = FakeHand(players, pot=400, street="preflop", to_call=250)
+    hand.events = [{
+        "type": "action", "street": "preflop", "player": "UTG",
+        "action": "raise", "target": 250, "paid": 250,
+        "pot_before": 75, "to_call_before": 0,
+    }]
+
+    def learned_estimator(**kwargs):
+        result = sample_estimator(**kwargs)
+        result["players"]["UTG"]["learned_behavior"] = {
+            "sample_hands": 80.0,
+            "vpip_rate": 0.32,
+            "pfr_rate": 0.18,
+            "fold_to_bet_rate": 0.24,
+            "postflop_call_rate": 0.66,
+            "postflop_aggression_rate": 0.38,
+        }
+        return result
+
+    ranges = module.infer_opponent_ranges(
+        FakeTable(), hand, "CO", learned_estimator
+    )
+    assert "UTG" in ranges
+    learned = dict(ranges["UTG"].learned_stats)
+    assert learned["sample_hands"] == 80.0
+    assert learned["postflop_call_rate"] == 0.66
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
