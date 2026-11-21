@@ -9977,6 +9977,190 @@ class PigeonPokerApp(tk.Tk):
                 lines.append(f"{event.get('winner')} won by fold (${event.get('amount', 0)/100:.2f})")
         self._set_history_detail("\n".join(lines))
 
+    def _historical_preflop_range_chart(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        """Resolve only the exact screenshot-backed node at HERO's first decision."""
+        try:
+            players_data = list(row.get("players", []) or [])
+            if not players_data:
+                return None
+            id_by_name: dict[str, str] = {}
+            player_by_id: dict[str, Any] = {}
+            for item in players_data:
+                pid = str(item.get("id") or "")
+                name = str(item.get("name") or pid)
+                if not pid:
+                    continue
+                id_by_name[name] = pid
+                id_by_name[name.casefold()] = pid
+                if pid.casefold() in {"hero", "you"} or name.casefold() in {"hero", "you"}:
+                    id_by_name["YOU"] = pid
+                    id_by_name["HERO"] = pid
+                player_by_id[pid] = SimpleNamespace(
+                    player_id=pid, name=name,
+                    position=str(item.get("position") or ""),
+                    hole_cards=tuple(item.get("hole_cards") or ()),
+                    stack=100000, street_contribution=0, eligible=True,
+                )
+            hero_id = next((pid for pid, item in player_by_id.items()
+                            if pid.casefold() in {"hero", "you"}
+                            or str(getattr(item, "name", "")).casefold() in {"hero", "you"}),
+                           None)
+            if hero_id is None:
+                return None
+
+            normalized_events = []
+            hero_decision_index = None
+            for index, raw in enumerate(row.get("events", []) or []):
+                if not isinstance(raw, dict):
+                    continue
+                event = dict(raw)
+                street = str(event.get("street", "preflop")).lower().replace("-", "")
+                if street not in {"preflop", "pre"}:
+                    continue
+                actor = str(event.get("player_id") or event.get("player") or "")
+                pid = actor if actor in player_by_id else id_by_name.get(actor, id_by_name.get(actor.casefold(), actor))
+                if not pid:
+                    continue
+                event["player_id"] = pid
+                event["player"] = pid
+                event["street"] = "preflop"
+                normalized_events.append(event)
+                action = str(event.get("action", "")).lower().replace("-", "_")
+                if pid == hero_id and hero_decision_index is None and action in {
+                    "fold", "call", "check", "raise", "bet", "all_in", "allin", "limp"
+                }:
+                    hero_decision_index = len(normalized_events) - 1
+
+            if hero_decision_index is None:
+                return None
+            prior = normalized_events[:hero_decision_index]
+            if not prior:
+                prior = []
+
+            # Explicit per-player positions are used by _position_map when the
+            # player count differs from six. Add a non-seated marker to force it
+            # to use these stored positions rather than infer a button seat.
+            helper_players = list(player_by_id.values())
+            helper_players.append(SimpleNamespace(
+                player_id="__position_hint__", name="Position metadata",
+                position="UNKNOWN", hole_cards=(), stack=100000,
+                street_contribution=0, eligible=False,
+            ))
+            rate = str(row.get("table_rate", ""))
+            bb_cents = {
+                "NL2": 2, "NL5": 5, "NL10": 10, "NL25": 25,
+                "NL50": 50, "NL100": 100, "NL200": 200, "VIP25/50": 2500,
+            }.get(rate)
+            if not bb_cents:
+                return None
+            hand = SimpleNamespace(
+                players=helper_players, events=prior, big_blind=int(bb_cents),
+                dealer_index=0, street="preflop",
+            )
+            chart = preflop_gto_range_for_situation(
+                SimpleNamespace(dealer_index=0), hand, hero_id, prior_events=prior)
+            return chart
+        except Exception:
+            return None
+
+    def _open_pokercraft_history_range(self):
+        chart = getattr(self, "selected_history_preflop_range", None)
+        if not chart:
+            return
+        self._open_preflop_range_view(
+            chart,
+            title="HISTORICAL PREFLOP RANGE",
+            charge_label="Historical review • FREE",
+        )
+
+    def _open_preflop_range_view(
+        self,
+        chart: dict[str, Any],
+        *,
+        title: str,
+        charge_label: str,
+    ):
+        if not chart or len(chart.get("hand_order", [])) != 169:
+            return
+        win = tk.Toplevel(self)
+        win.title(f"PIGEON POKER • {title}")
+        win.geometry("920x710")
+        win.minsize(780, 620)
+        win.configure(bg="#080e19")
+        try:
+            win.transient(self)
+            win.lift()
+        except tk.TclError:
+            pass
+
+        header = tk.Frame(win, bg="#080e19", padx=14, pady=10)
+        header.pack(fill="x")
+        node = str(chart.get("node_id", ""))
+        position = str(chart.get("actor_position", ""))
+        tk.Label(header, text=f"{title}  •  {position}  •  {node}",
+                 bg="#080e19", fg="#f2f6fc",
+                 font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        description = str(chart.get("description", "")).strip()
+        tk.Label(header, text=description, bg="#080e19", fg="#91a3b8",
+                 font=("Segoe UI", 9)).pack(anchor="w", pady=(3, 0))
+        tk.Label(header, text=charge_label, bg="#080e19", fg="#19a974",
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(4, 0))
+
+        meta = tk.Frame(win, bg="#111c2e", padx=10, pady=7)
+        meta.pack(fill="x", padx=10, pady=(0, 7))
+        totals = chart.get("action_totals", {})
+        sizes = chart.get("raise_sizes_bb", {})
+        total_parts = [f"{str(action).upper()} {float(freq):.1f}%"
+                       for action, freq in totals.items()]
+        size_parts = [f"{action.upper()} {float(amount):g} BB"
+                      for action, amount in sizes.items()]
+        tk.Label(meta, text="    •    ".join(total_parts + size_parts),
+                 bg="#111c2e", fg="#f2f6fc",
+                 font=("Segoe UI", 9, "bold"), wraplength=860,
+                 justify="left").pack(anchor="w")
+        source = str(chart.get("source_image", "")).strip()
+        tk.Label(meta, text=f"Source: {source}  •  169 starting-hand classes",
+                 bg="#111c2e", fg="#91a3b8", font=("Segoe UI", 8)).pack(anchor="w", pady=(3, 0))
+
+        matrix_host = tk.Frame(win, bg="#080e19")
+        matrix_host.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        matrix = tk.Frame(matrix_host, bg="#080e19")
+        matrix.pack(anchor="center", expand=True)
+        order = list(chart["hand_order"])
+        hands = chart["hands"]
+        rank_abbr = {"raise": "R", "call": "C", "fold": "F",
+                     "allin": "AI", "check": "X", "limp": "L"}
+        palette = {"raise": "#b83c42", "call": "#a78335", "fold": "#3279ac",
+                   "allin": "#70449c", "check": "#267b63", "limp": "#74613b"}
+
+        for index, hand_class in enumerate(order):
+            r, col = divmod(index, 13)
+            choices = sorted(
+                hands.get(hand_class, []),
+                key=lambda item: float(item.get("frequency", 0.0)), reverse=True)
+            dominant = str(choices[0].get("action", "fold")) if choices else "fold"
+            base = dominant.replace("_", "")
+            background = palette.get(base, "#30455b")
+            parts = []
+            for item in choices[:3]:
+                action = str(item.get("action", ""))
+                abbreviation = rank_abbr.get(action, action[:2].upper())
+                parts.append(f"{abbreviation}{float(item.get('frequency', 0.0))*100:.0f}")
+            label = hand_class + "\n" + " ".join(parts)
+            cell = tk.Label(
+                matrix, text=label, width=7, height=3,
+                bg=background, fg="#ffffff", relief="solid",
+                bd=1, font=("Segoe UI", 8, "bold"), justify="center")
+            cell.grid(row=r, column=col, padx=1, pady=1, sticky="nsew")
+        footer = tk.Frame(win, bg="#080e19", padx=12, pady=6)
+        footer.pack(fill="x")
+        for action, color in (("Raise", palette["raise"]), ("Call", palette["call"]),
+                              ("Fold", palette["fold"]), ("All-in", palette["allin"]),
+                              ("Check", palette["check"])):
+            swatch = tk.Label(footer, text=f" {action} ", bg=color, fg="#fff",
+                              font=("Segoe UI", 8, "bold"), padx=5, pady=2)
+            swatch.pack(side="left", padx=3)
+
     def _open_pokercraft_replay(self):
         """Open an animated, step-based replay using only cards shown originally."""
         record = getattr(self, "selected_history_record", None)
