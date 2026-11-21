@@ -32,8 +32,8 @@ def test_chart_never_gates_or_rewrites_hero_actions() -> None:
 def test_preflop_chart_only_sets_the_initial_editable_raise_size() -> None:
     helper = source_of("_preflop_initial_raise_target")
     refresh = source_of("_refresh_table_windows")
-    assert "preflop_chart_options" in helper
-    assert 'chart_controls.get("raise_amount")' in helper
+    assert "preflop_situation_size(table, hand, actor_id)" in helper
+    assert "preflop_chart_options" not in helper
     assert "return minimum" in helper
     assert "self._preflop_initial_raise_target(" in refresh
     assert 'record["bet_target_cents"].set(target)' in refresh
