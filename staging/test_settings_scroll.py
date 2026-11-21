@@ -29,7 +29,7 @@ def test_sound_volume_controls_are_inside_scrollable_left_column() -> None:
     settings = method_text("_build_settings_page")
     left_start = settings.index('left = tk.Frame(left_canvas')
     right_controls_start = settings.index(
-        'update_box, update = self._panel(right, "APPLICATION UPDATE")'
+        'update_box, update = self._panel(right, "APPLICATION UPDATE", padding=8)'
     )
     sound_start = settings.index('sound_box, sound = self._panel(left, "SOUND")')
     sound_end = settings.index('hud_box, hud = self._panel(left, "TABLE HUD FIELDS")')
