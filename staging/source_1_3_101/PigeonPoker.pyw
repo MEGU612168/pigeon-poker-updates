@@ -3869,10 +3869,10 @@ class PigeonPokerApp(tk.Tk):
         if record.get("range_icon_enabled") != enabled:
             self._draw_range_grid_icon(canvas, enabled=enabled)
             record["range_icon_enabled"] = enabled
+        # Keep the icon clickable even when no exact chart is available.
+        # The click handler explains the reason and never charges without a chart.
         try:
-            canvas.configure(
-                state="normal" if enabled else "disabled",
-                cursor="hand2" if enabled else "arrow")
+            canvas.configure(state="normal", cursor="hand2")
         except tk.TclError:
             pass
         record["range_paid_for_current_hand"] = paid
@@ -3929,11 +3929,21 @@ class PigeonPokerApp(tk.Tk):
         chart = slot.state.get("range_paid_chart") if paid else self._range_chart_for_table(slot, hand)
         if chart is None:
             self._update_range_icon_state(slot, self.table_windows.get(table_id, {}), hand)
+            messagebox.showinfo(
+                "Preflop range",
+                "この状況に一致する画像由来レンジはありません。\n"
+                "レンジ料金は発生していません。",
+            )
             return
         if not paid:
             fee = int(getattr(hand, "big_blind", 0) or 0)
             if fee <= 0 or not self._debit_live_range_review(fee, table_id, hand_key):
                 self._update_range_icon_state(slot, self.table_windows.get(table_id, {}), hand)
+                messagebox.showwarning(
+                    "Preflop range",
+                    "ウォレット残高が不足しているか、料金を処理できませんでした。\n"
+                    "テーブルスタックは変更していません。",
+                )
                 return
             slot.state["range_paid_hand_key"] = hand_key
             slot.state["range_paid_chart"] = chart
@@ -3954,32 +3964,244 @@ class PigeonPokerApp(tk.Tk):
         )
 
     def _open_live_hand_flow(self, table_id: str):
+        """Open the GGPOKER-style hand-history list for this table session."""
         slot = self.multi_tables.get(table_id)
         if slot is None:
             return
-        table = slot.state.get("cash_table")
-        hand = table.hand if table is not None else None
-        if hand is None:
-            return
 
         win = tk.Toplevel(self)
-        win.title(f"PIGEON POKER • LIVE HAND FLOW • {slot.rate}")
-        win.geometry("560x620")
-        win.minsize(440, 440)
+        win.title(f"PIGEON POKER • HAND HISTORY • {slot.rate}")
+        win.geometry("760x690")
+        win.minsize(560, 440)
         win.configure(bg="#080e19")
-        header = tk.Frame(win, bg="#080e19", padx=12, pady=9)
+        try:
+            win.transient(self)
+            win.lift()
+        except tk.TclError:
+            pass
+
+        header = tk.Frame(win, bg="#080e19", padx=14, pady=10)
         header.pack(fill="x")
-        title_var = tk.StringVar(value="LIVE HAND FLOW")
-        board_var = tk.StringVar(value="")
-        tk.Label(header, textvariable=title_var, bg="#080e19", fg="#f2f6fc",
-                 font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        tk.Label(header, textvariable=board_var, bg="#080e19", fg="#e6bd63",
-                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(3, 0))
-        flow = tk.Text(win, bg="#0b1624", fg="#eaf1f9", insertbackground="#fff",
-                       relief="flat", wrap="word", font=("Consolas", 9), padx=10, pady=8)
-        flow.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-        flow.configure(state="disabled")
-        state = {"after_id": None, "closed": False, "last_text": ""}
+        tk.Label(
+            header, text="HAND HISTORY", bg="#080e19", fg="#f2f6fc",
+            font=("Segoe UI", 12, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            header, text=f"{slot.rate}  •  newest hands first",
+            bg="#080e19", fg="#91a3b8", font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(3, 0))
+
+        columns = tk.Frame(win, bg="#111c2e", padx=12, pady=7)
+        columns.pack(fill="x", padx=10, pady=(0, 4))
+        tk.Label(columns, text="HOLE CARDS", width=19, anchor="w",
+                 bg="#111c2e", fg="#aebed0",
+                 font=("Segoe UI", 8, "bold")).pack(side="left")
+        tk.Label(columns, text="WINNER", anchor="w",
+                 bg="#111c2e", fg="#aebed0",
+                 font=("Segoe UI", 8, "bold")).pack(side="left", fill="x", expand=True)
+        tk.Label(columns, text="POT", width=13, anchor="e",
+                 bg="#111c2e", fg="#aebed0",
+                 font=("Segoe UI", 8, "bold")).pack(side="right")
+
+        body = tk.Frame(win, bg="#080e19")
+        body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        list_canvas = tk.Canvas(body, bg="#080e19", highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(body, orient="vertical", command=list_canvas.yview)
+        list_canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        list_canvas.pack(side="left", fill="both", expand=True)
+        rows_host = tk.Frame(list_canvas, bg="#080e19")
+        rows_window = list_canvas.create_window((0, 0), window=rows_host, anchor="nw")
+        rows_host.bind(
+            "<Configure>",
+            lambda _e: list_canvas.configure(scrollregion=list_canvas.bbox("all")),
+        )
+        list_canvas.bind(
+            "<Configure>",
+            lambda event: list_canvas.itemconfigure(rows_window, width=event.width),
+        )
+        state = {"after_id": None, "closed": False, "signature": None}
+
+        def winner_text(record):
+            winners = []
+            for event in list(record.get("events", []) or []):
+                if not isinstance(event, dict):
+                    continue
+                kind = str(event.get("type", ""))
+                if kind == "pot_award":
+                    winners.extend(str(name) for name in (event.get("winners", []) or []))
+                elif kind == "hand_won_by_fold" and event.get("winner"):
+                    winners.append(str(event.get("winner")))
+            if not winners:
+                winners = [
+                    str(player.get("name") or player.get("id") or "Player")
+                    for player in (record.get("players", []) or [])
+                    if int(player.get("net", 0) or 0) > 0
+                ]
+            return ", ".join(dict.fromkeys(winners)) or "—"
+
+        def open_detail(record, is_live=False):
+            detail = tk.Toplevel(win)
+            detail.title("HAND DETAILS")
+            detail.geometry("560x560")
+            detail.minsize(420, 360)
+            detail.configure(bg="#080e19")
+            title = (
+                f"HAND #{record.get('hand_number', '—')}  •  "
+                f"{record.get('table_rate', slot.rate)}  •  "
+                f"POT ${int(record.get('pot', 0) or 0)/100:.2f}"
+            )
+            tk.Label(detail, text=title, bg="#080e19", fg="#f2f6fc",
+                     font=("Segoe UI", 10, "bold"), padx=12, pady=10).pack(anchor="w")
+            hero_cards = str(record.get("hero_cards", "") or "—")
+            board = str(record.get("board", "") or "—")
+            tk.Label(
+                detail, text=f"HOLE CARDS  {hero_cards}     BOARD  {board}",
+                bg="#080e19", fg="#e6bd63", font=("Segoe UI", 9, "bold"),
+                padx=12, pady=4,
+            ).pack(anchor="w")
+            flow = tk.Text(
+                detail, bg="#0b1624", fg="#eaf1f9", insertbackground="#fff",
+                relief="flat", wrap="word", font=("Consolas", 9), padx=10, pady=8,
+            )
+            flow.pack(fill="both", expand=True, padx=10, pady=8)
+            names = {
+                str(player.get("id") or ""): str(player.get("name") or player.get("id") or "Player")
+                for player in (record.get("players", []) or [])
+            }
+            lines = []
+            for event in list(record.get("events", []) or []):
+                if not isinstance(event, dict):
+                    continue
+                kind = str(event.get("type", "action"))
+                if kind == "street":
+                    lines.append(f"\n── {str(event.get('street', '')).upper()} ──")
+                    if event.get("board"):
+                        lines.append("BOARD  " + " ".join(event.get("board") or []))
+                elif kind == "action":
+                    actor_id = str(event.get("player_id") or "")
+                    actor = str(event.get("player") or names.get(actor_id, actor_id or "Player"))
+                    if actor_id == "hero" or actor.casefold() in {"you", "hero"}:
+                        actor = "YOU"
+                    action = str(event.get("action", "")).upper().replace("_", " ")
+                    target = event.get("target")
+                    amount = f"  ${int(target)/100:.2f}" if target not in (None, "", 0) else ""
+                    lines.append(f"{actor:<14} {action}{amount}")
+                elif kind == "pot_award":
+                    lines.append(
+                        f"POT ${int(event.get('amount', 0) or 0)/100:.2f} → "
+                        + ", ".join(event.get("winners", []) or [])
+                    )
+                elif kind == "hand_won_by_fold":
+                    lines.append(
+                        f"{event.get('winner', 'Player')} won by fold "
+                        f"(${int(event.get('amount', 0) or 0)/100:.2f})"
+                    )
+            flow.insert("end", "\n".join(lines) or "No recorded actions.")
+            flow.configure(state="disabled")
+            if not is_live and record.get("events"):
+                ttk.Button(
+                    detail, text="▶  REPLAY HAND", style="Accent.TButton",
+                    command=lambda row=record: (
+                        setattr(self, "selected_history_record", row),
+                        self._open_pokercraft_replay(),
+                    ),
+                ).pack(anchor="e", padx=12, pady=(0, 10))
+
+        def render():
+            if state["closed"] or not win.winfo_exists():
+                return
+            try:
+                records = [
+                    dict(row) for row in self.history_store.list_recent(5000)
+                    if str(row.get("table_id") or "") == str(table_id)
+                ]
+            except Exception:
+                records = []
+            records.sort(
+                key=lambda row: (str(row.get("played_at", "")), int(row.get("hand_number", 0) or 0)),
+                reverse=True,
+            )
+            active_slot = self.multi_tables.get(table_id)
+            active_table = active_slot.state.get("cash_table") if active_slot else None
+            active_hand = active_table.hand if active_table is not None else None
+            live_record = None
+            if active_hand is not None and not bool(getattr(active_hand, "finished", False)):
+                hero = next((player for player in active_hand.players if player.player_id == "hero"), None)
+                live_record = {
+                    "hand_number": getattr(active_hand, "hand_number", "—"),
+                    "table_rate": slot.rate,
+                    "hero_cards": " ".join(getattr(hero, "hole_cards", ()) or ()) if hero else "",
+                    "board": " ".join(active_slot.state.get("cash_visible_board", []) or []),
+                    "pot": int(getattr(active_hand, "pot", 0) or 0),
+                    "players": [
+                        {"id": player.player_id, "name": player.name,
+                         "net": 0, "hole_cards": list(getattr(player, "hole_cards", ()) or [])}
+                        for player in active_hand.players
+                    ],
+                    "events": list(getattr(active_hand, "events", []) or []),
+                }
+            items = ([live_record] if live_record is not None else []) + records
+            signature = (
+                tuple(str(row.get("hand_key") or row.get("hand_number") or id(row)) for row in items),
+                len(getattr(active_hand, "events", []) or []) if active_hand is not None else 0,
+            )
+            if signature != state["signature"]:
+                state["signature"] = signature
+                for child in rows_host.winfo_children():
+                    child.destroy()
+                if not items:
+                    tk.Label(
+                        rows_host, text="No completed hands for this table yet.",
+                        bg="#080e19", fg="#91a3b8", font=("Segoe UI", 10),
+                        padx=14, pady=24,
+                    ).pack(fill="x")
+                for index, record in enumerate(items):
+                    is_live = record is live_record
+                    row_frame = tk.Frame(
+                        rows_host, bg="#132033" if index % 2 == 0 else "#0e1928",
+                        padx=10, pady=6,
+                    )
+                    row_frame.pack(fill="x", pady=1)
+                    cards = str(record.get("hero_cards", "") or "").replace(",", " ").split()
+                    card_canvas = tk.Canvas(
+                        row_frame, width=92, height=54,
+                        bg=row_frame.cget("bg"), highlightthickness=0, bd=0,
+                    )
+                    card_canvas.pack(side="left", padx=(0, 10))
+                    if cards:
+                        for card_index, card in enumerate(cards[:2]):
+                            self._draw_card(
+                                card_canvas, 3 + card_index * 39, 3, card,
+                                width=34, height=48,
+                            )
+                    else:
+                        card_canvas.create_text(
+                            46, 27, text="—", fill="#91a3b8",
+                            font=("Segoe UI", 11, "bold"),
+                        )
+                    winner = "LIVE" if is_live else winner_text(record)
+                    tk.Label(
+                        row_frame, text=winner, bg=row_frame.cget("bg"),
+                        fg="#f2f6fc", font=("Segoe UI", 9, "bold"),
+                        anchor="w",
+                    ).pack(side="left", fill="x", expand=True)
+                    pot = int(record.get("pot", 0) or 0)
+                    tk.Label(
+                        row_frame, text=f"${pot/100:.2f}", width=11,
+                        bg=row_frame.cget("bg"), fg="#e6bd63",
+                        font=("Segoe UI", 10, "bold"), anchor="e",
+                    ).pack(side="right", padx=(8, 2))
+                    for widget in (row_frame, card_canvas):
+                        widget.bind(
+                            "<Double-Button-1>",
+                            lambda _e, row=record, live=is_live: open_detail(row, live),
+                        )
+                    row_frame.bind(
+                        "<Button-1>",
+                        lambda _e, row=record, live=is_live: open_detail(row, live),
+                    )
+            state["after_id"] = win.after(1800, render)
 
         def close():
             state["closed"] = True
@@ -3993,65 +4215,8 @@ class PigeonPokerApp(tk.Tk):
             except tk.TclError:
                 pass
 
-        def render():
-            if state["closed"] or not win.winfo_exists():
-                return
-            active_slot = self.multi_tables.get(table_id)
-            active_table = active_slot.state.get("cash_table") if active_slot else None
-            active_hand = active_table.hand if active_table is not None else None
-            if active_hand is None:
-                text = "No active hand."
-                board_text = ""
-                hand_number = "LIVE HAND FLOW"
-            else:
-                hero = next((p for p in active_hand.players if p.player_id == "hero"), None)
-                hero_cards = " ".join(getattr(hero, "hole_cards", ()) or ()) if hero else "—"
-                visible_board = list((active_slot.state.get("cash_visible_board", []) or [])
-                                     if active_slot else [])
-                board_text = f"YOUR CARDS  {hero_cards or '—'}     BOARD  {' '.join(visible_board) or '—'}"
-                hand_number = (f"HAND #{getattr(active_hand, 'hand_number', 0)}  •  "
-                               f"{str(getattr(active_hand, 'street', 'preflop')).upper()}  •  "
-                               f"POT ${int(getattr(active_hand, 'pot', 0))/100:.2f}")
-                names = {p.player_id: p.name for p in active_hand.players}
-                out = [hand_number, board_text, "", "ACTION FLOW"]
-                for event in list(getattr(active_hand, "events", ()) or ()):
-                    if not isinstance(event, dict):
-                        continue
-                    kind = str(event.get("type", "action"))
-                    if kind == "street":
-                        street = str(event.get("street", "")).upper()
-                        out.append(f"\n── {street} ──")
-                        continue
-                    if kind != "action":
-                        continue
-                    pid = str(event.get("player_id") or "")
-                    actor = str(event.get("player") or names.get(pid, pid or "Player"))
-                    if pid == "hero" or actor.casefold() in {"you", "hero"}:
-                        actor = "YOU"
-                    action = str(event.get("action", "")).upper().replace("_", " ")
-                    target = event.get("target")
-                    amount = ""
-                    if target not in (None, "", 0):
-                        amount = f"  ${int(target)/100:.2f}"
-                    out.append(f"{actor:<14} {action}{amount}")
-                if active_hand.finished:
-                    out.append("")
-                    out.append(f"RESULT  {str(active_hand.winner_reason or 'COMPLETE').upper()}")
-                text = "\n".join(out)
-            title_var.set(hand_number)
-            board_var.set(board_text)
-            if text != state["last_text"]:
-                flow.configure(state="normal")
-                flow.delete("1.0", "end")
-                flow.insert("end", text)
-                flow.configure(state="disabled")
-                flow.see("end")
-                state["last_text"] = text
-            state["after_id"] = win.after(700, render)
-
         win.protocol("WM_DELETE_WINDOW", close)
         render()
-
     def _create_table_window(self, table_id: str):
         """Create a compact, self-contained Rush & Cash table window."""
         if table_id in self.table_windows:
@@ -10568,87 +10733,92 @@ class PigeonPokerApp(tk.Tk):
         title: str,
         charge_label: str,
     ):
-        if not chart or len(chart.get("hand_order", [])) != 169:
+        """Render only the 13x13 GTO Wizard-style starting-hand matrix."""
+        order = list((chart or {}).get("hand_order", []) or [])
+        hands = (chart or {}).get("hands", {}) or {}
+        if len(order) != 169:
             return
+
         win = tk.Toplevel(self)
-        win.title(f"PIGEON POKER • {title}")
-        win.geometry("920x710")
-        win.minsize(780, 620)
-        win.configure(bg="#080e19")
+        win.title("PIGEON POKER • RANGE")
+        win.geometry("700x700")
+        win.minsize(560, 560)
+        win.configure(bg="#0b1018")
         try:
             win.transient(self)
             win.lift()
         except tk.TclError:
             pass
 
-        header = tk.Frame(win, bg="#080e19", padx=14, pady=10)
-        header.pack(fill="x")
-        node = str(chart.get("node_id", ""))
-        position = str(chart.get("actor_position", ""))
-        tk.Label(header, text=f"{title}  •  {position}  •  {node}",
-                 bg="#080e19", fg="#f2f6fc",
-                 font=("Segoe UI", 12, "bold")).pack(anchor="w")
-        description = str(chart.get("description", "")).strip()
-        tk.Label(header, text=description, bg="#080e19", fg="#91a3b8",
-                 font=("Segoe UI", 9)).pack(anchor="w", pady=(3, 0))
-        tk.Label(header, text=charge_label, bg="#080e19", fg="#19a974",
-                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(4, 0))
+        canvas = tk.Canvas(
+            win, bg="#0b1018", highlightthickness=0, bd=0,
+        )
+        canvas.pack(fill="both", expand=True, padx=12, pady=12)
 
-        meta = tk.Frame(win, bg="#111c2e", padx=10, pady=7)
-        meta.pack(fill="x", padx=10, pady=(0, 7))
-        totals = chart.get("action_totals", {})
-        sizes = chart.get("raise_sizes_bb", {})
-        total_parts = [f"{str(action).upper()} {float(freq):.1f}%"
-                       for action, freq in totals.items()]
-        size_parts = [f"{action.upper()} {float(amount):g} BB"
-                      for action, amount in sizes.items()]
-        tk.Label(meta, text="    •    ".join(total_parts + size_parts),
-                 bg="#111c2e", fg="#f2f6fc",
-                 font=("Segoe UI", 9, "bold"), wraplength=860,
-                 justify="left").pack(anchor="w")
-        source = str(chart.get("source_image", "")).strip()
-        tk.Label(meta, text=f"Source: {source}  •  169 starting-hand classes",
-                 bg="#111c2e", fg="#91a3b8", font=("Segoe UI", 8)).pack(anchor="w", pady=(3, 0))
+        # GTO Wizard's three core preflop actions are represented as
+        # proportional segments inside each hand-class cell.
+        palette = {
+            "raise": "#e05252",
+            "allin": "#e05252",
+            "call": "#45a879",
+            "limp": "#45a879",
+            "check": "#45a879",
+            "fold": "#438ac5",
+        }
 
-        matrix_host = tk.Frame(win, bg="#080e19")
-        matrix_host.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        matrix = tk.Frame(matrix_host, bg="#080e19")
-        matrix.pack(anchor="center", expand=True)
-        order = list(chart["hand_order"])
-        hands = chart["hands"]
-        rank_abbr = {"raise": "R", "call": "C", "fold": "F",
-                     "allin": "AI", "check": "X", "limp": "L"}
-        palette = {"raise": "#b83c42", "call": "#a78335", "fold": "#3279ac",
-                   "allin": "#70449c", "check": "#267b63", "limp": "#74613b"}
+        def draw(_event=None):
+            if not canvas.winfo_exists():
+                return
+            width = max(260, canvas.winfo_width())
+            height = max(260, canvas.winfo_height())
+            cell_w = width / 13.0
+            cell_h = height / 13.0
+            canvas.delete("range_cell")
+            for index, hand_class in enumerate(order):
+                row, col = divmod(index, 13)
+                x0, y0 = col * cell_w, row * cell_h
+                x1, y1 = x0 + cell_w, y0 + cell_h
+                choices = [
+                    item for item in (hands.get(hand_class, []) or [])
+                    if float(item.get("frequency", 0.0) or 0.0) > 0.000001
+                ]
+                total = sum(max(0.0, float(item.get("frequency", 0.0) or 0.0))
+                            for item in choices)
+                if total <= 0.0:
+                    choices = [{"action": "fold", "frequency": 1.0}]
+                    total = 1.0
+                cursor_x = x0
+                for choice in choices:
+                    frequency = max(0.0, float(choice.get("frequency", 0.0) or 0.0))
+                    if frequency <= 0:
+                        continue
+                    segment_end = min(x1, cursor_x + cell_w * frequency / total)
+                    action = str(choice.get("action", "fold")).lower().replace("_", "")
+                    color = palette.get(action, "#438ac5")
+                    canvas.create_rectangle(
+                        cursor_x, y0, segment_end, y1,
+                        fill=color, outline="", tags=("range_cell",),
+                    )
+                    cursor_x = segment_end
+                if cursor_x < x1:
+                    canvas.create_rectangle(
+                        cursor_x, y0, x1, y1,
+                        fill="#438ac5", outline="", tags=("range_cell",),
+                    )
+                canvas.create_rectangle(
+                    x0, y0, x1, y1, fill="", outline="#101722",
+                    width=1, tags=("range_cell",),
+                )
+                font_size = max(7, min(11, int(min(cell_w, cell_h) * 0.24)))
+                canvas.create_text(
+                    (x0 + x1) / 2, (y0 + y1) / 2,
+                    text=str(hand_class), fill="#ffffff",
+                    font=("Segoe UI", font_size, "bold"),
+                    tags=("range_cell",),
+                )
 
-        for index, hand_class in enumerate(order):
-            r, col = divmod(index, 13)
-            choices = sorted(
-                hands.get(hand_class, []),
-                key=lambda item: float(item.get("frequency", 0.0)), reverse=True)
-            dominant = str(choices[0].get("action", "fold")) if choices else "fold"
-            base = dominant.replace("_", "")
-            background = palette.get(base, "#30455b")
-            parts = []
-            for item in choices[:3]:
-                action = str(item.get("action", ""))
-                abbreviation = rank_abbr.get(action, action[:2].upper())
-                parts.append(f"{abbreviation}{float(item.get('frequency', 0.0))*100:.0f}")
-            label = hand_class + "\n" + " ".join(parts)
-            cell = tk.Label(
-                matrix, text=label, width=7, height=3,
-                bg=background, fg="#ffffff", relief="solid",
-                bd=1, font=("Segoe UI", 8, "bold"), justify="center")
-            cell.grid(row=r, column=col, padx=1, pady=1, sticky="nsew")
-        footer = tk.Frame(win, bg="#080e19", padx=12, pady=6)
-        footer.pack(fill="x")
-        for action, color in (("Raise", palette["raise"]), ("Call", palette["call"]),
-                              ("Fold", palette["fold"]), ("All-in", palette["allin"]),
-                              ("Check", palette["check"])):
-            swatch = tk.Label(footer, text=f" {action} ", bg=color, fg="#fff",
-                              font=("Segoe UI", 8, "bold"), padx=5, pady=2)
-            swatch.pack(side="left", padx=3)
-
+        canvas.bind("<Configure>", draw)
+        win.after_idle(draw)
     def _open_pokercraft_replay(self):
         """Open an animated, step-based replay using only cards shown originally."""
         record = getattr(self, "selected_history_record", None)
