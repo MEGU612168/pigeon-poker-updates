@@ -60,12 +60,24 @@ def test_preview_uses_pending_values_and_restores_runtime_settings() -> None:
     assert "save_config" not in preview
 
 
+
+
+def test_windows_action_voice_uses_parallel_speech_instances() -> None:
+    worker = method_text("_action_voice_worker_loop")
+    assert 'if sys.platform.startswith("win"):' in worker
+    assert "$sp=New-Object System.Speech.Synthesis.SpeechSynthesizer" in worker
+    assert "$sp.SpeakAsync($p[1])" in worker
+    assert "$sp.add_SpeakCompleted(" in worker
+    assert "$s.SpeakAsync($p[1])" not in worker
+
+
 if __name__ == "__main__":
     tests = [
         test_effect_volume_has_a_clear_percent_slider_and_preview,
         test_master_and_group_sliders_auto_save_after_adjustment,
         test_volume_is_clamped_and_saved_persistently,
         test_preview_uses_pending_values_and_restores_runtime_settings,
+        test_windows_action_voice_uses_parallel_speech_instances,
     ]
     for test_case in tests:
         test_case()
