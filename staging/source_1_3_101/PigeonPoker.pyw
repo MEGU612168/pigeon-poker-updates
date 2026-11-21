@@ -37,8 +37,9 @@ from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOErr
                           is_gto_plus_supported_postflop_hand, CPUPoolStore, GGCareLedger, CashierLedger, bind_first_matching_tree)
 from pigeon_poker.preflop_gto_strategy import (
     choose_preflop_action, preflop_gto_situation_size,
-    estimate_preflop_opponent_ranges, preflop_gto_range_for_situation
+    estimate_preflop_opponent_ranges, preflop_range_image_for_situation
 )
+from pigeon_poker.range_image_catalog import create_range_photo, RangeImageCatalogError
 from pigeon_poker.poker_reasoning import choose_range_aware_action
 from pigeon_poker.cpu_learning import CPULearningStore
 from pigeon_gto_plus.live_range_builder import build_live_hu_solver_setup
@@ -3926,7 +3927,7 @@ class PigeonPokerApp(tk.Tk):
         if str(getattr(hand, "next_to_act", "") or "") != "hero":
             return None
         try:
-            return preflop_gto_range_for_situation(slot.state.get("cash_table"), hand, "hero")
+            return preflop_range_image_for_situation(slot.state.get("cash_table"), hand, "hero")
         except Exception:
             return None
 
@@ -4038,8 +4039,16 @@ class PigeonPokerApp(tk.Tk):
             self._update_range_icon_state(slot, self.table_windows.get(table_id, {}), hand)
             messagebox.showinfo(
                 "Preflop range",
-                "この状況に一致する画像由来レンジはありません。\n"
-                "レンジ料金は発生していません。",
+                "この状況に一致する元画像レンジはありません。\n"
+                "推測画像は表示せず、レンジ料金も発生していません。",
+            )
+            return
+        try:
+            range_photo = create_range_photo(self, int(chart["source_id"]))
+        except (RangeImageCatalogError, KeyError, TypeError, ValueError) as exc:
+            messagebox.showerror(
+                "Range image unavailable",
+                f"元レンジ画像を読み込めませんでした。料金は発生していません。\n{exc}",
             )
             return
         if not paid:
@@ -4069,6 +4078,7 @@ class PigeonPokerApp(tk.Tk):
             charge_label=("1 BB paid for this hand • re-open free" if not paid
                           else "Already paid this hand • re-open free"),
             table_id=table_id,
+            photo=range_photo,
         )
 
     def _open_live_hand_flow(self, table_id: str):
@@ -10823,7 +10833,7 @@ class PigeonPokerApp(tk.Tk):
                 players=helper_players, events=prior, big_blind=int(bb_cents),
                 dealer_index=0, street="preflop",
             )
-            chart = preflop_gto_range_for_situation(
+            chart = preflop_range_image_for_situation(
                 SimpleNamespace(dealer_index=0), hand, hero_id, prior_events=prior)
             return chart
         except Exception:
@@ -10846,46 +10856,44 @@ class PigeonPokerApp(tk.Tk):
         title: str,
         charge_label: str,
         table_id: str | None = None,
+        photo=None,
     ):
-        """Render only the 13x13 GTO Wizard-style starting-hand matrix."""
-        order = list((chart or {}).get("hand_order", []) or [])
-        hands = (chart or {}).get("hands", {}) or {}
-        if len(order) != 169:
+        """Display the selected original 13x13 range bitmap without redrawing it."""
+        try:
+            source_id = int((chart or {}).get("source_id", 0) or 0)
+            if source_id <= 0:
+                raise RangeImageCatalogError("The selected scenario has no source screenshot ID")
+            # Live review passes a prevalidated PhotoImage before the wallet is
+            # debited. Historical review creates it here, without a charge.
+            photo = photo or create_range_photo(self, source_id)
+        except (RangeImageCatalogError, KeyError, TypeError, ValueError) as exc:
+            messagebox.showerror("Range image unavailable", str(exc))
             return
 
-        # Keep the range on top of the actual poker table; never navigate
-        # away to the lobby or open a detached application page.
+        # Keep the image directly over the table's upper-left corner. The
+        # matrix itself is one native PhotoImage: no Canvas, chart recreation,
+        # browser frame, action panel, legend, or frequency recomputation.
         table_record = self.table_windows.get(table_id) if table_id else None
         table_canvas = table_record.get("canvas") if table_record else None
         parent = table_canvas.winfo_toplevel() if table_canvas and table_canvas.winfo_exists() else self
         win = tk.Toplevel(parent)
-        win.title("PIGEON POKER • RANGE")
-        # Keep normal Windows decorations and z-order. A topmost, borderless
-        # window can cover the Windows taskbar and obscure the table.
+        win.title(f"PIGEON POKER • RANGE #{source_id}")
         win.configure(bg="#0b1018")
-        # Allow the native window to shrink to the monitor work area first.
-        # Lock it only after SetWindowPos has applied the final fitted size;
-        # setting resizable(False) before that made Tk retain the original
-        # 680px client height and overlap the Windows taskbar on short/DPI-scaled displays.
         win.resizable(True, True)
-        win.minsize(360, 320)
-        width, height = 620, 680
+        win.minsize(360, 240)
+        width = int(photo.width())
+        height = int(photo.height())
         try:
             win.geometry(f"{width}x{height}")
             win.update_idletasks()
-            # Keep the range dialog on the same monitor as its table and clamp
-            # its native frame to the work area so it cannot spill off-screen.
-            fitted_range_size = _fit_toplevel_to_monitor_work_area(
-                win, max_outer_width=660, max_outer_height=720,
-                margin=12, anchor=parent, top_left_of_anchor=True,
+            _fit_toplevel_to_monitor_work_area(
+                win,
+                max_outer_width=width + 24,
+                max_outer_height=height + 64,
+                margin=12,
+                anchor=parent,
+                top_left_of_anchor=True,
             )
-            if fitted_range_size is None:
-                parent.update_idletasks()
-                px, py = parent.winfo_rootx(), parent.winfo_rooty()
-                x = px + 12
-                y = py + 12
-                win.geometry(f"{width}x{height}+{x}+{y}")
-            # Freeze the fitted native size after the work-area calculation.
             win.update_idletasks()
             win.resizable(False, False)
             win.transient(parent)
@@ -10893,10 +10901,16 @@ class PigeonPokerApp(tk.Tk):
             win.lift()
             win.focus_force()
         except tk.TclError:
-            win.geometry("620x680")
+            try:
+                parent.update_idletasks()
+                win.geometry(
+                    f"{width}x{height}+{parent.winfo_rootx()+12}+{parent.winfo_rooty()+12}"
+                )
+            except tk.TclError:
+                win.geometry(f"{width}x{height}")
 
-        # Freeze only the active hero decision clock while the range overlay
-        # is open. Resume with the exact remaining time when it is dismissed.
+        # Freeze only the active hero decision clock while the bitmap is open.
+        # Resume with the exact remaining time when the window is dismissed.
         paused_clock = None
         if table_id and table_id in self.multi_tables:
             slot_for_clock = self.multi_tables[table_id]
@@ -10924,7 +10938,9 @@ class PigeonPokerApp(tk.Tk):
                     active_slot.state.get("cash_table").hand
                     if active_slot and active_slot.state.get("cash_table") else None
                 )
-                if active_slot is paused_clock["slot"] and active_hand is not None and id(active_hand) == paused_clock["hand_token"] and active_hand.next_to_act == "hero":
+                if (active_slot is paused_clock["slot"] and active_hand is not None
+                        and id(active_hand) == paused_clock["hand_token"]
+                        and active_hand.next_to_act == "hero"):
                     resumed_deadline = time.monotonic() + paused_clock["remaining"]
                     active_slot.state["cash_squeeze_deadline_at"] = resumed_deadline
                     active_slot.state["cash_action_deadline_mode"] = paused_clock["mode"]
@@ -10941,157 +10957,21 @@ class PigeonPokerApp(tk.Tk):
             except tk.TclError:
                 pass
 
+        image_label = tk.Label(
+            win,
+            image=photo,
+            bg="#0b1018",
+            bd=0,
+            relief="flat",
+            highlightthickness=0,
+            padx=0,
+            pady=0,
+        )
+        image_label.pack(fill="both", expand=True)
+        image_label.image = photo
+        win._range_photo = photo
         win.bind("<Escape>", close_range_overlay)
         win.protocol("WM_DELETE_WINDOW", close_range_overlay)
-        overlay_bar = tk.Frame(win, bg="#0b1018", height=38)
-        overlay_bar.pack(fill="x", padx=12, pady=(8, 0))
-        position_text = " • ".join(
-            str(chart.get(key, "")).strip()
-            for key in ("actor_position", "opener_position")
-            if str(chart.get(key, "")).strip()
-        )
-        header_text = str(title or "PREFLOP RANGE").upper()
-        if position_text:
-            header_text += "  •  " + position_text
-        tk.Label(
-            overlay_bar, text=header_text, bg="#0b1018", fg="#f2f6fc",
-            font=("Segoe UI", 10, "bold"),
-        ).pack(side="left")
-        tk.Button(
-            overlay_bar, text="×", command=close_range_overlay,
-            bg="#17263a", fg="#f2f6fc", activebackground="#263b55",
-            activeforeground="#ffffff", relief="flat", bd=0,
-            font=("Segoe UI", 15, "bold"), cursor="hand2",
-            width=3,
-        ).pack(side="right")
-        canvas = tk.Canvas(
-            win, width=580, height=580, bg="#0b1018",
-            highlightthickness=0, bd=0,
-        )
-        canvas.pack(fill="both", expand=True, padx=12, pady=(2, 4))
-        tk.Label(
-            win,
-            text="RAISE  ■     CALL / CHECK  ■     FOLD  ■     " + str(charge_label or ""),
-            bg="#0b1018", fg="#aebed0", anchor="w",
-            font=("Segoe UI", 8, "bold"),
-        ).pack(fill="x", padx=14, pady=(0, 8))
-
-        # GTO Wizard's three core preflop actions are represented as
-        # proportional segments inside each hand-class cell.
-        palette = {
-            "raise": "#e05252",
-            "allin": "#e05252",
-            "call": "#45a879",
-            "limp": "#45a879",
-            "check": "#45a879",
-            "fold": "#438ac5",
-        }
-
-        def safe_frequency(item):
-            try:
-                value = float(item.get("frequency", 0.0) or 0.0)
-            except (AttributeError, TypeError, ValueError, OverflowError):
-                return 0.0
-            return max(0.0, min(1.0, value)) if math.isfinite(value) else 0.0
-
-        def draw(_event=None):
-            if not canvas.winfo_exists():
-                return
-            width = max(260, canvas.winfo_width())
-            height = max(260, canvas.winfo_height())
-            cell_w = width / 13.0
-            cell_h = height / 13.0
-            canvas.delete("range_cell")
-            for index, hand_class in enumerate(order):
-                row, col = divmod(index, 13)
-                x0, y0 = col * cell_w, row * cell_h
-                x1, y1 = x0 + cell_w, y0 + cell_h
-                raw_choices = hands.get(hand_class, []) if isinstance(hands, dict) else []
-                choices = []
-                if isinstance(raw_choices, (list, tuple)):
-                    for item in raw_choices:
-                        if not isinstance(item, dict):
-                            continue
-                        frequency = safe_frequency(item)
-                        if frequency > 0.000001:
-                            choices.append({
-                                "action": str(item.get("action", "fold") or "fold"),
-                                "frequency": frequency,
-                            })
-                total = sum(item["frequency"] for item in choices)
-                if total <= 0.0:
-                    choices = [{"action": "fold", "frequency": 1.0}]
-                    total = 1.0
-                cursor_x = x0
-                for choice in choices:
-                    frequency = choice["frequency"]
-                    if frequency <= 0:
-                        continue
-                    segment_end = min(x1, cursor_x + cell_w * frequency / total)
-                    action = str(choice["action"]).lower().replace("_", "")
-                    color = palette.get(action, "#438ac5")
-                    canvas.create_rectangle(
-                        cursor_x, y0, segment_end, y1,
-                        fill=color, outline="", tags=("range_cell",),
-                    )
-                    cursor_x = segment_end
-                if cursor_x < x1:
-                    canvas.create_rectangle(
-                        cursor_x, y0, x1, y1,
-                        fill="#438ac5", outline="", tags=("range_cell",),
-                    )
-                canvas.create_rectangle(
-                    x0, y0, x1, y1, fill="", outline="#101722",
-                    width=1, tags=("range_cell",),
-                )
-                font_size = max(7, min(11, int(min(cell_w, cell_h) * 0.24)))
-                canvas.create_text(
-                    (x0 + x1) / 2, (y0 + y1) / 2,
-                    text=str(hand_class), fill="#ffffff",
-                    font=("Segoe UI", font_size, "bold"),
-                    tags=("range_cell",),
-                )
-
-        def safe_draw(_event=None):
-            try:
-                draw(_event)
-            except Exception as exc:
-                # Never leave a feature window looking like an unexplained
-                # black screen: show a visible diagnostic in the canvas.
-                try:
-                    canvas.delete("all")
-                    canvas.create_text(
-                        max(130, canvas.winfo_width() // 2),
-                        max(130, canvas.winfo_height() // 2),
-                        text=("RANGE DISPLAY ERROR\\n" + type(exc).__name__),
-                        fill="#ff9a9a", font=("Segoe UI", 14, "bold"),
-                        justify="center",
-                    )
-                except tk.TclError:
-                    pass
-
-        canvas.bind("<Configure>", safe_draw)
-        canvas.bind("<Map>", safe_draw, add="+")
-        canvas.bind("<Expose>", safe_draw, add="+")
-        win.bind("<Map>", lambda _event: win.after_idle(safe_draw), add="+")
-        # Paint only after the native range window is visible. Repaint on
-        # Map/Expose as Windows can discard a newly-created Toplevel surface
-        # while its owner is being raised or moved between monitors.
-        try:
-            win.update_idletasks()
-            canvas.update_idletasks()
-            win.deiconify()
-            win.lift()
-            safe_draw()
-            win.update()
-            canvas.update()
-        except tk.TclError:
-            pass
-        win.after_idle(safe_draw)
-        win.after(80, safe_draw)
-        win.after(180, safe_draw)
-        win.after(420, safe_draw)
-        win.after(800, safe_draw)
     def _open_pokercraft_replay(self):
         """Open an animated, step-based replay using only cards shown originally."""
         record = getattr(self, "selected_history_record", None)
