@@ -28,10 +28,12 @@ def test_settings_left_column_has_its_own_scroll_canvas() -> None:
 def test_sound_volume_controls_are_inside_scrollable_left_column() -> None:
     settings = method_text("_build_settings_page")
     left_start = settings.index('left = tk.Frame(left_canvas')
-    right_start = settings.index('right = tk.Frame(body')
+    right_controls_start = settings.index(
+        'update_box, update = self._panel(right, "APPLICATION UPDATE")'
+    )
     sound_start = settings.index('sound_box, sound = self._panel(left, "SOUND")')
     sound_end = settings.index('hud_box, hud = self._panel(left, "TABLE HUD FIELDS")')
-    assert left_start < sound_start < sound_end < right_start
+    assert left_start < sound_start < sound_end < right_controls_start
     assert 'text="効果音音量 / EFFECT VOLUME"' in settings
     assert 'volume_scale = ttk.Scale(' in settings
     assert 'group_scale = ttk.Scale(' in settings
