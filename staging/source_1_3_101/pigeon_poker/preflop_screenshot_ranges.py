@@ -285,8 +285,14 @@ def _non_fold_history(hand: Any) -> list[tuple[str, dict[str, Any], str]] | None
     return result
 
 
-def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
-    if not _supports_100bb_effective_stack(hand):
+def _node_for_situation_size(table: Any, hand: Any, actor_id: str) -> str | None:
+    """Resolve the human size preset from position + action/raise history only.
+
+    Unlike BOT chart policy, this UI-only resolver does not require every
+    dealt player's current stack to remain exactly 100 BB. The suggested
+    amount is still checked against the live legal range before it is applied.
+    """
+    if str(getattr(hand, "street", "")).lower() != "preflop":
         return None
     positions = _seat_position_map(table, hand)
     if positions is None or actor_id not in positions:
@@ -295,9 +301,8 @@ def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
     if actual_history is None:
         return None
 
-    nodes = _data()["nodes"]
     actor_position = positions[actor_id]
-    for node in nodes:
+    for node in _data()["nodes"]:
         if node["actor_position"] != actor_position:
             continue
         expected = node["history"]
@@ -322,6 +327,14 @@ def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
         if matched:
             return node["id"]
     return None
+
+
+def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
+    # BOT action/range policy remains restricted to the chart's documented
+    # six-handed 100-BB starting-stack condition.
+    if not _supports_100bb_effective_stack(hand):
+        return None
+    return _node_for_situation_size(table, hand, actor_id)
 
 
 def _node_for_historical_action(table: Any, hand: Any, positions: dict[str, str],
@@ -928,7 +941,7 @@ def preflop_situation_size(table: Any, hand: Any, actor_id: str) -> int | None:
     }
     if not ({"raise", "bet"} & legal_names):
         return None
-    node_id = _node_for_actor(table, hand, str(actor_id))
+    node_id = _node_for_situation_size(table, hand, str(actor_id))
     if node_id is None:
         return None
     node = _data().get("nodes_by_id", {}).get(node_id)
