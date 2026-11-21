@@ -9773,6 +9773,12 @@ class PigeonPokerApp(tk.Tk):
         self.poker_filter_showdown_var.set("ALL")
         self.poker_from_filter_var.set("")
         self.poker_to_filter_var.set("")
+        self.poker_session_stake_var.set("ALL")
+        self.poker_session_selected_ids = None
+        self.poker_session_sort_column = None
+        self.poker_session_sort_reverse = True
+        self.poker_history_sort_column = None
+        self.poker_history_sort_reverse = True
         self.poker_include_rake_var.set(True)
         self._refresh_pokercraft()
 
@@ -9954,7 +9960,7 @@ class PigeonPokerApp(tk.Tk):
             pass
         hero_rake = int(row.get("hero_rake", 0))
         allin_ev = row.get("hero_allin_ev")
-        lines = [f"{row['table_rate']} • {row['played_at']} • SESSION {row.get('session_id', '')}",
+        lines = [f"{row['table_rate']} • {self._format_pokercraft_jst(row.get('played_at'))} • SESSION {row.get('session_id', '')}",
                  f"Board: {row['board'] or '—'}", f"Hero: {row['hero_cards'] or '—'}",
                  f"Pot: ${row['pot']/100:.2f} • Net: ${row.get('display_net', row['hero_net'])/100:+.2f} "
                  f"• Total rake: ${row['rake']/100:.2f} • Hero rake share: ${hero_rake/100:.2f}",
@@ -9976,6 +9982,12 @@ class PigeonPokerApp(tk.Tk):
             elif etype == "hand_won_by_fold":
                 lines.append(f"{event.get('winner')} won by fold (${event.get('amount', 0)/100:.2f})")
         self._set_history_detail("\n".join(lines))
+        self.selected_history_preflop_range = self._historical_preflop_range_chart(row)
+        try:
+            self.history_range_button.configure(
+                state="normal" if self.selected_history_preflop_range is not None else "disabled")
+        except (AttributeError, tk.TclError):
+            pass
 
     def _historical_preflop_range_chart(self, row: dict[str, Any]) -> dict[str, Any] | None:
         """Resolve only the exact screenshot-backed node at HERO's first decision."""
