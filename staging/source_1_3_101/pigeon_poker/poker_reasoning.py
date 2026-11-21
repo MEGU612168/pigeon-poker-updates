@@ -743,7 +743,8 @@ def _bet_response_metrics(
                 _preflop_strength(_cards_to_class(combo)), 0.0
             )
             probability = _response_continue_probability(
-                made, draw, bet_fraction, street, opponent_range.archetype
+                made, draw, bet_fraction, street, opponent_range.archetype,
+                opponent_range.learned_stats,
             )
             weighted = base_weight * probability
             conditioned.append((combo, weighted))
@@ -848,7 +849,8 @@ def _blocker_removal_metrics(
                 continue
             made, draw = _board_metrics(combo, board)
             continue_probability = _response_continue_probability(
-                made, draw, bet_fraction, street, opponent_range.archetype
+                made, draw, bet_fraction, street, opponent_range.archetype,
+                opponent_range.learned_stats,
             )
             weighted_call = weight * continue_probability
             removed_mass += weight
