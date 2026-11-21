@@ -82,15 +82,16 @@ def test_live_hand_flow_shows_scrollable_table_history_with_cards_winner_and_pot
     assert "pot_award" in flow and "hand_won_by_fold" in flow
 
 
-def test_range_view_is_only_a_169_cell_proportional_matrix():
+def test_range_view_displays_one_source_bitmap_without_canvas_redrawing():
     view = source_of("_open_preflop_range_view")
-    assert 'len(order) != 169' in view
-    assert 'canvas.create_rectangle(' in view
-    assert 'frequency / total' in view
-    assert 'text=str(hand_class)' in view
-    assert '"#e05252"' in view and '"#45a879"' in view and '"#438ac5"' in view
-    assert "meta = tk.Frame" not in view
-    assert "footer = tk.Frame" not in view
+    assert "create_range_photo(self, source_id)" in view
+    assert "image=photo" in view
+    assert "win._range_photo = photo" in view
+    assert "tk.Label(" in view
+    assert "tk.Canvas(" not in view
+    assert "create_rectangle(" not in view
+    assert "frequency / total" not in view
+    assert "top_left_of_anchor=True" in view
 
 
 def test_range_icon_stays_clickable_and_explains_unavailable_nodes():
@@ -105,7 +106,7 @@ def test_live_range_button_requires_exact_node_and_current_hero_turn():
     resolver = source_of("_range_chart_for_table")
     updater = source_of("_update_range_icon_state")
     opener = source_of("_open_realtime_preflop_range")
-    assert "preflop_gto_range_for_situation" in resolver
+    assert "preflop_range_image_for_situation" in resolver
     assert "finished" in resolver
     assert "next_to_act" in resolver and '"hero"' in resolver
     assert "chart is None" in opener and "return" in opener
@@ -161,19 +162,17 @@ def test_main_and_table_windows_use_native_monitor_work_area_bounds():
     assert "height = max(470, min(860, screen_h - 110))" in table
 
 
-def test_paid_range_window_is_clamped_and_renderer_retries_safely():
+def test_paid_range_window_is_left_aligned_and_loads_original_bitmap():
     view = source_of("_open_preflop_range_view")
     assert "_fit_toplevel_to_monitor_work_area(" in view
-    assert "def safe_frequency(item):" in view
-    assert "math.isfinite(value)" in view
-    assert "def safe_draw(_event=None):" in view
-    assert "RANGE DISPLAY ERROR" in view
-    assert "win.after_idle(safe_draw)" in view
-    assert "win.after(180, safe_draw)" in view
-    assert "win.after(420, safe_draw)" in view
     assert "top_left_of_anchor=True" in view
-    assert "x = px + 12" in view and "y = py + 12" in view
+    assert "create_range_photo(self, source_id)" in view
+    assert "image=photo" in view
+    assert "win._range_photo = photo" in view
+    assert "tk.Canvas(" not in view
     assert "if top_left_of_anchor:" in source_of("_fit_toplevel_to_monitor_work_area")
+    opener = source_of("_open_realtime_preflop_range")
+    assert opener.index("create_range_photo(self, int(chart[\"source_id\"]))") < opener.index("_debit_live_range_review(")
 
 
 def test_format_table_chips_signature_matches_every_call_site():
@@ -229,16 +228,13 @@ def run_tests():
     print("ALL PASS", len(tests), "PokerCraft / live flow / range viewer tests")
 
 
-def test_live_preflop_range_is_an_overlay_and_pauses_the_action_clock():
+def test_live_preflop_range_is_a_bitmap_overlay_and_pauses_the_action_clock():
     view = source_of("_open_preflop_range_view")
     assert "table_canvas.winfo_toplevel()" in view
     assert "win.overrideredirect(True)" not in view
     assert 'win.attributes("-topmost", True)' not in view
-    assert "win.update_idletasks()" in view
-    assert "win.after_idle(safe_draw)" in view
-    assert "win.after(180, safe_draw)" in view
-    assert "win.after(420, safe_draw)" in view
-    assert "charge_label" in view
+    assert "image=photo" in view
+    assert "win._range_photo = photo" in view
     assert "cash_squeeze_deadline_at" in view
     assert "paused_clock" in view
     assert "close_range_overlay" in view
