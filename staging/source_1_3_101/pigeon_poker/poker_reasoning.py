@@ -553,6 +553,41 @@ def _response_action_probabilities(
     raise_probability = continue_probability * raise_share
     call_probability = continue_probability - raise_probability
     fold_probability = 1.0 - continue_probability
+
+    # Use public, per-CPU observations only when the same street and sizing
+    # bucket have enough samples. Smaller samples are smoothed toward the
+    # theory/style prior instead of being treated as a reliable read.
+    street_key = str(street or "").lower()
+    if street_key in {"flop", "turn", "river"}:
+        size_bucket = (
+            "small" if size <= 0.33 else
+            "medium" if size <= 0.75 else
+            "large" if size <= 1.25 else "overbet"
+        )
+        profile_prefix = f"{street_key}_{size_bucket}"
+        opportunities = max(
+            0.0,
+            float(stats.get(f"{profile_prefix}_response_opportunities", 0.0) or 0.0),
+        )
+        if opportunities >= 3.0:
+            observed = [
+                max(0.0, float(stats.get(f"{profile_prefix}_fold_rate", 0.55))),
+                max(0.0, float(stats.get(f"{profile_prefix}_call_rate", 0.35))),
+                max(0.0, float(stats.get(f"{profile_prefix}_raise_rate", 0.10))),
+            ]
+            observed_total = sum(observed)
+            if observed_total > 0:
+                observed = [value / observed_total for value in observed]
+                # Cap the influence so the heuristic prior still contributes
+                # even after a substantial sample.
+                sample_weight = min(0.78, opportunities / (opportunities + 12.0))
+                model = [fold_probability, call_probability, raise_probability]
+                fold_probability, call_probability, raise_probability = [
+                    (1.0 - sample_weight) * model_value
+                    + sample_weight * observed_value
+                    for model_value, observed_value in zip(model, observed)
+                ]
+
     total = fold_probability + call_probability + raise_probability
     if total <= 0:
         return 1.0, 0.0, 0.0
