@@ -71,13 +71,34 @@ def test_history_icon_draws_two_real_playing_cards_tilted_left():
     assert "copy" not in draw.lower()
 
 
-def test_live_hand_flow_tracks_events_and_hides_unrevealed_board():
+def test_live_hand_flow_shows_scrollable_table_history_with_cards_winner_and_pot():
     flow = source_of("_open_live_hand_flow")
-    assert 'getattr(active_hand, "events"' in flow
-    assert "cash_visible_board" in flow
-    assert "win.after(700, render)" in flow
-    assert "YOUR CARDS" in flow
-    assert "WM_DELETE_WINDOW" in flow
+    assert "self.history_store.list_recent(5000)" in flow
+    assert 'row.get("table_id")' in flow
+    assert "WINNER" in flow and "POT" in flow and "HOLE CARDS" in flow
+    assert "self._draw_card(" in flow
+    assert "rows_host" in flow and "scrollregion" in flow
+    assert "win.after(1800, render)" in flow
+    assert "pot_award" in flow and "hand_won_by_fold" in flow
+
+
+def test_range_view_is_only_a_169_cell_proportional_matrix():
+    view = source_of("_open_preflop_range_view")
+    assert 'len(order) != 169' in view
+    assert 'canvas.create_rectangle(' in view
+    assert 'frequency / total' in view
+    assert 'text=str(hand_class)' in view
+    assert '"#e05252"' in view and '"#45a879"' in view and '"#438ac5"' in view
+    assert "meta = tk.Frame" not in view
+    assert "footer = tk.Frame" not in view
+
+
+def test_range_icon_stays_clickable_and_explains_unavailable_nodes():
+    updater = source_of("_update_range_icon_state")
+    opener = source_of("_open_realtime_preflop_range")
+    assert 'canvas.configure(state="normal", cursor="hand2")' in updater
+    assert "この状況に一致する画像由来レンジはありません。" in opener
+    assert "レンジ料金は発生していません。" in opener
 
 
 def test_live_range_button_requires_exact_node_and_current_hero_turn():
@@ -131,7 +152,9 @@ def run_tests():
         test_pokercraft_has_sortable_session_and_hand_headers,
         test_all_pokercraft_timestamps_use_japan_time,
         test_history_icon_draws_two_real_playing_cards_tilted_left,
-        test_live_hand_flow_tracks_events_and_hides_unrevealed_board,
+        test_live_hand_flow_shows_scrollable_table_history_with_cards_winner_and_pot,
+        test_range_view_is_only_a_169_cell_proportional_matrix,
+        test_range_icon_stays_clickable_and_explains_unavailable_nodes,
         test_live_range_button_requires_exact_node_and_current_hero_turn,
         test_live_range_charges_shared_wallet_once_per_hand_not_stack,
         test_historical_range_uses_only_events_before_hero_first_action,
