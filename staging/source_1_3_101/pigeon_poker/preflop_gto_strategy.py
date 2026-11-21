@@ -1339,6 +1339,25 @@ def preflop_gto_range_for_situation(
         "open_size_bb": float(spot.get("open_size_bb") or 0.0),
     }
 
+def preflop_range_image_for_situation(
+    table: Any,
+    hand: Any,
+    player_id: str,
+    prior_events: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Resolve an original screenshot range image for this exact preflop history.
+
+    Unlike CPU policy lookup, this never falls back to inferred frequencies or
+    a nearby node. Horizontally clipped source captures can match only a
+    verified suffix of the actual ordered action history.
+    """
+    spot = _resolve_spot(table, hand, player_id, prior_events=prior_events)
+    if not spot.get("actor_position"):
+        return None
+    from .range_image_catalog import resolve_range_image_for_situation
+    return resolve_range_image_for_situation(spot)
+
+
 def coverage_summary() -> dict[str, Any]:
     data = _data()
     return {
