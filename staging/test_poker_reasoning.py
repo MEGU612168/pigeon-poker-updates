@@ -1089,6 +1089,60 @@ def test_bet_response_branch_probabilities_sum_to_one_and_condition_on_calls():
     assert metrics["samples"] > 0
 
 
+def test_size_specific_opponent_learning_changes_only_matching_street_and_size():
+    baseline = module._response_action_probabilities(
+        0.62, 0.18, 0.25, "flop", "balanced"
+    )
+    sticky = module._response_action_probabilities(
+        0.62, 0.18, 0.25, "flop", "balanced",
+        {
+            "sample_hands": 0,
+            "flop_small_response_opportunities": 80,
+            "flop_small_fold_rate": 0.08,
+            "flop_small_call_rate": 0.12,
+            "flop_small_raise_rate": 0.80,
+        },
+    )
+    overfolder = module._response_action_probabilities(
+        0.62, 0.18, 0.25, "flop", "balanced",
+        {
+            "sample_hands": 0,
+            "flop_small_response_opportunities": 80,
+            "flop_small_fold_rate": 0.92,
+            "flop_small_call_rate": 0.07,
+            "flop_small_raise_rate": 0.01,
+        },
+    )
+    other_size = module._response_action_probabilities(
+        0.62, 0.18, 1.50, "flop", "balanced",
+        {
+            "sample_hands": 0,
+            "flop_small_response_opportunities": 80,
+            "flop_small_fold_rate": 0.08,
+            "flop_small_call_rate": 0.12,
+            "flop_small_raise_rate": 0.80,
+        },
+    )
+    other_street = module._response_action_probabilities(
+        0.62, 0.18, 0.25, "turn", "balanced",
+        {
+            "sample_hands": 0,
+            "flop_small_response_opportunities": 80,
+            "flop_small_fold_rate": 0.08,
+            "flop_small_call_rate": 0.12,
+            "flop_small_raise_rate": 0.80,
+        },
+    )
+    assert sticky[2] > baseline[2]
+    assert overfolder[0] > baseline[0]
+    assert all(abs(a - b) < 1e-12 for a, b in zip(other_size, module._response_action_probabilities(
+        0.62, 0.18, 1.50, "flop", "balanced"
+    )))
+    assert all(abs(a - b) < 1e-12 for a, b in zip(other_street, baseline))
+    for probabilities in (baseline, sticky, overfolder, other_size, other_street):
+        assert abs(sum(probabilities) - 1.0) < 1e-9
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
