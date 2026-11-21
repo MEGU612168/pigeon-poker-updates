@@ -7,7 +7,8 @@ import math
 import ctypes
 import struct
 import wave
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from types import SimpleNamespace
 import queue
 import random
 import subprocess
@@ -36,7 +37,7 @@ from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOErr
                           is_gto_plus_supported_postflop_hand, CPUPoolStore, GGCareLedger, CashierLedger, bind_first_matching_tree)
 from pigeon_poker.preflop_gto_strategy import (
     choose_preflop_action, preflop_gto_situation_size,
-    estimate_preflop_opponent_ranges
+    estimate_preflop_opponent_ranges, preflop_gto_range_for_situation
 )
 from pigeon_poker.poker_reasoning import choose_range_aware_action
 from pigeon_poker.cpu_learning import CPULearningStore
@@ -9008,30 +9009,58 @@ class PigeonPokerApp(tk.Tk):
         ttk.Button(summary, text="EXPORT CSV", command=self._export_pokercraft_csv).pack(side="right", padx=(6, 0))
         ttk.Button(summary, text="REFRESH", command=self._refresh_pokercraft).pack(side="right")
 
-        # One checkbox per joined table session, not one checkbox per hand.
+        # PokerCraft session overview: date/stake filter plus sortable session rows.
         session_box = tk.Frame(page, bg=COLORS["panel"], padx=9, pady=6)
         session_box.pack(fill="x", padx=22, pady=(0, 8))
         session_head = tk.Frame(session_box, bg=COLORS["panel"])
         session_head.pack(fill="x")
-        tk.Label(session_head, text="TABLE SESSIONS  •  SELECT WHICH SESSIONS TO ANALYZE",
+        tk.Label(session_head, text="SESSION HISTORY  •  DOUBLE-CLICK THE CHECK COLUMN TO INCLUDE / EXCLUDE",
                  bg=COLORS["panel"], fg=COLORS["gold"], font=("Segoe UI", 8, "bold")).pack(side="left")
         ttk.Button(session_head, text="ALL", width=6, command=lambda: self._set_pokercraft_sessions(True)).pack(side="right", padx=(4, 0))
         ttk.Button(session_head, text="NONE", width=6, command=lambda: self._set_pokercraft_sessions(False)).pack(side="right")
-        self.poker_session_canvas = tk.Canvas(session_box, height=54, bg=COLORS["panel"],
-                                             highlightthickness=0, bd=0)
-        self.poker_session_canvas.pack(fill="x", pady=(3, 0))
-        self.poker_session_inner = tk.Frame(self.poker_session_canvas, bg=COLORS["panel"])
-        self.poker_session_canvas_window = self.poker_session_canvas.create_window(
-            (0, 0), window=self.poker_session_inner, anchor="nw")
-        self.poker_session_inner.bind("<Configure>", lambda _e: self.poker_session_canvas.configure(
-            scrollregion=self.poker_session_canvas.bbox("all")))
-        self.poker_session_canvas.bind("<Configure>", lambda event: self.poker_session_canvas.itemconfigure(
-            self.poker_session_canvas_window, height=54))
-        self.poker_session_canvas.bind_all("<Shift-MouseWheel>", lambda event: self.poker_session_canvas.xview_scroll(
-            int(-event.delta / 120), "units"))
+        session_filters = tk.Frame(session_box, bg=COLORS["panel"])
+        session_filters.pack(fill="x", pady=(4, 4))
+        self.poker_from_filter_var = tk.StringVar(value="")
+        self.poker_to_filter_var = tk.StringVar(value="")
+        self.poker_session_stake_var = tk.StringVar(value="ALL")
+        tk.Label(session_filters, text="FROM", bg=COLORS["panel"], fg=COLORS["muted"],
+                 font=("Segoe UI", 8, "bold")).pack(side="left", padx=(0, 3))
+        ttk.Entry(session_filters, textvariable=self.poker_from_filter_var, width=12).pack(side="left", padx=(0, 8))
+        tk.Label(session_filters, text="TO", bg=COLORS["panel"], fg=COLORS["muted"],
+                 font=("Segoe UI", 8, "bold")).pack(side="left", padx=(0, 3))
+        ttk.Entry(session_filters, textvariable=self.poker_to_filter_var, width=12).pack(side="left", padx=(0, 8))
+        tk.Label(session_filters, text="BLINDS", bg=COLORS["panel"], fg=COLORS["muted"],
+                 font=("Segoe UI", 8, "bold")).pack(side="left", padx=(0, 3))
+        ttk.Combobox(session_filters, textvariable=self.poker_session_stake_var,
+                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200"],
+                     state="readonly", width=9).pack(side="left", padx=(0, 8))
+        ttk.Button(session_filters, text="SHOW", style="Accent.TButton",
+                   command=self._refresh_pokercraft).pack(side="left", padx=(0, 8))
+        tk.Label(session_filters, text="TIME DISPLAY: JAPAN (JST)",
+                 bg=COLORS["panel"], fg=COLORS["muted"], font=("Segoe UI", 8)).pack(side="right")
+        session_cols = ("include", "time", "blinds", "table", "hands", "duration", "winloss")
+        self.poker_session_tree = ttk.Treeview(
+            session_box, columns=session_cols, show="headings", height=4, selectmode="browse")
+        session_headings = {"include": "✓", "time": "TIME (JST)", "blinds": "BLINDS",
+                            "table": "TABLE", "hands": "HANDS", "duration": "DURATION",
+                            "winloss": "WIN / LOSS"}
+        session_widths = {"include": 34, "time": 160, "blinds": 100, "table": 130,
+                          "hands": 72, "duration": 100, "winloss": 110}
+        for column in session_cols:
+            self.poker_session_tree.heading(
+                column, text=session_headings[column],
+                command=(lambda col=column: self._sort_pokercraft_sessions(col)) if column != "include" else "")
+            self.poker_session_tree.column(column, width=session_widths[column],
+                                           anchor="center", stretch=(column in {"time", "table"}))
+        self.poker_session_tree.pack(fill="x", expand=False)
+        self.poker_session_tree.bind("<Double-1>", self._toggle_pokercraft_session_row)
         self.poker_session_vars: dict[str, tk.BooleanVar] = {}
         self.poker_session_meta: list[dict[str, Any]] = []
         self.poker_session_signature: tuple[tuple[Any, ...], ...] = ()
+        self.poker_session_known_ids: set[str] = set()
+        self.poker_session_selected_ids: set[str] | None = None
+        self.poker_session_sort_column: str | None = None
+        self.poker_session_sort_reverse = True
 
         notebook = ttk.Notebook(page)
         self.poker_notebook = notebook
@@ -9071,12 +9100,8 @@ class PigeonPokerApp(tk.Tk):
         row2 = tk.Frame(filters, bg=COLORS["panel"]); row2.pack(fill="x", pady=(6, 0))
         self.poker_hole_filter_var = tk.StringVar()
         self.poker_board_filter_var = tk.StringVar()
-        self.poker_from_filter_var = tk.StringVar()
-        self.poker_to_filter_var = tk.StringVar()
         for label, variable, width in (("Hole", self.poker_hole_filter_var, 7),
-                                       ("Board", self.poker_board_filter_var, 7),
-                                       ("From", self.poker_from_filter_var, 17),
-                                       ("To", self.poker_to_filter_var, 17)):
+                                       ("Board", self.poker_board_filter_var, 7)):
             tk.Label(row2, text=label, bg=COLORS["panel"], fg=COLORS["muted"],
                      font=("Segoe UI", 8)).pack(side="left", padx=(0, 3))
             ttk.Entry(row2, textvariable=variable, width=width).pack(side="left", padx=(0, 8))
@@ -9092,8 +9117,12 @@ class PigeonPokerApp(tk.Tk):
                     "hand": "YOUR HAND", "pot": "POT", "rake": "RAKE", "net": "NET", "allin_ev": "ALL-IN EV", "result": "RESULT"}
         widths = {"date": 140, "session": 105, "stake": 62, "board": 100, "hand": 80,
                   "pot": 72, "rake": 68, "net": 82, "allin_ev": 82, "result": 70}
+        self.poker_history_sort_column: str | None = None
+        self.poker_history_sort_reverse = True
         for col in cols:
-            self.history_tree.heading(col, text=headings[col])
+            self.history_tree.heading(
+                col, text=headings[col],
+                command=lambda column=col: self._sort_pokercraft_hands(column))
             self.history_tree.column(col, width=widths[col], anchor="center")
         self.history_tree.pack(fill="both", expand=True)
         self.history_tree.bind("<<TreeviewSelect>>", self._show_pokercraft_hand)
@@ -9104,7 +9133,12 @@ class PigeonPokerApp(tk.Tk):
         self.history_replay_button = ttk.Button(
             detail_toolbar, text="▶  REPLAY HAND", style="Accent.TButton",
             command=self._open_pokercraft_replay, state="disabled")
-        self.history_replay_button.pack(side="left")
+        self.history_replay_button.pack(side="left", padx=(0, 6))
+        self.history_range_button = ttk.Button(
+            detail_toolbar, text="▦  PREFLOP RANGE",
+            command=self._open_pokercraft_history_range, state="disabled")
+        self.history_range_button.pack(side="left")
+        self.selected_history_preflop_range = None
         self.history_detail = tk.Text(detail, height=7, bg="#081321", fg="#dce8f7",
                                       insertbackground="white", relief="flat",
                                       font=("Consolas", 8), wrap="word")
@@ -9182,6 +9216,7 @@ class PigeonPokerApp(tk.Tk):
         self.poker_stats_sort_column = "hands"
         self.poker_stats_sort_reverse = True
         self.poker_filtered_rows: list[dict[str, Any]] = []
+        self._pokercraft_last_latest_signature = None
         self._refresh_pokercraft()
 
     def _set_pokercraft_sessions(self, enabled: bool):
