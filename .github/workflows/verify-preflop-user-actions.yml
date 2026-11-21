@@ -26,7 +26,5 @@ jobs:
         run: python staging/test_postflop_controls.py
       - name: Run effect volume settings regression
         run: python staging/test_sound_volume_settings.py
-      - name: Run immutable 75-node chart regression
-        run: |
-          cp staging/source_1_3_101/pigeon_poker/preflop_screenshot_ranges.py staging/preflop_screenshot_ranges_75.py
-          python staging/test_preflop_ranges_75.py
+      - name: Verify new screenshot-trained GTO policy
+        run: python staging/test_preflop_gto_policy.py

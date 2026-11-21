@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).parent / "source_1_3_101"))
 from pigeon_poker.cpu_learning import CPULearningStore
-from pigeon_poker import preflop_screenshot_ranges as preflop_ranges
+from pigeon_poker import preflop_gto_strategy as preflop_policy
 
 
 class FakePlayer:
@@ -108,67 +108,56 @@ def test_rates_are_smoothed_and_sample_size_is_exposed():
 
 
 def test_unacted_cpu_receives_learned_profile_without_fake_chart_range():
-    original_support = preflop_ranges._supports_100bb_effective_stack
-    original_positions = preflop_ranges._seat_position_map
-    original_blockers = preflop_ranges._known_public_blockers
-    try:
-        preflop_ranges._supports_100bb_effective_stack = lambda hand: True
-        preflop_ranges._seat_position_map = lambda table, hand: {
-            "hero": "CO", "cpu-A": "BTN",
-        }
-        preflop_ranges._known_public_blockers = lambda hand, exclude: (
-            {("A", "s"), ("A", "h")}, ["As", "Ah"],
-        )
-        hand = SimpleNamespace(
-            players=[FakePlayer("hero", "YOU"), FakePlayer("cpu-A", "CPU A")],
-            events=[],
-            board=[],
-        )
-        result = preflop_ranges.estimate_preflop_opponent_ranges(
-            object(), hand, exclude_player_id="hero",
-            opponent_profiles={"cpu-A": {"archetype": "balanced", "level": 3}},
-            opponent_learning={"cpu-A": {
-                "sample_hands": 40.0,
-                "vpip_rate": 0.42,
-                "pfr_rate": 0.18,
-                "faced_bet_opportunities": 30.0,
-                "fold_to_bet_rate": 0.25,
-                "postflop_actions": 40.0,
-                "postflop_call_rate": 0.52,
-                "postflop_aggression_rate": 0.34,
-            }},
-        )
-        row = result["players"]["cpu-A"]
-        assert row["supported"] is False
-        assert row["reason"] == "behavior-profile-prior"
-        assert row["learned_archetype"] == "calling_station"
-        assert row["learned_behavior"]["sample_hands"] == 40.0
+    # Unacted opponents have no observed action to condition a screenshot range
+    # on. Preserve their learned behavior as a prior without fabricating a range.
+    hand = SimpleNamespace(
+        players=[FakePlayer("hero", "YOU"), FakePlayer("cpu-A", "CPU A")],
+        events=[],
+        board=[],
+    )
+    result = preflop_policy.estimate_preflop_opponent_ranges(
+        object(), hand, exclude_player_id="hero",
+        opponent_profiles={"cpu-A": {"archetype": "balanced", "level": 3}},
+        opponent_learning={"cpu-A": {
+            "sample_hands": 40.0,
+            "vpip_rate": 0.42,
+            "pfr_rate": 0.18,
+            "faced_bet_opportunities": 30.0,
+            "fold_to_bet_rate": 0.25,
+            "postflop_actions": 40.0,
+            "postflop_call_rate": 0.52,
+            "postflop_aggression_rate": 0.34,
+        }},
+    )
+    row = result["players"]["cpu-A"]
+    assert row["supported"] is False
+    assert row["reason"] == "behavior-profile-prior"
+    assert row["learned_archetype"] == "calling_station"
+    assert row["learned_behavior"]["sample_hands"] == 40.0
+    assert row["hand_class_probabilities"] == {}
 
-        aggressive_result = preflop_ranges.estimate_preflop_opponent_ranges(
-            object(), hand, exclude_player_id="hero",
-            opponent_profiles={"cpu-A": {"archetype": "balanced", "level": 3}},
-            opponent_learning={"cpu-A": {
-                "sample_hands": 40.0,
-                "vpip_rate": 0.24,
-                "pfr_rate": 0.20,
-                "faced_bet_opportunities": 30.0,
-                "fold_to_bet_rate": 0.55,
-                "postflop_actions": 5.0,
-                "postflop_call_rate": 0.28,
-                "postflop_aggression_rate": 0.20,
-                "three_bet_opportunities": 20.0,
-                "three_bet_rate": 0.27,
-                "four_bet_opportunities": 3.0,
-                "four_bet_rate": 0.08,
-            }},
-        )
-        aggressive_row = aggressive_result["players"]["cpu-A"]
-        assert aggressive_row["learned_archetype"] == "aggressive"
-        assert aggressive_row["learned_archetype_basis"] == "three_bet_rate"
-    finally:
-        preflop_ranges._supports_100bb_effective_stack = original_support
-        preflop_ranges._seat_position_map = original_positions
-        preflop_ranges._known_public_blockers = original_blockers
+    aggressive_result = preflop_policy.estimate_preflop_opponent_ranges(
+        object(), hand, exclude_player_id="hero",
+        opponent_profiles={"cpu-A": {"archetype": "balanced", "level": 3}},
+        opponent_learning={"cpu-A": {
+            "sample_hands": 40.0,
+            "vpip_rate": 0.24,
+            "pfr_rate": 0.20,
+            "faced_bet_opportunities": 30.0,
+            "fold_to_bet_rate": 0.55,
+            "postflop_actions": 5.0,
+            "postflop_call_rate": 0.28,
+            "postflop_aggression_rate": 0.20,
+            "three_bet_opportunities": 20.0,
+            "three_bet_rate": 0.27,
+            "four_bet_opportunities": 3.0,
+            "four_bet_rate": 0.08,
+        }},
+    )
+    aggressive_row = aggressive_result["players"]["cpu-A"]
+    assert aggressive_row["learned_archetype"] == "aggressive"
+    assert aggressive_row["learned_archetype_basis"] == "three_bet_rate"
+
 
 
 def test_learns_fold_call_raise_by_street_and_faced_bet_size():

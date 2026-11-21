@@ -1,0 +1,72 @@
+name: Verify new screenshot-trained GTO preflop policy
+
+on:
+  push:
+    branches:
+      - feature/new-preflop-gto-v2
+    paths:
+      - "staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py"
+      - "staging/source_1_3_101/pigeon_gto_plus/live_range_builder.py"
+      - "staging/test_preflop_gto_policy.py"
+      - "staging/test_preflop_user_actions.py"
+      - "staging/test_poker_reasoning.py"
+      - "staging/test_cpu_learning.py"
+      - "staging/source_1_3_101/PigeonPoker.pyw"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py"
+      - "staging/source_1_3_101/pigeon_gto_plus/live_range_builder.py"
+      - "staging/test_preflop_gto_policy.py"
+      - "staging/test_preflop_user_actions.py"
+      - "staging/test_poker_reasoning.py"
+      - "staging/test_cpu_learning.py"
+      - "staging/source_1_3_101/PigeonPoker.pyw"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile screenshot-trained GTO policy modules
+        run: |
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py
+          python -m py_compile staging/source_1_3_101/pigeon_gto_plus/live_range_builder.py
+      - name: Verify screenshot-trained ranges and inferred branches
+        run: |
+          python staging/test_preflop_gto_policy.py
+      - name: Verify postflop compatibility and fixed user action freedom
+        run: |
+          python staging/test_preflop_user_actions.py
+          python staging/test_poker_reasoning.py
+          python staging/test_cpu_learning.py
+      - name: Verify screenshot GTO nodes are 6-max range/action compatible
+        run: |
+          python - <<'PY'
+          import json, sys
+          sys.path.insert(0, "staging/source_1_3_101")
+          from pigeon_poker.preflop_gto_strategy import _data, coverage_summary
+          data = _data()
+          summary = coverage_summary()
+          assert data["schema"] == 2
+          assert data["node_count"] >= 28
+          assert summary["exact_screenshot_nodes"] >= 27
+          assert "01_UTG_OPEN" in data["nodes_by_id"]
+          required = {
+              "02_HJ_OPEN", "03_CO_OPEN", "04_BTN_OPEN", "05_SB_OPEN",
+              "06_HJ_VS_UTG", "10_BB_VS_UTG", "17_BB_VS_CO",
+              "21_BB_VS_SB_LIMP", "25_UTG_VS_HJ_3BET",
+              "26_BTN_VS_BB_3BET", "27_BB_VS_BTN_4BET",
+              "28_BTN_VS_BB_5BET",
+          }
+          assert required.issubset(data["nodes_by_id"])
+          print(json.dumps(summary, ensure_ascii=False))
+          PY

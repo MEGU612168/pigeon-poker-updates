@@ -22,7 +22,5 @@ jobs:
         run: python -m py_compile staging/source_1_3_101/pigeon_poker/poker_reasoning.py
       - name: Run randomized rank, draw, multiway and decision tests
         run: python staging/test_poker_reasoning.py
-      - name: Run immutable preflop chart regression
-        run: |
-          cp staging/source_1_3_101/pigeon_poker/preflop_screenshot_ranges.py staging/preflop_screenshot_ranges_75.py
-          python staging/test_preflop_ranges_75.py
+      - name: Run screenshot-trained GTO preflop regression
+        run: python staging/test_preflop_gto_policy.py

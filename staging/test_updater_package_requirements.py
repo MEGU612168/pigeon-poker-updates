@@ -86,7 +86,7 @@ def test_full_update_accepts_additional_python_modules_in_allowed_app_packages()
         "pigeon_updater.py": b"print('updater')\n",
         "VERSION.txt": b"1.3.106\n",
         "pigeon_poker/poker_reasoning.py": b"VALUE = 1\n",
-        "pigeon_poker/preflop_screenshot_ranges.py": b"VALUE = 2\n",
+        "pigeon_poker/preflop_gto_strategy.py": b"VALUE = 2\n",
     })
     manifest["version"] = "1.3.106"
     with tempfile.TemporaryDirectory() as tmp:
@@ -96,7 +96,7 @@ def test_full_update_accepts_additional_python_modules_in_allowed_app_packages()
         "pigeon_updater.py",
         "VERSION.txt",
         "pigeon_poker/poker_reasoning.py",
-        "pigeon_poker/preflop_screenshot_ranges.py",
+        "pigeon_poker/preflop_gto_strategy.py",
     }
 
 
