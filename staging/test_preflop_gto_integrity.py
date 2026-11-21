@@ -138,6 +138,57 @@ def test_screenshot_action_totals_match_the_169_combo_weighted_matrix() -> None:
     }.issubset(conditional_nodes)
 
 
+
+def test_range_conditioned_nodes_match_the_previous_action_range_support() -> None:
+    data = policy._data()
+    parents = {
+        "25_UTG_VS_HJ_3BET": ("01_UTG_OPEN", "raise"),
+        "26_BTN_VS_BB_3BET": ("04_BTN_OPEN", "raise"),
+        "27_BB_VS_BTN_4BET": ("19_BB_VS_BTN", "raise"),
+        "28_BTN_VS_BB_5BET": ("26_BTN_VS_BB_3BET", "raise"),
+    }
+
+    for node_id, (parent_id, parent_action) in parents.items():
+        node = data["nodes_by_id"][node_id]
+        parent = data["nodes_by_id"][parent_id]
+        assert node.get("active_range", False), node_id
+
+        parent_support = sum(
+            combo_count(hand_class)
+            for hand_class, choices in parent["hands"].items()
+            if any(
+                str(item["action"]).startswith(parent_action)
+                and float(item["frequency"]) > 0.00005
+                for item in choices
+            )
+        ) / 1326.0
+
+        raw_node = next(row for row in json.loads(
+            bz2.decompress(base64.b64decode(policy._DATA_B64))
+        )["nodes"] if row["i"] == node_id)
+        actions = list(raw_node["a"])
+        matrix = raw_node["h"]
+        action_totals = dict(raw_node.get("t", {}))
+        total_mass = sum(
+            combo_count(hand_class)
+            * sum(int(value) for value in matrix[index]) / 10000.0
+            for index, hand_class in enumerate(policy.HAND_ORDER)
+        )
+        shares = [
+            sum(
+                combo_count(hand_class) * int(matrix[index][actions.index(action)]) / 10000.0
+                for index, hand_class in enumerate(policy.HAND_ORDER)
+            ) / total_mass / (float(reported) / 100.0)
+            for action, reported in action_totals.items()
+            if action != "fold" and float(reported) > 0.0
+        ]
+        active_share = sum(shares) / len(shares)
+        assert max(shares) - min(shares) <= 0.012, (node_id, shares)
+        assert abs(active_share - parent_support) <= 0.015, (
+            node_id, parent_id, parent_support, active_share
+        )
+
+
 def test_every_screenshot_raise_size_has_a_combo_weighted_modal_result() -> None:
     data = policy._data()
     exact_nodes = [node for node in data["nodes"] if not node.get("inferred", False)]
