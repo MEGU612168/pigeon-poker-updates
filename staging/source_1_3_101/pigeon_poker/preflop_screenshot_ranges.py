@@ -953,18 +953,18 @@ def preflop_situation_size(table: Any, hand: Any, actor_id: str) -> int | None:
                 frequency = max(0.0, float(item.get("frequency", 0.0) or 0.0))
             except (TypeError, ValueError, OverflowError):
                 continue
-            if frequency <= 0.0 or action not in {"raise", "allin"}:
+            # The control selects a normal raise size, not an all-in action.
+            # All-in remains a separate strategic choice in the BOT's
+            # hand-class-specific chart policy and is never used as a size preset.
+            if frequency <= 0.0 or action != "raise":
                 continue
-            if action == "allin":
-                target_cents = maximum
-            else:
-                amount_bb = item.get("amount_bb")
-                if amount_bb is None:
-                    continue
-                try:
-                    target_cents = _bb_target_to_cents(amount_bb, big_blind)
-                except (TypeError, ValueError, ArithmeticError, OverflowError):
-                    continue
+            amount_bb = item.get("amount_bb")
+            if amount_bb is None:
+                continue
+            try:
+                target_cents = _bb_target_to_cents(amount_bb, big_blind)
+            except (TypeError, ValueError, ArithmeticError, OverflowError):
+                continue
             if target_cents <= 0 or target_cents > maximum:
                 continue
             size_mass[target_cents] = (
