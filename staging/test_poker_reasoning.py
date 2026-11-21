@@ -1206,8 +1206,8 @@ def test_sdv_check_value_beats_a_lower_ev_bet():
     # range-weighted showdown equity after positional realization.
     assert decision.action == "check"
     assert "raw-equity=80.0%" in decision.note
-    assert "realized-equity=77.6%" in decision.note
-    assert "SDV-check-EV≈776.0" in decision.note
+    assert "realized-equity=77.3%" in decision.note
+    assert "SDV-check-EV≈772.8" in decision.note
 
 
 def test_chart_range_profile_recognizes_hero_positive_range_advantage():
@@ -1497,6 +1497,54 @@ def test_completed_draws_are_identified_from_public_board_only():
     assert river_straight["completed_straight"] is True
     assert flop_monotone["completed_flush"] is False
     assert flop_monotone["monotone"] is True
+
+
+
+def test_spr_changes_opponent_continue_and_raise_response():
+    shallow = module._response_action_probabilities(
+        0.58, 0.16, 0.66, "flop", "balanced", spr=1.2
+    )
+    deep = module._response_action_probabilities(
+        0.58, 0.16, 0.66, "flop", "balanced", spr=12.0
+    )
+    assert shallow[1] + shallow[2] > deep[1] + deep[2]
+    assert shallow[2] > deep[2]
+
+
+def test_spr_calibrates_equity_realization_and_thin_value_threshold():
+    shallow_realization = module._equity_realization_factor(
+        "flop", in_position=True, position_known=True,
+        expected_opponents=1.0, made_category=3, draw_strength=0.1, spr=1.5,
+    )
+    deep_realization = module._equity_realization_factor(
+        "flop", in_position=True, position_known=True,
+        expected_opponents=1.0, made_category=3, draw_strength=0.1, spr=12.0,
+    )
+    shallow_threshold = module._thin_value_threshold(
+        5, 0.01, 1.0, 0.30, "flop", spr=1.5, made_category=3,
+    )
+    deep_threshold = module._thin_value_threshold(
+        5, 0.01, 1.0, 0.30, "flop", spr=12.0, made_category=3,
+    )
+    assert shallow_realization > deep_realization
+    assert shallow_threshold < deep_threshold
+
+
+def test_spr_expands_stackoff_sizes_when_nut_edge_is_real():
+    texture = module._postflop_board_texture(["9s", "8s", "7d"])
+    shallow = module._postflop_bet_size_fractions(
+        to_call=False, donk_lead=False, range_advantage=True,
+        range_disadvantage=False, nut_advantage=0.12, expected_callers=1.0,
+        board_texture=texture, spr=1.5,
+    )
+    deep = module._postflop_bet_size_fractions(
+        to_call=False, donk_lead=False, range_advantage=True,
+        range_disadvantage=False, nut_advantage=0.12, expected_callers=1.0,
+        board_texture=texture, spr=12.0,
+    )
+    assert 2.50 in shallow
+    assert max(deep) <= 2.00
+    assert 0.25 in deep
 
 
 if __name__ == "__main__":
