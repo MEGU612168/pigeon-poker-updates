@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.4.9",
+  "package_mode": "full",
+  "source_version": "1.3.101",
+  "source_directory": "staging/source_1_3_101",
+  "release_notes": "Windowsのタスクバーを隠さないよう、Tkのクライアント領域ではなくネイティブウィンドウ枠をモニター作業領域内に配置。テーブル・有料レンジ窓も同じ作業領域で制限。レンジ描画をDPIレイアウト後に再試行し、描画例外時は黒画面の代わりにエラーを表示。",
+  "updater_actual_extract_validation": "pending",
+  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
+  "preflop_strategy_bundle_validation": "pending"
+}
