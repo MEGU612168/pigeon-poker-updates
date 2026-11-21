@@ -1243,6 +1243,7 @@ def _fold_probability(ranges: dict[str, OpponentRange], board: list[str],
     return max(0.0, min(1.0, all_fold))
 
 
+
 def _bet_response_branch_metrics(
     hand: Any,
     hero_id: str,
@@ -1253,24 +1254,28 @@ def _bet_response_branch_metrics(
     *,
     simulation_multiplier: float = 0.40,
 ) -> dict[str, float | int]:
-    """Model all-fold, call-only and raise branches separately.
+    """Model all-fold, call-only and raise branches with raise-conditioned ranges.
 
-    The call-conditioned equity excludes hands that raise. A raise by any
-    opponent is treated as a branch where hero folds and loses this bet; this
-    is a conservative one-street approximation, not a complete raise-response
-    game tree.
+    A raise branch is no longer automatically valued as an immediate fold.
+    It estimates the opponent's raise-conditioned range so the caller can
+    compare continuing against that range with folding the initial bet.
+    This remains a one-response approximation, not a full solver game tree.
     """
     street = {3: "flop", 4: "turn", 5: "river"}.get(len(board), "preflop")
     hero_stack = max(0, int(getattr(hand.player(hero_id), "stack", 0) or 0))
     effective_stack = hero_stack
     for opponent_id in ranges:
         try:
-            opponent_stack = max(0, int(getattr(hand.player(opponent_id), "stack", 0) or 0))
+            opponent_stack = max(
+                0, int(getattr(hand.player(opponent_id), "stack", 0) or 0)
+            )
             effective_stack = min(effective_stack, opponent_stack)
         except Exception:
             continue
     effective_spr = effective_stack / max(1, int(getattr(hand, "pot", 0) or 0))
     call_ranges: dict[str, OpponentRange] = {}
+    raise_conditioned_options: list[tuple[tuple[str, str], float]] = []
+    raise_weighted_archetypes: list[tuple[str, float]] = []
     all_fold_probability = 1.0
     no_raise_probability = 1.0
     conditional_call_probabilities: list[float] = []
@@ -1280,6 +1285,7 @@ def _bet_response_branch_metrics(
         call_mass = 0.0
         raise_mass = 0.0
         call_conditioned: list[tuple[tuple[str, str], float]] = []
+        raise_conditioned: list[tuple[tuple[str, str], float]] = []
         for combo, weight in opponent_range.combos:
             base_weight = max(0.0, float(weight))
             if base_weight <= 0:
@@ -1293,10 +1299,13 @@ def _bet_response_branch_metrics(
             )
             total_mass += base_weight
             call_weight = base_weight * call_p
+            raise_weight = base_weight * raise_p
             call_mass += call_weight
-            raise_mass += base_weight * raise_p
+            raise_mass += raise_weight
             if call_weight > 0:
                 call_conditioned.append((combo, call_weight))
+            if raise_weight > 0:
+                raise_conditioned.append((combo, raise_weight))
 
         if total_mass <= 0:
             continue
@@ -1338,6 +1347,14 @@ def _bet_response_branch_metrics(
             archetype=opponent_range.archetype,
             learned_stats=opponent_range.learned_stats,
         )
+        if actual_raise_probability > 0 and raise_mass > 0:
+            raise_conditioned_options.extend(
+                (combo, (weight / raise_mass) * actual_raise_probability)
+                for combo, weight in raise_conditioned
+            )
+            raise_weighted_archetypes.append(
+                (opponent_range.archetype, actual_raise_probability)
+            )
 
     all_fold_probability = max(0.0, min(1.0, all_fold_probability))
     no_raise_probability = max(0.0, min(1.0, no_raise_probability))
@@ -1378,6 +1395,37 @@ def _bet_response_branch_metrics(
         ) / max(1e-9, 1.0 - conditional_all_fold)
         called_current_equity = max(0.0, min(1.0, called_current_equity))
 
+    raise_conditioned_equity = 0.0
+    raise_samples = 0
+    raise_mass_total = sum(weight for _, weight in raise_conditioned_options)
+    if raise_probability > 1e-6 and raise_mass_total > 1e-12:
+        combined: dict[tuple[str, str], float] = {}
+        for combo, weight in raise_conditioned_options:
+            combined[combo] = combined.get(combo, 0.0) + max(0.0, float(weight))
+        total = sum(combined.values())
+        archetype_weight: dict[str, float] = {}
+        for archetype, weight in raise_weighted_archetypes:
+            archetype_weight[archetype] = archetype_weight.get(archetype, 0.0) + weight
+        selected_archetype = (
+            max(archetype_weight.items(), key=lambda item: item[1])[0]
+            if archetype_weight else "balanced"
+        )
+        raiser_range = OpponentRange(
+            player_id="raise-response",
+            combos=tuple(
+                (combo, weight / total)
+                for combo, weight in combined.items() if weight > 0
+            ),
+            source="raise-conditioned-response-range",
+            confidence=0.65,
+            participation_probability=1.0,
+            archetype=selected_archetype,
+        )
+        raise_conditioned_equity, raise_samples = _equity_vs_ranges(
+            hand, hero_id, {"raise-response": raiser_range}, cpu,
+            simulation_multiplier=0.25,
+        )
+
     total_probability = all_fold_probability + call_only_probability + raise_probability
     if total_probability > 0 and abs(total_probability - 1.0) > 1e-9:
         all_fold_probability /= total_probability
@@ -1390,11 +1438,11 @@ def _bet_response_branch_metrics(
         "expected_callers": max(0.0, expected_callers),
         "called_equity": max(0.0, min(1.0, called_equity)),
         "called_current_equity": max(0.0, min(1.0, called_current_equity)),
+        "raise_conditioned_equity": max(0.0, min(1.0, raise_conditioned_equity)),
         "made_samples": made_samples,
-        "samples": samples + made_samples,
+        "raise_samples": raise_samples,
+        "samples": samples + made_samples + raise_samples,
     }
-
-
 
 def _bet_response_metrics(
     hand: Any,
