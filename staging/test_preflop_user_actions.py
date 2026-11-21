@@ -134,6 +134,7 @@ if __name__ == "__main__":
         test_user_can_change_initial_size_before_submitting,
         test_uncovered_preflop_history_never_uses_generic_range_policy,
         test_chart_size_button_is_preflop_only_and_user_editable,
+        test_situation_size_helper_is_only_for_hero_ui_and_bot_keeps_hand_range_policy,
         test_new_hand_reloads_chart_initial_amount_after_postflop,
     ]
     for test in tests:
