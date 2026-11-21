@@ -1419,7 +1419,7 @@ def test_near_indifferent_actions_use_a_controlled_mix_at_high_cpu_level():
     candidates = [
         ("check", None, 100.0),
         ("bet", 300, 99.5),
-        ("bet", 600, 98.0),
+        ("bet", 600, 80.0),
     ]
     action, amount, mixed, count = module._sample_near_optimal_action(
         candidates, best_ev=100.0, pot=1000, level=5, rng=FixedRandom()
