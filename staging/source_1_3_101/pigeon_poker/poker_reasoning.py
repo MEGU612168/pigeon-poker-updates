@@ -378,6 +378,11 @@ def _response_continue_probability(made: float, draw: float,
     confidence = min(0.80, sample_hands / (sample_hands + 24.0)) if sample_hands else 0.0
     if confidence > 0:
         observed_fold = max(0.0, min(1.0, float(stats.get("fold_to_bet_rate", 0.55))))
+        cbet_opportunities = max(0.0, float(stats.get("fold_to_cbet_opportunities", 0.0) or 0.0))
+        if street == "flop" and cbet_opportunities >= 4:
+            cbet_fold = max(0.0, min(1.0, float(stats.get("fold_to_cbet_rate", observed_fold))))
+            cbet_confidence = min(0.75, cbet_opportunities / (cbet_opportunities + 10.0))
+            observed_fold = observed_fold * (1.0 - cbet_confidence) + cbet_fold * cbet_confidence
         observed_call = max(0.0, min(1.0, float(stats.get("postflop_call_rate", 0.30))))
         observed_continue = 0.55 * (1.0 - observed_fold) + 0.45 * observed_call
         logit += max(-1.0, min(1.0, (observed_continue - 0.35) * 2.0 * confidence))
