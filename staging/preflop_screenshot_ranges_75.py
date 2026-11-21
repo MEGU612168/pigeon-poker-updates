@@ -11,6 +11,7 @@ import json
 import math
 import itertools
 import random
+from decimal import Decimal, ROUND_HALF_UP
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -32,6 +33,8 @@ class ScreenshotRangeDecision:
     node_id: str = ""
     hand_class: str = ""
     action_frequency: float = 0.0
+    policy_penalty: int = 0
+    guardrail_reason: str = ""
 
 
 @lru_cache(maxsize=1)
@@ -282,8 +285,14 @@ def _non_fold_history(hand: Any) -> list[tuple[str, dict[str, Any], str]] | None
     return result
 
 
-def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
-    if not _supports_100bb_effective_stack(hand):
+def _node_for_situation_size(table: Any, hand: Any, actor_id: str) -> str | None:
+    """Resolve the human size preset from position + action/raise history only.
+
+    Unlike BOT chart policy, this UI-only resolver does not require every
+    dealt player's current stack to remain exactly 100 BB. The suggested
+    amount is still checked against the live legal range before it is applied.
+    """
+    if str(getattr(hand, "street", "")).lower() != "preflop":
         return None
     positions = _seat_position_map(table, hand)
     if positions is None or actor_id not in positions:
@@ -292,9 +301,8 @@ def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
     if actual_history is None:
         return None
 
-    nodes = _data()["nodes"]
     actor_position = positions[actor_id]
-    for node in nodes:
+    for node in _data()["nodes"]:
         if node["actor_position"] != actor_position:
             continue
         expected = node["history"]
@@ -311,13 +319,22 @@ def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
                 if actual_amount is None:
                     matched = False
                     break
-                tolerance = 0.75 if expected_item["action"] == "allin" else 0.06
-                if abs(actual_amount - float(expected_amount)) > tolerance:
+                if not _history_size_matches(
+                    actual_amount, expected_amount, int(hand.big_blind), expected_item["action"]
+                ):
                     matched = False
                     break
         if matched:
             return node["id"]
     return None
+
+
+def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
+    # BOT action/range policy remains restricted to the chart's documented
+    # six-handed 100-BB starting-stack condition.
+    if not _supports_100bb_effective_stack(hand):
+        return None
+    return _node_for_situation_size(table, hand, actor_id)
 
 
 def _node_for_historical_action(table: Any, hand: Any, positions: dict[str, str],
@@ -352,8 +369,9 @@ def _node_for_historical_action(table: Any, hand: Any, positions: dict[str, str]
             expected_amount = expected.get("amount_bb")
             if expected_amount is not None:
                 actual_amount = _event_target_bb(event, hand, pid)
-                tolerance = 0.75 if expected["action"] == "allin" else 0.06
-                if actual_amount is None or abs(actual_amount - float(expected_amount)) > tolerance:
+                if actual_amount is None or not _history_size_matches(
+                    actual_amount, expected_amount, int(hand.big_blind), expected["action"]
+                ):
                     matched = False
                     break
         if matched:
@@ -381,8 +399,9 @@ def _action_mass_for_observation(node: dict[str, Any], action: str,
                 target = item.get("amount_bb")
                 if target is None:
                     continue
-                tolerance = 0.75 if action == "allin" else 0.06
-                if abs(float(target) - float(observed_target)) > tolerance:
+                if not _history_size_matches(
+                    observed_target, target, int(getattr(hand, "big_blind", 0) or 0), action
+                ):
                     continue
             weight += max(0.0, float(item.get("frequency", 0.0)))
         if weight > 0.0:
@@ -424,13 +443,17 @@ def _known_public_blockers(hand: Any, exclude_player_id: str | None) -> tuple[se
 
 
 def estimate_preflop_opponent_ranges(table: Any, hand: Any,
-                                     exclude_player_id: str | None = None) -> dict[str, Any]:
+                                     exclude_player_id: str | None = None,
+                                     opponent_profiles: dict[str, Any] | None = None,
+                                     opponent_learning: dict[str, dict[str, float]] | None = None) -> dict[str, Any]:
     """Estimate latest supported opponent ranges, adjusted for known hero/board blockers.
 
     Screenshot-derived per-class weights are multiplied by the number of physical
     combinations still available in each class. Only the supplied acting player's
     cards and the public board are used as blockers; the other seats' hidden cards
     are deliberately ignored. Suit-specific strategy differences remain unknown.
+    Known CPU profile archetypes are attached as weak behavioral priors; they do not
+    alter the fixed chart rows or frequencies.
     """
     if not _supports_100bb_effective_stack(hand):
         return {"supported": False, "reason": "requires_six_player_100bb_table", "players": {}}
@@ -438,9 +461,11 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
     if positions is None:
         return {"supported": False, "reason": "seat_positions_unavailable", "players": {}}
     blocker_result = _known_public_blockers(hand, exclude_player_id)
-    if blocker_result is None:
+    public_blocker_result = _known_public_blockers(hand, None)
+    if blocker_result is None or public_blocker_result is None:
         return {"supported": False, "reason": "known_blocker_cards_unavailable_or_invalid", "players": {}}
     blockers, blocker_labels = blocker_result
+    public_blockers, _public_blocker_labels = public_blocker_result
     remaining_cards = 52 - len(blockers)
     available_combos = remaining_cards * (remaining_cards - 1) // 2
     if available_combos <= 0:
@@ -479,6 +504,8 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
         else:
             masses, total_mass = _action_mass_for_observation(
                 node, action, event, hand, actor_id, blockers=blockers)
+            unblocked_masses, unblocked_total_mass = _action_mass_for_observation(
+                node, action, event, hand, actor_id, blockers=public_blockers)
             if total_mass <= 0.0:
                 latest[actor_id] = {
                     "supported": False,
@@ -489,6 +516,11 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
                 }
             else:
                 probabilities = {combo: mass / total_mass for combo, mass in masses.items()}
+                unblocked_probabilities = (
+                    {combo: mass / unblocked_total_mass
+                     for combo, mass in unblocked_masses.items()}
+                    if unblocked_total_mass > 0.0 else probabilities
+                )
                 latest[actor_id] = {
                     "supported": True,
                     "position": positions[actor_id],
@@ -496,15 +528,107 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
                     "node_id": node["id"],
                     "source_image": node.get("source_image", ""),
                     "combo_mass": total_mass,
+                    "combo_mass_without_hero_blockers": unblocked_total_mass,
                     "available_combos": available_combos,
                     "range_percent_of_available_combos": total_mass / available_combos * 100.0,
                     "hand_class_probabilities": probabilities,
-                    "method": "screenshot-derived per-combo weights adjusted for known hero/public-card blockers; uniform within each 169-class bucket",
+                    "unblocked_hand_class_probabilities": unblocked_probabilities,
+                    "method": "screenshot-derived action weights with exact public-card and hero-card removal; unblocked weights retained for blocker diagnostics",
                 }
         prior_events.append(event)
 
     if exclude_player_id is not None:
         latest.pop(str(exclude_player_id), None)
+
+    # The 100-player CPU pool carries stable archetype labels. They are weak
+    # starting priors; observed, per-identity behavior gradually takes priority.
+    profile_map = opponent_profiles or {}
+    learning_map = opponent_learning or {}
+    allowed_archetypes = {"aggressive", "calling_station", "overfolder", "underbluffer"}
+    profile_ids = {
+        str(player_id) for player_id in
+        (set(latest) | set(profile_map) | set(learning_map))
+        if str(player_id) != str(exclude_player_id)
+    }
+    for player_id in sorted(profile_ids):
+        # A CPU may have folded before showing a chart-supported action, or not
+        # acted yet. Still attach its persistent profile so later postflop
+        # reasoning can use the identity's history without inventing a chart row.
+        row = latest.setdefault(player_id, {
+            "supported": False,
+            "position": positions.get(player_id, ""),
+            "action": "unobserved",
+            "reason": "behavior-profile-prior",
+        })
+        profile = profile_map.get(str(player_id))
+        if isinstance(profile, dict):
+            archetype = profile.get("archetype", "balanced")
+            profile_level = profile.get("level")
+        elif profile is not None:
+            archetype = getattr(profile, "archetype", "balanced")
+            profile_level = getattr(profile, "level", None)
+        else:
+            archetype, profile_level = "balanced", None
+        archetype = str(archetype or "balanced").lower()
+        if archetype in allowed_archetypes:
+            row["archetype"] = archetype
+        if profile_level is not None:
+            try:
+                row["profile_level"] = max(1, min(5, int(profile_level)))
+            except (TypeError, ValueError, OverflowError):
+                pass
+
+        learned = learning_map.get(str(player_id))
+        if isinstance(learned, dict):
+            clean = {}
+            for key, value in learned.items():
+                try:
+                    number = float(value)
+                    if math.isfinite(number):
+                        clean[str(key)] = number
+                except (TypeError, ValueError, OverflowError):
+                    continue
+            if clean:
+                row["learned_behavior"] = clean
+                hands = clean.get("sample_hands", 0.0)
+                fold_opp = clean.get("faced_bet_opportunities", 0.0)
+                call_opp = clean.get("postflop_actions", 0.0)
+                vpip = clean.get("vpip_rate", 0.22)
+                pfr = clean.get("pfr_rate", 0.16)
+                fold_rate = clean.get("fold_to_bet_rate", 0.55)
+                call_rate = clean.get("postflop_call_rate", 0.30)
+                aggression = clean.get("postflop_aggression_rate", 0.22)
+                three_bet_opp = clean.get("three_bet_opportunities", 0.0)
+                three_bet_rate = clean.get("three_bet_rate", 0.07)
+                four_bet_opp = clean.get("four_bet_opportunities", 0.0)
+                four_bet_rate = clean.get("four_bet_rate", 0.04)
+                learned_archetype = None
+                learned_basis = ""
+                # Require enough real hands/opportunities before classifying a CPU.
+                if hands >= 12 and fold_opp >= 12 and fold_rate >= 0.72:
+                    learned_archetype = "overfolder"
+                    learned_basis = "fold_to_bet"
+                elif (hands >= 20 and vpip >= 0.30 and vpip - pfr >= 0.17
+                      and call_opp >= 16 and call_rate >= 0.38):
+                    learned_archetype = "calling_station"
+                    learned_basis = "vpip_gap_and_postflop_calls"
+                elif (hands >= 24 and (
+                      (call_opp >= 24 and aggression >= 0.31 and pfr >= 0.18)
+                      or (three_bet_opp >= 16 and three_bet_rate >= 0.18 and pfr >= 0.18)
+                      or (four_bet_opp >= 10 and four_bet_rate >= 0.18 and pfr >= 0.18)
+                )):
+                    learned_archetype = "aggressive"
+                    learned_basis = (
+                        "three_bet_rate" if three_bet_opp >= 16 and three_bet_rate >= 0.18
+                        else ("four_bet_rate" if four_bet_opp >= 10 and four_bet_rate >= 0.18
+                              else "postflop_aggression")
+                    )
+                if learned_archetype is not None:
+                    row["archetype"] = learned_archetype
+                    row["learned_archetype"] = learned_archetype
+                    row["learned_archetype_basis"] = learned_basis
+                row["learned_behavior_confidence"] = min(0.85, hands / (hands + 30.0)) if hands > 0 else 0.0
+
     return {
         "supported": True,
         "reason": "",
@@ -523,21 +647,99 @@ def _legal_actions(hand: Any, actor_id: str) -> dict[str, Any]:
         return {}
 
 
+def _bb_target_to_cents(amount_bb: Any, big_blind_cents: int) -> int:
+    """Convert a fixed chart BB target to the nearest available cent.
+
+    ROUND_HALF_UP avoids Python's ties-to-even behavior: 2.5 * 25
+    must not silently become 62 cents (2.48 BB) at NL25. The chart
+    source remains 2.50 BB; only currency denomination is rounded.
+    """
+    blind = int(big_blind_cents)
+    amount = Decimal(str(amount_bb)) * Decimal(blind)
+    if not amount.is_finite() or amount < 0 or blind <= 0:
+        raise ValueError("Invalid fixed chart BB target")
+    return int(amount.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _history_size_matches(actual_amount_bb: float, expected_amount_bb: float,
+                          big_blind_cents: int, action: str) -> bool:
+    """Match observed history to the immutable chart with a 5% size tolerance.
+
+    This tolerance is only for recognizing an opponent's historical action.
+    It never changes the chart's stored frequencies or the CPU's fixed BB target.
+    All-in matching retains its existing wider 0.75 BB tolerance.
+    """
+    try:
+        blind = int(big_blind_cents)
+        actual_bb = Decimal(str(actual_amount_bb))
+        expected_bb = Decimal(str(expected_amount_bb))
+        if blind <= 0 or not actual_bb.is_finite() or not expected_bb.is_finite():
+            return False
+        if action == "allin":
+            return abs(actual_bb - expected_bb) <= Decimal("0.75")
+        expected_cents = Decimal(_bb_target_to_cents(expected_bb, blind))
+        actual_cents = actual_bb * Decimal(blind)
+        tolerance_cents = max(Decimal("0.5"), abs(expected_cents) * Decimal("0.05"))
+        return abs(actual_cents - expected_cents) <= tolerance_cents
+    except (TypeError, ValueError, ArithmeticError, OverflowError):
+        return False
+
+
+def _guardrail_preflop_decision(hand: Any, actor_id: str, cpu: Any,
+                                reason: str) -> ScreenshotRangeDecision | None:
+    """Never stop or use a legacy untrained action when chart history is unmatched."""
+    legal = _legal_actions(hand, str(actor_id))
+    legal_names = {
+        str(value).lower().replace("-", "_"): str(value).lower()
+        for value in legal.get("actions", ())
+    }
+    # A free check is preferred; facing a wager, fold is safer than inventing
+    # a call/raise line. Call is only a last resort when it is the sole passive
+    # legal action. No off-chart bet, raise or shove is ever generated here.
+    if "check" in legal_names:
+        action = legal_names["check"]
+    elif "fold" in legal_names:
+        action = legal_names["fold"]
+    elif "call" in legal_names:
+        action = legal_names["call"]
+    else:
+        return None
+
+    try:
+        previous = max(0, int(getattr(cpu, "_preflop_policy_penalty", 0) or 0))
+    except (TypeError, ValueError, OverflowError):
+        previous = 0
+    penalty = min(100000, previous + 100)
+    try:
+        setattr(cpu, "_preflop_policy_penalty", penalty)
+    except Exception:
+        pass
+    try:
+        hand_class = hand_class_from_cards(getattr(hand.player(actor_id), "hole_cards", ())) or ""
+    except Exception:
+        hand_class = ""
+    return ScreenshotRangeDecision(
+        action=action, amount=None, source="preflop-guardrail",
+        node_id="", hand_class=hand_class, action_frequency=0.0,
+        policy_penalty=penalty, guardrail_reason=str(reason)[:160],
+    )
+
+
 def _clamp_raise_target(desired: int, legal: dict[str, Any]) -> int | None:
+    """Accept the fixed chart target unchanged; never resize it to fit."""
     try:
         target = int(desired)
         minimum = legal.get("min_target")
         maximum = legal.get("max_target")
-        if minimum is not None:
-            target = max(target, int(minimum))
-        if maximum is not None:
-            if minimum is not None and int(maximum) < int(minimum):
-                return None
-            target = min(target, int(maximum))
-        return target if target > 0 else None
-    except (TypeError, ValueError):
+        if target <= 0:
+            return None
+        if minimum is not None and target < int(minimum):
+            return None
+        if maximum is not None and target > int(maximum):
+            return None
+        return target
+    except (TypeError, ValueError, OverflowError):
         return None
-
 
 def _decision_choices(node: dict[str, Any], combo: str, hand: Any,
                       actor_id: str, legal: dict[str, Any]) -> list[tuple[str, int | None, float]]:
@@ -565,7 +767,7 @@ def _decision_choices(node: dict[str, Any], combo: str, hand: Any,
             if target_key is None or big_blind <= 0:
                 continue
             target_action = legal_action_names[target_key]
-            desired = int(round(float(item["amount_bb"]) * big_blind))
+            desired = _bb_target_to_cents(item["amount_bb"], big_blind)
             target = _clamp_raise_target(desired, legal)
             if target is not None:
                 choices.append((target_action, target, weight))
@@ -653,10 +855,140 @@ def _choose_preflop_action_from_chart(table: Any, hand: Any, actor_id: str, cpu:
 
 def choose_preflop_action(table: Any, hand: Any, actor_id: str, cpu: Any,
                           fallback_decision: Any = None) -> ScreenshotRangeDecision | None:
-    """Execute only the supplied screenshot chart; never consult legacy CPU policy."""
+    """Use the fixed screenshot chart; on a miss, keep playing under strict guardrails."""
     if str(getattr(hand, "street", "")).lower() != "preflop":
         return None
-    return _choose_preflop_action_from_chart(table, hand, actor_id, cpu, None)
+    try:
+        decision = _choose_preflop_action_from_chart(table, hand, actor_id, cpu, None)
+        if decision is not None:
+            return decision
+        return _guardrail_preflop_decision(
+            hand, actor_id, cpu, "history_not_covered_by_fixed_75_node_chart"
+        )
+    except Exception as exc:
+        return _guardrail_preflop_decision(
+            hand, actor_id, cpu, "chart_lookup_error:" + type(exc).__name__
+        )
+
+
+
+def preflop_chart_options(table: Any, hand: Any, actor_id: str) -> dict[str, Any] | None:
+    """Return only chart-supported Fold, Call/Check and fixed-BB Raise choices."""
+    if str(getattr(hand, "street", "")).lower() != "preflop":
+        return None
+    node_id = _node_for_actor(table, hand, str(actor_id))
+    if node_id is None:
+        return None
+    try:
+        player = hand.player(actor_id)
+        combo = hand_class_from_cards(getattr(player, "hole_cards", ()))
+        if combo is None:
+            return None
+        node = _data()["nodes_by_id"][node_id]
+        raw = node["hands"].get(combo) or []
+        legal = _legal_actions(hand, str(actor_id))
+        if not any(float(a.get("frequency", 0.0)) > 0 for a in raw):
+            return {"node_id": node_id, "hand_class": combo, "fold": True,
+                    "call_action": None, "raise_action": None, "raise_amount": None,
+                    "raise_frequency": 0.0}
+        choices = _decision_choices(node, combo, hand, str(actor_id), legal)
+        fold = False
+        call_action = None
+        raises: dict[tuple[str, int], float] = {}
+        max_target = int(legal.get("max_target", 0) or 0)
+        for action, amount, weight in choices:
+            key = str(action).lower().replace("-", "_")
+            if key == "fold":
+                fold = True
+            elif key in {"call", "check"}:
+                if call_action is None or key == "call":
+                    call_action = key
+            elif key in {"allin", "all_in", "jam", "shove"}:
+                if max_target > 0:
+                    option = ("all-in", max_target)
+                    raises[option] = raises.get(option, 0.0) + float(weight)
+            elif key in {"raise", "bet"} and amount is not None:
+                option = (key, int(amount))
+                raises[option] = raises.get(option, 0.0) + float(weight)
+        chosen = max(raises.items(), key=lambda item: (item[1], -item[0][1]), default=None)
+        return {
+            "node_id": node_id, "hand_class": combo, "fold": bool(fold),
+            "call_action": call_action,
+            "raise_action": chosen[0][0] if chosen else None,
+            "raise_amount": chosen[0][1] if chosen else None,
+            "raise_frequency": float(chosen[1]) if chosen else 0.0,
+        }
+    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError, OverflowError):
+        return None
+
+
+
+def preflop_situation_size(table: Any, hand: Any, actor_id: str) -> int | None:
+    """Return the dominant chart size for a positional/action-history node.
+
+    This intentionally does not inspect the actor's hole-card class. The spot
+    key is the actor's seat position plus the complete observed preflop action
+    and sizing history, as resolved by _node_for_actor(). When a node mixes
+    sizes, choose the population-weighted modal size across all 1,326 physical
+    starting combinations, not the size preferred by the current hand.
+    """
+    if str(getattr(hand, "street", "")).lower() != "preflop":
+        return None
+    legal = _legal_actions(hand, str(actor_id))
+    legal_names = {
+        str(value).lower().replace("-", "_")
+        for value in legal.get("actions", ())
+    }
+    if not ({"raise", "bet"} & legal_names):
+        return None
+    node_id = _node_for_situation_size(table, hand, str(actor_id))
+    if node_id is None:
+        return None
+    node = _data().get("nodes_by_id", {}).get(node_id)
+    if not isinstance(node, dict):
+        return None
+    try:
+        big_blind = int(getattr(hand, "big_blind", 0) or 0)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if big_blind <= 0:
+        return None
+
+    size_mass: dict[int, float] = {}
+    maximum = max(0, int(legal.get("max_target", 0) or 0))
+    for hand_class, raw_actions in node.get("hands", {}).items():
+        physical_count = _available_combos_for_class(str(hand_class), set())
+        if physical_count <= 0:
+            continue
+        for item in raw_actions:
+            action = str(item.get("action", "")).lower()
+            try:
+                frequency = max(0.0, float(item.get("frequency", 0.0) or 0.0))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            # The control selects a normal raise size, not an all-in action.
+            # All-in remains a separate strategic choice in the BOT's
+            # hand-class-specific chart policy and is never used as a size preset.
+            if frequency <= 0.0 or action != "raise":
+                continue
+            amount_bb = item.get("amount_bb")
+            if amount_bb is None:
+                continue
+            try:
+                target_cents = _bb_target_to_cents(amount_bb, big_blind)
+            except (TypeError, ValueError, ArithmeticError, OverflowError):
+                continue
+            if target_cents <= 0 or target_cents > maximum:
+                continue
+            size_mass[target_cents] = (
+                size_mass.get(target_cents, 0.0) + frequency * physical_count
+            )
+    if not size_mass:
+        return None
+    # A modal spot-level size gives one stable suggestion without consulting
+    # the player's cards. In a tie, prefer the smaller size to avoid silently
+    # escalating the user's amount.
+    return max(size_mass.items(), key=lambda item: (item[1], -item[0]))[0]
 
 
 def coverage_summary() -> dict[str, Any]:
