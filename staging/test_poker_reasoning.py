@@ -1547,6 +1547,32 @@ def test_spr_expands_stackoff_sizes_when_nut_edge_is_real():
     assert 0.25 in deep
 
 
+
+def test_opponent_board_profile_removes_hero_known_card_blockers():
+    players = [
+        FakePlayer("hero", ("As", "Kd")),
+        FakePlayer("villain", ()),
+    ]
+    hand = FakeHand(
+        players, board=("Jc", "7d", "2s"), pot=1000, street="flop",
+        to_call=0, actions=("check", "bet"),
+    )
+    row = {
+        "supported": True,
+        "hand_class_probabilities": {"AA": 0.50, "KK": 0.50},
+    }
+    unblocked_only_by_board = module._action_updated_range_board_profile(
+        row, hand, "villain", list(hand.board)
+    )
+    conditioned_on_hero = module._action_updated_range_board_profile(
+        row, hand, "villain", list(hand.board),
+        extra_blockers=tuple(hand.player("hero").hole_cards),
+    )
+    assert unblocked_only_by_board is not None and conditioned_on_hero is not None
+    assert conditioned_on_hero["sampled_combos"] < unblocked_only_by_board["sampled_combos"]
+
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
