@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.4.1",
-  "published_at": "2026-11-21T12:59:44Z",
-  "release_notes": "新しいスクリーンショット学習プリフロップ戦略へ完全に切り替え。新方式は27個の実スクリーンショット局面・169ハンドクラス・アクション頻度・レイズサイズを保持し、元画像がないUTG初回オープン等の未収録局面は明示的な推定分岐として扱う。旧75ノード/12,675行のプリフロップ実装をランタイムから切り離し、旧モジュールは配布ZIPに含めない。BOTはハンドごとのレンジ頻度に従い、ユーザー本人の操作は固定せず、CHART SIZEはポジションとプリフロップ履歴からサイズを提案するだけ。更新ZIPにはPigeonPoker.pyw、pigeon_updater.py、VERSION.txtを必ず含め、同梱Updater自身で実展開して不足ファイルがないことを確認する。",
+  "version": "1.4.2",
+  "published_at": "2026-11-21T13:03:59Z",
+  "release_notes": "v1.4.1の新スクリーンショット学習プリフロップ戦略に加え、旧プリフロップ実装ファイルの物理削除を追加。アプリ起動時に pigeon_poker/ 配下の旧 preflop_screenshot_ranges、preflop_range_policy、preflop_range_data、旧分割データ片と対応する .pyc キャッシュだけを削除する。新しい preflop_gto_strategy.py、CPU推論モジュール、ウォレット・履歴・設定・学習SQLiteデータは削除対象外。削除処理は冪等で、対象ディレクトリもアプリの pigeon_poker/ 内に限定。27個のスクリーンショット由来局面・169ハンドクラス・頻度・レイズサイズはそのまま維持。元資料がない局面は明示的な推定として扱う。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.1/payload-updater.zip.b64?v=832cbfe3e4bc7407fae769597384395c1cc430e3b765da0a6f8a7938db2225de",
-  "payload_sha256": "832cbfe3e4bc7407fae769597384395c1cc430e3b765da0a6f8a7938db2225de",
-  "payload_size": 262693
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.2/payload-updater.zip.b64?v=740aec60154f820f732ba0ba8edaab6374e0ff5dc42374861d18486dedd58710",
+  "payload_sha256": "740aec60154f820f732ba0ba8edaab6374e0ff5dc42374861d18486dedd58710",
+  "payload_size": 263648
 }
