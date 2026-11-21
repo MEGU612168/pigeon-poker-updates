@@ -1,0 +1,5 @@
+{
+  "version": "1.3.109",
+  "requested_at": "2026-11-21T13:48:00+09:00",
+  "reason": "Strict 75-node preflop guardrail after user actions, preflop-only chart size button, new-hand size restoration, overlapping Windows action voice."
+}
