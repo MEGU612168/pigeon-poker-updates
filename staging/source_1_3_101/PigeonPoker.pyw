@@ -9776,11 +9776,24 @@ class PigeonPokerApp(tk.Tk):
         self.poker_include_rake_var.set(True)
         self._refresh_pokercraft()
 
+    def _sort_pokercraft_hands(self, column: str):
+        if self.poker_history_sort_column == column:
+            self.poker_history_sort_reverse = not bool(self.poker_history_sort_reverse)
+        else:
+            self.poker_history_sort_column = column
+            self.poker_history_sort_reverse = False
+        self._refresh_pokercraft()
+
     def _refresh_pokercraft(self):
         if not hasattr(self, "history_tree"):
             return
+        previous_key = ""
+        if getattr(self, "selected_history_record", None):
+            previous_key = str(self.selected_history_record.get("hand_key", ""))
+
         selected_sessions = self._refresh_pokercraft_session_checks()
-        rows = self.history_store.list_recent(5000, session_ids=selected_sessions)
+        rows = (self.history_store.list_recent(5000, session_ids=selected_sessions)
+                if selected_sessions else [])
         stake = self.poker_filter_stake_var.get().strip()
         if stake and stake != "ALL":
             rows = [row for row in rows if row["table_rate"] == stake]
@@ -9792,21 +9805,26 @@ class PigeonPokerApp(tk.Tk):
         from_text = self.poker_from_filter_var.get().strip()
         to_text = self.poker_to_filter_var.get().strip()
         try:
-            from_dt = datetime.fromisoformat(from_text) if from_text else None
-            to_dt = datetime.fromisoformat(to_text) if to_text else None
-            # A date-only upper bound includes that entire local calendar day.
+            from_dt = self._pokercraft_parse_timestamp(from_text, assume_utc=False) if from_text else None
+            to_dt = self._pokercraft_parse_timestamp(to_text, assume_utc=False) if to_text else None
             if to_dt is not None and len(to_text) == 10:
                 to_dt = to_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
-        except ValueError:
-            messagebox.showerror("PokerCraft filter", "日時は YYYY-MM-DD または YYYY-MM-DD HH:MM 形式で入力してください。")
+        except (TypeError, ValueError):
+            messagebox.showerror(
+                "PokerCraft filter",
+                "日時は YYYY-MM-DD または YYYY-MM-DD HH:MM 形式で入力してください（日本時間）。")
             return
-        for label, bound in (("From", from_dt), ("To", to_dt)):
-            if bound and bound.tzinfo is None:
-                if label == "From": from_dt = bound.replace(tzinfo=timezone.utc)
-                else: to_dt = bound.replace(tzinfo=timezone.utc)
+        if from_dt is not None:
+            from_dt = from_dt.astimezone(timezone.utc)
+        if to_dt is not None:
+            to_dt = to_dt.astimezone(timezone.utc)
+
         filtered = []
         for row in rows:
-            played = datetime.fromisoformat(row["played_at"])
+            played = self._pokercraft_parse_timestamp(row.get("played_at"), assume_utc=True)
+            if played is None:
+                continue
+            played = played.astimezone(timezone.utc)
             if from_dt and played < from_dt:
                 continue
             if to_dt and played > to_dt:
@@ -9814,28 +9832,61 @@ class PigeonPokerApp(tk.Tk):
             row = dict(row)
             rake_share = int(row.get("hero_rake", 0))
             row["display_net"] = int(row["hero_net"] if self.poker_include_rake_var.get()
-                                      else row["hero_net"] + rake_share)
+                                     else row["hero_net"] + rake_share)
             filtered.append(row)
+
         filtered = filter_hand_results(
             filtered, self.poker_filter_result_var.get(), self.poker_filter_showdown_var.get())
-        sort_key = self.poker_sort_var.get()
-        reverse = self.poker_sort_order_var.get() == "DESC"
-        if sort_key == "POT":
-            filtered.sort(key=lambda item: item["pot"], reverse=reverse)
-        elif sort_key == "PROFIT":
-            filtered.sort(key=lambda item: item["display_net"], reverse=reverse)
-        elif sort_key == "LOSS":
-            filtered.sort(key=lambda item: item["display_net"], reverse=not reverse)
+        sorters = {
+            "date": lambda item: str(item.get("played_at", "")),
+            "session": lambda item: str(item.get("session_id", "")),
+            "stake": lambda item: str(item.get("table_rate", "")),
+            "board": lambda item: str(item.get("board", "")),
+            "hand": lambda item: str(item.get("hero_cards", "")),
+            "pot": lambda item: int(item.get("pot", 0)),
+            "rake": lambda item: int(item.get("rake", 0)),
+            "net": lambda item: int(item.get("display_net", item.get("hero_net", 0))),
+            "allin_ev": lambda item: (-10**18 if item.get("hero_allin_ev") is None
+                                      else int(item.get("hero_allin_ev"))),
+            "result": lambda item: ("WIN" if int(item.get("display_net", 0)) > 0
+                                    else "LOSS" if int(item.get("display_net", 0)) < 0 else "EVEN"),
+        }
+        sort_column = self.poker_history_sort_column
+        if sort_column:
+            filtered.sort(key=sorters.get(sort_column, sorters["date"]),
+                          reverse=bool(self.poker_history_sort_reverse))
         else:
-            filtered.sort(key=lambda item: item["played_at"], reverse=reverse)
+            sort_key = self.poker_sort_var.get()
+            reverse = self.poker_sort_order_var.get() == "DESC"
+            if sort_key == "POT":
+                filtered.sort(key=lambda item: item["pot"], reverse=reverse)
+            elif sort_key == "PROFIT":
+                filtered.sort(key=lambda item: item["display_net"], reverse=reverse)
+            elif sort_key == "LOSS":
+                filtered.sort(key=lambda item: item["display_net"], reverse=not reverse)
+            else:
+                filtered.sort(key=lambda item: item["played_at"], reverse=reverse)
+
+        headings = {
+            "date": "DATE", "session": "TABLE SESSION", "stake": "STAKE",
+            "board": "BOARD", "hand": "YOUR HAND", "pot": "POT", "rake": "RAKE",
+            "net": "NET", "allin_ev": "ALL-IN EV", "result": "RESULT",
+        }
+        if sort_column:
+            for column, label in headings.items():
+                arrow = (" ↓" if self.poker_history_sort_reverse else " ↑") if sort_column == column else ""
+                self.history_tree.heading(column, text=label + arrow)
+
         total_net = sum(item["display_net"] for item in filtered)
         total_rake = sum(int(item.get("rake", 0)) for item in filtered)
         biggest_pot = max((int(item["pot"]) for item in filtered), default=0)
         rake_mode = "after rake" if self.poker_include_rake_var.get() else "excluding hero rake share"
         self.pokercraft_summary_var.set(
-            f"{len(filtered)} hands • Net ({rake_mode}) ${total_net/100:,.2f} • Total rake ${total_rake/100:,.2f} • Biggest pot ${biggest_pot/100:,.2f}"
+            f"{len(filtered)} hands • Net ({rake_mode}) ${total_net/100:,.2f} • "
+            f"Total rake ${total_rake/100:,.2f} • Biggest pot ${biggest_pot/100:,.2f}"
         )
-        self.poker_filtered_rows = sorted(filtered, key=lambda item: (item.get("played_at", ""), item.get("hand_number", 0)))
+        self.poker_filtered_rows = sorted(
+            filtered, key=lambda item: (item.get("played_at", ""), item.get("hand_number", 0)))
         graph_rows = []
         for item in self.poker_filtered_rows:
             graph_item = dict(item)
@@ -9849,26 +9900,39 @@ class PigeonPokerApp(tk.Tk):
                 "non-all-in hands follow actual net • click a point to open that hand.")
         self._refresh_pokercraft_breakdowns(filtered)
         self._refresh_pokercraft_player_stats(filtered)
+
         for item in self.history_tree.get_children():
             self.history_tree.delete(item)
         self.history_records = {}
+        selected_iid = None
         for index, row in enumerate(filtered):
             iid = str(index)
             self.history_records[iid] = row
-            date_text = row["played_at"].replace("T", " ").replace("+00:00", " UTC")
+            date_text = self._format_pokercraft_jst(row.get("played_at"))
             result = "WIN" if row["display_net"] > 0 else ("LOSS" if row["display_net"] < 0 else "EVEN")
             sid_short = str(row.get("session_id", ""))[:8]
             ev_value = row.get("hero_allin_ev")
             self.history_tree.insert("", "end", iid=iid, values=(
                 date_text, sid_short, row["table_rate"], row["board"] or "—", row["hero_cards"] or "—",
                 f"${row['pot']/100:.2f}", f"${row.get('rake', 0)/100:.2f}",
-                f"${row['display_net']/100:+.2f}", f"${int(ev_value)/100:+.2f}" if ev_value is not None else "—", result))
+                f"${row['display_net']/100:+.2f}",
+                f"${int(ev_value)/100:+.2f}" if ev_value is not None else "—", result))
+            if previous_key and str(row.get("hand_key", "")) == previous_key:
+                selected_iid = iid
+
         self.selected_history_record = None
+        self.selected_history_preflop_range = None
         try:
             self.history_replay_button.configure(state="disabled")
+            self.history_range_button.configure(state="disabled")
         except (AttributeError, tk.TclError):
             pass
-        self._set_history_detail("Select a hand to inspect its recorded actions.")
+        if selected_iid is not None:
+            self.history_tree.selection_set(selected_iid)
+            self.history_tree.focus(selected_iid)
+            self._show_pokercraft_hand()
+        else:
+            self._set_history_detail("Select a hand to inspect its recorded actions.")
 
     def _set_history_detail(self, value: str):
         self.history_detail.configure(state="normal")
