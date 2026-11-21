@@ -1,0 +1,1 @@
+Build Stable v1.3.108. Use empirically observed flop fold-to-cbet rates in the postflop response model and incorporate sufficiently sampled three-bet/four-bet rates into opponent aggression-style classification. Keep all preflop chart nodes, hand rows, frequencies and raise sizes immutable. Run all full regression and updater validation suites.
