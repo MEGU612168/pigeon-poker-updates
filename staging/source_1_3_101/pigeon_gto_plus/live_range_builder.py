@@ -220,7 +220,7 @@ def build_live_hu_solver_setup(hand: Any, chart_data: Mapping[str,Any], *, rake_
         actual=float(raises[0].get("target"))/float(getattr(hand,"big_blind",0) or 0)
     except (TypeError,ValueError,ZeroDivisionError):
         return _result("open size cannot be verified against chart")
-    expected=3.5 if opener_pos=="SB" else 2.5
+    expected={"UTG":2.0,"HJ":2.0,"CO":2.3,"BTN":2.5,"SB":3.0}.get(opener_pos,2.0)
     if abs(actual-expected)>0.06: return _result(f"open size {actual:.3f} BB differs from chart assumption {expected:.1f} BB")
     if set(eligible)!={opener,caller}: return _result("postflop players do not match open/call line")
     if sum(e["action"]!="fold" for e in actions)!=2: return _result("line contains a limp, cold call or extra voluntary action")

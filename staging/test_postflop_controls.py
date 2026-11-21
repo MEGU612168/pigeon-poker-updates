@@ -23,7 +23,7 @@ def test_every_street_reaches_one_shared_hero_action_renderer() -> None:
     source = text_of("_refresh_table_windows")
     assert 'legal = hand.legal_actions("hero")' in source
     assert 'if hand.next_to_act != "hero":' in source
-    assert "PREFLOP CHART ACTIONS ONLY" not in source
+    assert "PREFLOP GTO ACTIONS ONLY" not in source
     assert "YOUR TURN • PREFLOP RAISE SIZE FIXED" not in source
     assert 'if hand.street == "preflop"' not in source[
         source.index('if hand.next_to_act != "hero":') + 1:
@@ -44,12 +44,12 @@ def test_postflop_fold_check_call_bet_raise_controls_are_rebuilt() -> None:
 
 def test_preflop_chart_is_only_used_to_seed_an_editable_default() -> None:
     refresh = text_of("_refresh_table_windows")
-    helper = text_of("_preflop_initial_raise_target")
+    helper = text_of("_preflop_gto_initial_raise_target")
     assert 'if hand.street == "preflop"' in refresh
-    assert "self._preflop_initial_raise_target(" in refresh
-    assert "preflop_situation_size(table, hand, actor_id)" in helper
-    assert "preflop_chart_options" not in helper
-    assert 'situation_frame, "CHART SIZE"' in refresh
+    assert "self._preflop_gto_initial_raise_target(" in refresh
+    assert "preflop_gto_situation_size(table, hand, actor_id)" in helper
+    assert "preflop_gto_action_options" not in helper
+    assert 'situation_frame, "GTO SIZE"' in refresh
     assert "SIZE = POSITION + PREFLOP RAISE HISTORY (NOT YOUR HAND)" in refresh
     assert 'record["bet_target"].set(' in refresh
     assert 'record["bet_slider"].set(target)' in refresh
@@ -61,8 +61,8 @@ def test_preflop_chart_is_only_used_to_seed_an_editable_default() -> None:
 
 def test_submitted_hero_action_and_amount_are_not_rewritten() -> None:
     action = text_of("_cash_human_action")
-    assert "preflop_chart_options" not in action
-    assert "_preflop_initial_raise_target" not in action
+    assert "preflop_gto_action_options" not in action
+    assert "_preflop_gto_initial_raise_target" not in action
     assert "self.cash_table.act(\"hero\", action, amount)" in action
     assert "amount = " not in action
 

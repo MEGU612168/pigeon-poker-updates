@@ -965,7 +965,7 @@ def test_multiway_donk_gate_requires_set_or_exceptional_draw() -> None:
 
 
 
-def test_chart_derived_preflop_ranges_detect_opponent_nut_advantage() -> None:
+def test_screenshot_policy_derived_preflop_ranges_detect_opponent_nut_advantage() -> None:
     players = [
         FakePlayer("hero", ("As", "Kd")),
         FakePlayer("villain", ("2c", "3d")),
@@ -976,7 +976,7 @@ def test_chart_derived_preflop_ranges_detect_opponent_nut_advantage() -> None:
     )
     calls = []
 
-    def chart_estimator(*, table, hand, exclude_player_id=None):
+    def screenshot_policy_estimator(*, table, hand, exclude_player_id=None):
         calls.append(exclude_player_id)
         return {
             "supported": True,
@@ -995,7 +995,7 @@ def test_chart_derived_preflop_ranges_detect_opponent_nut_advantage() -> None:
         }
 
     profile = module._preflop_range_advantage_profile(
-        FakeTable(), hand, "hero", hand.board, chart_estimator
+        FakeTable(), hand, "hero", hand.board, screenshot_policy_estimator
     )
     assert calls == [None]
     assert profile["supported"] is True
@@ -1246,7 +1246,7 @@ def test_chart_range_profile_recognizes_hero_positive_range_advantage():
         street="flop", to_call=0, actions=("check", "bet"),
     )
 
-    def chart_estimator(*, table, hand, exclude_player_id=None):
+    def screenshot_policy_estimator(*, table, hand, exclude_player_id=None):
         return {
             "supported": True,
             "players": {
@@ -1266,7 +1266,7 @@ def test_chart_range_profile_recognizes_hero_positive_range_advantage():
         }
 
     profile = module._preflop_range_advantage_profile(
-        FakeTable(), hand, "hero", hand.board, chart_estimator
+        FakeTable(), hand, "hero", hand.board, screenshot_policy_estimator
     )
     assert profile["supported"] is True
     assert profile["mean_advantage"] > 0.0
