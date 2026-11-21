@@ -3798,6 +3798,226 @@ class PigeonPokerApp(tk.Tk):
         canvas.create_line(11, 3, 11, 7, fill=color, width=1.8)
         canvas.create_line(23, 3, 23, 7, fill=color, width=1.8)
 
+    def _range_chart_for_table(self, slot, hand):
+        if hand is None or bool(getattr(hand, "finished", False)):
+            return None
+        if str(getattr(hand, "street", "")).lower() not in {"preflop", "pre"}:
+            return None
+        if str(getattr(hand, "next_to_act", "") or "") != "hero":
+            return None
+        try:
+            return preflop_gto_range_for_situation(slot.state.get("cash_table"), hand, "hero")
+        except Exception:
+            return None
+
+    def _update_range_icon_state(self, slot, record, hand):
+        canvas = record.get("range_icon")
+        if canvas is None:
+            return
+        current_key = str(slot.state.get("cash_current_hand_key") or
+                          (f"{slot.table_id}:{id(hand)}" if hand is not None else ""))
+        signature = (
+            id(hand) if hand is not None else None,
+            len(getattr(hand, "events", ()) or ()) if hand is not None else 0,
+            str(getattr(hand, "street", "")) if hand is not None else "",
+            str(getattr(hand, "next_to_act", "")) if hand is not None else "",
+            current_key,
+        )
+        if record.get("range_chart_cache_key") != signature:
+            chart = self._range_chart_for_table(slot, hand)
+            record["range_chart_cache"] = chart
+            record["range_chart_cache_key"] = signature
+        chart = record.get("range_chart_cache")
+        paid = bool(current_key and slot.state.get("range_paid_hand_key") == current_key)
+        try:
+            balance = int(self.wallet_store.get_balance(self.cash_balance_cents))
+        except Exception:
+            balance = max(0, int(getattr(self, "cash_balance_cents", 0)))
+        fee = int(getattr(hand, "big_blind", 0) or 0) if hand is not None else 0
+        enabled = bool(chart and (paid or (fee > 0 and balance >= fee)))
+        self._draw_range_grid_icon(canvas, enabled=enabled)
+        try:
+            canvas.configure(
+                state="normal" if enabled else "disabled",
+                cursor="hand2" if enabled else "arrow")
+        except tk.TclError:
+            pass
+        record["range_paid_for_current_hand"] = paid
+        record["range_current_hand_key"] = current_key
+
+    def _debit_live_range_review(self, amount_cents: int, table_id: str, hand_key: str) -> bool:
+        """Atomically debit the shared Wallet balance, never the poker stack."""
+        import sqlite3
+        amount = int(amount_cents)
+        if amount <= 0:
+            return False
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        db_path = self.wallet_store.db_path
+        with sqlite3.connect(str(db_path), timeout=20, isolation_level=None) as con:
+            con.execute("PRAGMA busy_timeout=20000")
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute(
+                "SELECT balance_cents FROM wallet_account WHERE account_id=1"
+            ).fetchone()
+            if row is None or int(row[0]) < amount:
+                con.execute("ROLLBACK")
+                return False
+            before = int(row[0])
+            after = before - amount
+            txid = uuid.uuid4().hex
+            con.execute(
+                "UPDATE wallet_account SET balance_cents=?,updated_at=? WHERE account_id=1",
+                (after, now),
+            )
+            con.execute(
+                "INSERT INTO cashier_transactions "
+                "(transaction_id,played_at,kind,delta_cents,balance_after_cents,recipient,note) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (txid, now, "preflop-range-review", -amount, after, "",
+                 f"Live preflop range review • table {table_id} • hand {hand_key}"),
+            )
+            con.execute("COMMIT")
+        self.cash_balance_cents = after
+        self._update_cash_balance()
+        try:
+            self._refresh_cashier()
+        except Exception:
+            pass
+        return True
+
+    def _open_realtime_preflop_range(self, table_id: str):
+        slot = self.multi_tables.get(table_id)
+        if slot is None:
+            return
+        table = slot.state.get("cash_table")
+        hand = table.hand if table is not None else None
+        chart = self._range_chart_for_table(slot, hand)
+        if chart is None:
+            self._update_range_icon_state(slot, self.table_windows.get(table_id, {}), hand)
+            return
+        hand_key = str(slot.state.get("cash_current_hand_key") or f"{table_id}:{id(hand)}")
+        paid = str(slot.state.get("range_paid_hand_key") or "") == hand_key
+        if not paid:
+            fee = int(getattr(hand, "big_blind", 0) or 0)
+            if fee <= 0 or not self._debit_live_range_review(fee, table_id, hand_key):
+                self._update_range_icon_state(slot, self.table_windows.get(table_id, {}), hand)
+                return
+            slot.state["range_paid_hand_key"] = hand_key
+            try:
+                if self.active_cash_table_id == table_id:
+                    self._save_active_cash_slot()
+            except Exception:
+                pass
+        record = self.table_windows.get(table_id)
+        if record is not None:
+            record["range_paid_for_current_hand"] = True
+            self._update_range_icon_state(slot, record, hand)
+        self._open_preflop_range_view(
+            chart,
+            title="LIVE PREFLOP RANGE",
+            charge_label=("1 BB paid for this hand • re-open free" if not paid
+                          else "Already paid this hand • re-open free"),
+        )
+
+    def _open_live_hand_flow(self, table_id: str):
+        slot = self.multi_tables.get(table_id)
+        if slot is None:
+            return
+        table = slot.state.get("cash_table")
+        hand = table.hand if table is not None else None
+        if hand is None:
+            return
+
+        win = tk.Toplevel(self)
+        win.title(f"PIGEON POKER • LIVE HAND FLOW • {slot.rate}")
+        win.geometry("560x620")
+        win.minsize(440, 440)
+        win.configure(bg="#080e19")
+        header = tk.Frame(win, bg="#080e19", padx=12, pady=9)
+        header.pack(fill="x")
+        title_var = tk.StringVar(value="LIVE HAND FLOW")
+        board_var = tk.StringVar(value="")
+        tk.Label(header, textvariable=title_var, bg="#080e19", fg="#f2f6fc",
+                 font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        tk.Label(header, textvariable=board_var, bg="#080e19", fg="#e6bd63",
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(3, 0))
+        flow = tk.Text(win, bg="#0b1624", fg="#eaf1f9", insertbackground="#fff",
+                       relief="flat", wrap="word", font=("Consolas", 9), padx=10, pady=8)
+        flow.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        flow.configure(state="disabled")
+        state = {"after_id": None, "closed": False, "last_text": ""}
+
+        def close():
+            state["closed"] = True
+            if state.get("after_id"):
+                try:
+                    win.after_cancel(state["after_id"])
+                except tk.TclError:
+                    pass
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
+
+        def render():
+            if state["closed"] or not win.winfo_exists():
+                return
+            active_slot = self.multi_tables.get(table_id)
+            active_table = active_slot.state.get("cash_table") if active_slot else None
+            active_hand = active_table.hand if active_table is not None else None
+            if active_hand is None:
+                text = "No active hand."
+                board_text = ""
+                hand_number = "LIVE HAND FLOW"
+            else:
+                hero = next((p for p in active_hand.players if p.player_id == "hero"), None)
+                hero_cards = " ".join(getattr(hero, "hole_cards", ()) or ()) if hero else "—"
+                visible_board = list((active_slot.state.get("cash_visible_board", []) or [])
+                                     if active_slot else [])
+                board_text = f"YOUR CARDS  {hero_cards or '—'}     BOARD  {' '.join(visible_board) or '—'}"
+                hand_number = (f"HAND #{getattr(active_hand, 'hand_number', 0)}  •  "
+                               f"{str(getattr(active_hand, 'street', 'preflop')).upper()}  •  "
+                               f"POT ${int(getattr(active_hand, 'pot', 0))/100:.2f}")
+                names = {p.player_id: p.name for p in active_hand.players}
+                out = [hand_number, board_text, "", "ACTION FLOW"]
+                for event in list(getattr(active_hand, "events", ()) or ()):
+                    if not isinstance(event, dict):
+                        continue
+                    kind = str(event.get("type", "action"))
+                    if kind == "street":
+                        street = str(event.get("street", "")).upper()
+                        out.append(f"\n── {street} ──")
+                        continue
+                    if kind != "action":
+                        continue
+                    pid = str(event.get("player_id") or "")
+                    actor = str(event.get("player") or names.get(pid, pid or "Player"))
+                    if pid == "hero" or actor.casefold() in {"you", "hero"}:
+                        actor = "YOU"
+                    action = str(event.get("action", "")).upper().replace("_", " ")
+                    target = event.get("target")
+                    amount = ""
+                    if target not in (None, "", 0):
+                        amount = f"  ${int(target)/100:.2f}"
+                    out.append(f"{actor:<14} {action}{amount}")
+                if active_hand.finished:
+                    out.append("")
+                    out.append(f"RESULT  {str(active_hand.winner_reason or 'COMPLETE').upper()}")
+                text = "\n".join(out)
+            title_var.set(hand_number)
+            board_var.set(board_text)
+            if text != state["last_text"]:
+                flow.configure(state="normal")
+                flow.delete("1.0", "end")
+                flow.insert("end", text)
+                flow.configure(state="disabled")
+                flow.see("end")
+                state["last_text"] = text
+            state["after_id"] = win.after(700, render)
+
+        win.protocol("WM_DELETE_WINDOW", close)
+        render()
+
     def _create_table_window(self, table_id: str):
         """Create a compact, self-contained Rush & Cash table window."""
         if table_id in self.table_windows:
@@ -6282,6 +6502,7 @@ class PigeonPokerApp(tk.Tk):
             table = state.get("cash_table")
             hand = table.hand if table is not None else None
             current_hand_key = id(hand) if hand is not None else None
+            self._update_range_icon_state(slot, record, hand)
             if hand is not None and not hand.finished:
                 previous_effect_hand = record.get("social_effect_hand_key")
                 if previous_effect_hand != current_hand_key:
