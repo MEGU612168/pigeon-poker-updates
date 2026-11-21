@@ -1087,6 +1087,32 @@ def test_bet_response_branch_probabilities_sum_to_one_and_condition_on_calls():
     assert abs(metrics["expected_callers"] - 1.0) < 1e-8
     assert 0.0 <= metrics["called_equity"] <= 1.0
     assert metrics["samples"] > 0
+    assert 0.0 <= metrics["raise_conditioned_equity"] <= 1.0
+    assert metrics["raise_samples"] > 0
+
+
+def test_effective_all_in_cannot_receive_a_further_raise_response():
+    players = [
+        FakePlayer("hero", ("Qh", "Qd"), stack=500),
+        FakePlayer("villain", (), stack=500),
+    ]
+    hand = FakeHand(
+        players, board=("Js", "7d", "2c"), pot=1000,
+        street="flop", to_call=0, actions=("check", "bet"),
+    )
+    opponent = module.OpponentRange(
+        player_id="villain",
+        combos=((("Jc", "Jh"), 0.5), (("3s", "4s"), 0.5)),
+        source="test-range", confidence=0.9,
+    )
+    metrics = module._bet_response_branch_metrics(
+        hand, "hero", {"villain": opponent}, list(hand.board),
+        0.75, FakeCPU(5), simulation_multiplier=0.25,
+    )
+    assert metrics["raise_probability"] == 0.0
+    assert abs(
+        metrics["all_fold_probability"] + metrics["call_only_probability"] - 1.0
+    ) < 1e-8
 
 
 def test_size_specific_opponent_learning_changes_only_matching_street_and_size():
