@@ -58,7 +58,7 @@ def test_history_icon_draws_two_real_playing_cards_tilted_left():
 
 def test_live_hand_flow_tracks_events_and_hides_unrevealed_board():
     flow = source_of("_open_live_hand_flow")
-    assert "active_hand.events" in flow
+    assert 'getattr(active_hand, "events"' in flow
     assert "cash_visible_board" in flow
     assert "win.after(700, render)" in flow
     assert "YOUR CARDS" in flow
