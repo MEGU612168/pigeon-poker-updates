@@ -137,41 +137,107 @@ def save_config(data: dict[str, Any]) -> None:
     CONFIG.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _fit_toplevel_to_monitor_work_area(
+    window: tk.Misc,
+    *,
+    max_outer_width: int | None = None,
+    max_outer_height: int | None = None,
+    margin: int = 0,
+    anchor: tk.Misc | None = None,
+) -> tuple[int, int] | None:
+    """Fit a native Tk top-level inside its monitor's Windows work area.
+
+    Tk geometry dimensions describe the client area, while the taskbar is
+    reserved against the native outer frame. SetWindowPos therefore receives
+    an explicitly bounded *outer* rectangle so title bars/borders cannot
+    spill into the Windows taskbar. Returns the resulting Tk client size.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _RECT(ctypes.Structure):
+            _fields_ = [
+                ("left", wintypes.LONG), ("top", wintypes.LONG),
+                ("right", wintypes.LONG), ("bottom", wintypes.LONG),
+            ]
+
+        class _MONITORINFO(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", wintypes.DWORD), ("rcMonitor", _RECT),
+                ("rcWork", _RECT), ("dwFlags", wintypes.DWORD),
+            ]
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+        user32.GetAncestor.restype = wintypes.HWND
+        user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+        user32.MonitorFromWindow.restype = wintypes.HANDLE
+        user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_MONITORINFO)]
+        user32.GetMonitorInfoW.restype = wintypes.BOOL
+        user32.SetWindowPos.argtypes = [
+            wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+            ctypes.c_int, ctypes.c_int, wintypes.UINT,
+        ]
+        user32.SetWindowPos.restype = wintypes.BOOL
+
+        target_hwnd = int(window.winfo_id())
+        anchor_widget = anchor if anchor is not None else window
+        anchor_hwnd = int(anchor_widget.winfo_id())
+        target_root = user32.GetAncestor(target_hwnd, 2) or target_hwnd
+        anchor_root = user32.GetAncestor(anchor_hwnd, 2) or anchor_hwnd
+        monitor = user32.MonitorFromWindow(anchor_root, 2)  # MONITOR_DEFAULTTONEAREST
+        if not monitor:
+            return None
+        info = _MONITORINFO()
+        info.cbSize = ctypes.sizeof(_MONITORINFO)
+        if not user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+            return None
+
+        work = info.rcWork
+        work_width = int(work.right - work.left)
+        work_height = int(work.bottom - work.top)
+        available_width = max(1, work_width - 2 * max(0, int(margin)))
+        available_height = max(1, work_height - 2 * max(0, int(margin)))
+        outer_width = available_width if max_outer_width is None else min(
+            available_width, max(1, int(max_outer_width))
+        )
+        outer_height = available_height if max_outer_height is None else min(
+            available_height, max(1, int(max_outer_height))
+        )
+        x = int(work.left) + max(0, (work_width - outer_width) // 2)
+        y = int(work.top) + max(0, (work_height - outer_height) // 2)
+        flags = 0x0004 | 0x0010 | 0x0020  # NOZORDER | NOACTIVATE | FRAMECHANGED
+        if not user32.SetWindowPos(
+            target_root, None, x, y, outer_width, outer_height, flags
+        ):
+            return None
+        window.update_idletasks()
+        return max(1, int(window.winfo_width())), max(1, int(window.winfo_height()))
+    except Exception:
+        # Preserve the non-Windows/fallback geometry rather than blocking startup.
+        return None
+
+
 class PigeonPokerApp(tk.Tk):
     """Pigeon Poker desktop alpha: table UI shell plus embedded GTO+ strategy bridge."""
 
     def __init__(self):
         super().__init__()
         self.title("Pigeon Poker | Cash & Rush")
-        # Respect the Windows work area (which excludes the taskbar). The
-        # previous fixed 1480x900 geometry could extend below it on shorter
-        # displays and make the taskbar appear to have vanished.
-        initial_width, initial_height = 1480, 900
-        try:
-            import ctypes
-            from ctypes import wintypes
-            class _WorkAreaRect(ctypes.Structure):
-                _fields_ = [
-                    ("left", wintypes.LONG), ("top", wintypes.LONG),
-                    ("right", wintypes.LONG), ("bottom", wintypes.LONG),
-                ]
-            work_area = _WorkAreaRect()
-            ok = ctypes.windll.user32.SystemParametersInfoW(
-                0x0030, 0, ctypes.byref(work_area), 0
-            )
-            if ok:
-                work_width = max(900, work_area.right - work_area.left)
-                work_height = max(650, work_area.bottom - work_area.top)
-                initial_width = min(initial_width, work_width)
-                initial_height = min(initial_height, work_height)
-                x = work_area.left + (work_width - initial_width) // 2
-                y = work_area.top + (work_height - initial_height) // 2
-                self.geometry(f"{initial_width}x{initial_height}+{x}+{y}")
-            else:
-                self.geometry("1480x900")
-        except Exception:
-            self.geometry("1480x900")
-        self.minsize(1180, 720)
+        # Start at the user's normal desktop size, then fit the native outer
+        # frame (not just Tk's client area) inside the monitor work area.
+        # This leaves the Windows taskbar visible even with title-bar/border
+        # dimensions and non-100% display scaling.
+        self.geometry("1480x900")
+        self.update_idletasks()
+        root_client_size = _fit_toplevel_to_monitor_work_area(self)
+        if root_client_size:
+            self.minsize(min(1180, root_client_size[0]), min(720, root_client_size[1]))
+        else:
+            self.minsize(1180, 720)
         self.configure(bg=COLORS["bg"])
         self.config_data = load_config()
         self.chip_display_unit = str(self.config_data.get("chip_display_unit", "USD")).upper()
@@ -4252,16 +4318,24 @@ class PigeonPokerApp(tk.Tk):
 
         window = tk.Toplevel(self)
         window.title(f"Pigeon Poker • {table_mode_label(slot.state.get('cash_game_mode'))} • {slot.rate}")
-        screen_w, screen_h = window.winfo_screenwidth(), window.winfo_screenheight()
-        # Reserve a visible strip above the Windows taskbar. A tall status
-        # section below the felt used to push the action dock into the taskbar.
-        width = max(760, min(1280, screen_w - 60))
-        height = max(470, min(860, screen_h - 110))
-        x = max(0, (screen_w - width) // 2)
-        # Keep the table near the top while preserving a generous taskbar gap.
-        y = max(12, min(60, (screen_h - height - 60) // 2))
-        window.geometry(f"{width}x{height}+{x}+{y}")
-        window.minsize(760, 470)
+        # Size by the native outer frame and this monitor's work area, not
+        # winfo_screenheight() (which includes the taskbar and can cover it).
+        window.geometry("1280x860+0+0")
+        window.update_idletasks()
+        table_client_size = _fit_toplevel_to_monitor_work_area(
+            window, max_outer_width=1280, max_outer_height=860,
+            margin=12, anchor=self,
+        )
+        if table_client_size:
+            window.minsize(min(760, table_client_size[0]), min(470, table_client_size[1]))
+        else:
+            screen_w, screen_h = window.winfo_screenwidth(), window.winfo_screenheight()
+            width = max(760, min(1280, screen_w - 60))
+            height = max(470, min(860, screen_h - 110))
+            x = max(0, (screen_w - width) // 2)
+            y = max(12, min(60, (screen_h - height - 60) // 2))
+            window.geometry(f"{width}x{height}+{x}+{y}")
+            window.minsize(min(760, width), min(470, height))
         window.configure(bg=COLORS["bg"])
 
         # Compact top bar: table identity, turn state and wallet only.
@@ -10778,12 +10852,21 @@ class PigeonPokerApp(tk.Tk):
         win.resizable(False, False)
         width, height = 620, 680
         try:
-            parent.update_idletasks()
-            px, py = parent.winfo_rootx(), parent.winfo_rooty()
-            pw, ph = max(width, parent.winfo_width()), max(height, parent.winfo_height())
-            x = px + (pw - width) // 2
-            y = py + (ph - height) // 2
-            win.geometry(f"{width}x{height}+{x}+{y}")
+            win.geometry(f"{width}x{height}")
+            win.update_idletasks()
+            # Keep the range dialog on the same monitor as its table and clamp
+            # its native frame to the work area so it cannot spill off-screen.
+            fitted_range_size = _fit_toplevel_to_monitor_work_area(
+                win, max_outer_width=660, max_outer_height=720,
+                margin=12, anchor=parent,
+            )
+            if fitted_range_size is None:
+                parent.update_idletasks()
+                px, py = parent.winfo_rootx(), parent.winfo_rooty()
+                pw, ph = max(width, parent.winfo_width()), max(height, parent.winfo_height())
+                x = px + (pw - width) // 2
+                y = py + (ph - height) // 2
+                win.geometry(f"{width}x{height}+{x}+{y}")
             win.transient(parent)
             win.lift()
             win.focus_force()
@@ -10882,6 +10965,13 @@ class PigeonPokerApp(tk.Tk):
             "fold": "#438ac5",
         }
 
+        def safe_frequency(item):
+            try:
+                value = float(item.get("frequency", 0.0) or 0.0)
+            except (AttributeError, TypeError, ValueError, OverflowError):
+                return 0.0
+            return max(0.0, min(1.0, value)) if math.isfinite(value) else 0.0
+
         def draw(_event=None):
             if not canvas.winfo_exists():
                 return
@@ -10894,22 +10984,29 @@ class PigeonPokerApp(tk.Tk):
                 row, col = divmod(index, 13)
                 x0, y0 = col * cell_w, row * cell_h
                 x1, y1 = x0 + cell_w, y0 + cell_h
-                choices = [
-                    item for item in (hands.get(hand_class, []) or [])
-                    if float(item.get("frequency", 0.0) or 0.0) > 0.000001
-                ]
-                total = sum(max(0.0, float(item.get("frequency", 0.0) or 0.0))
-                            for item in choices)
+                raw_choices = hands.get(hand_class, []) if isinstance(hands, dict) else []
+                choices = []
+                if isinstance(raw_choices, (list, tuple)):
+                    for item in raw_choices:
+                        if not isinstance(item, dict):
+                            continue
+                        frequency = safe_frequency(item)
+                        if frequency > 0.000001:
+                            choices.append({
+                                "action": str(item.get("action", "fold") or "fold"),
+                                "frequency": frequency,
+                            })
+                total = sum(item["frequency"] for item in choices)
                 if total <= 0.0:
                     choices = [{"action": "fold", "frequency": 1.0}]
                     total = 1.0
                 cursor_x = x0
                 for choice in choices:
-                    frequency = max(0.0, float(choice.get("frequency", 0.0) or 0.0))
+                    frequency = choice["frequency"]
                     if frequency <= 0:
                         continue
                     segment_end = min(x1, cursor_x + cell_w * frequency / total)
-                    action = str(choice.get("action", "fold")).lower().replace("_", "")
+                    action = str(choice["action"]).lower().replace("_", "")
                     color = palette.get(action, "#438ac5")
                     canvas.create_rectangle(
                         cursor_x, y0, segment_end, y1,
@@ -10933,16 +11030,38 @@ class PigeonPokerApp(tk.Tk):
                     tags=("range_cell",),
                 )
 
-        canvas.bind("<Configure>", draw)
-        # Force geometry calculation before the first paint. The old
-        # after_idle-only first draw could leave an empty black canvas on
-        # some Windows/Tk DPI configurations.
+        def safe_draw(_event=None):
+            try:
+                draw(_event)
+            except Exception as exc:
+                # Never leave a feature window looking like an unexplained
+                # black screen: show a visible diagnostic in the canvas.
+                try:
+                    canvas.delete("all")
+                    canvas.create_text(
+                        max(130, canvas.winfo_width() // 2),
+                        max(130, canvas.winfo_height() // 2),
+                        text=("RANGE DISPLAY ERROR\\n" + type(exc).__name__),
+                        fill="#ff9a9a", font=("Segoe UI", 14, "bold"),
+                        justify="center",
+                    )
+                except tk.TclError:
+                    pass
+
+        canvas.bind("<Configure>", safe_draw)
+        # Paint after layout, after mapping, and once more after the Windows
+        # compositor settles. This avoids a blank canvas when the first
+        # Configure event arrives before Tk has final DPI-adjusted dimensions.
         try:
             win.update_idletasks()
-            draw()
+            canvas.update_idletasks()
+            safe_draw()
+            win.lift()
         except tk.TclError:
             pass
-        win.after(80, draw)
+        win.after_idle(safe_draw)
+        win.after(120, safe_draw)
+        win.after(360, safe_draw)
     def _open_pokercraft_replay(self):
         """Open an animated, step-based replay using only cards shown originally."""
         record = getattr(self, "selected_history_record", None)
