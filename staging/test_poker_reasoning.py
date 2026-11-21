@@ -1205,8 +1205,9 @@ def test_sdv_check_value_beats_a_lower_ev_bet():
     # weak call-conditioned equity make it worth less than checking with 80%
     # range-weighted showdown equity after positional realization.
     assert decision.action == "check"
-    assert "SDV-equity=80.0%" in decision.note
-    assert "check-EV≈776.0" in decision.note
+    assert "raw-equity=80.0%" in decision.note
+    assert "realized-equity=77.6%" in decision.note
+    assert "SDV-check-EV≈776.0" in decision.note
 
 
 def test_chart_range_profile_recognizes_hero_positive_range_advantage():
