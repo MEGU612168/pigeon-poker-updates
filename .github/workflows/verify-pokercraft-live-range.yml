@@ -1,0 +1,51 @@
+name: Verify PokerCraft, live hand flow, and paid exact range review
+
+on:
+  push:
+    branches:
+      - feature/pokercraft-live-range-tools
+    paths:
+      - "staging/source_1_3_101/PigeonPoker.pyw"
+      - "staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py"
+      - "staging/test_preflop_gto_policy.py"
+      - "staging/test_preflop_gto_integrity.py"
+      - "staging/test_preflop_user_actions.py"
+      - "staging/test_pokercraft_features.py"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "staging/source_1_3_101/PigeonPoker.pyw"
+      - "staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py"
+      - "staging/test_preflop_gto_policy.py"
+      - "staging/test_preflop_gto_integrity.py"
+      - "staging/test_preflop_user_actions.py"
+      - "staging/test_pokercraft_features.py"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile Pigeon Poker
+        run: |
+          python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py
+      - name: Verify PokerCraft, live-flow and range controls
+        run: python staging/test_pokercraft_features.py
+      - name: Verify complete screenshot-derived preflop strategy
+        run: |
+          python staging/test_preflop_gto_policy.py
+          python staging/test_preflop_gto_integrity.py
+      - name: Verify user action, postflop, and CPU compatibility
+        run: |
+          python staging/test_preflop_user_actions.py
+          python staging/test_postflop_controls.py
+          python staging/test_poker_reasoning.py
+          python staging/test_cpu_learning.py
