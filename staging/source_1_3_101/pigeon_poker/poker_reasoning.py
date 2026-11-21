@@ -23,6 +23,7 @@ class OpponentRange:
     participation_probability: float = 1.0
     archetype: str = "balanced"
     removed_combos: tuple[tuple[tuple[str, str], float], ...] = ()
+    learned_stats: tuple[tuple[str, float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -287,7 +288,8 @@ def _board_metrics_cached(
 
 def _action_likelihood(action: str, made: float, draw: float,
                        size_fraction: float, street: str,
-                       archetype: str = "balanced") -> float:
+                       archetype: str = "balanced",
+                       learned_stats: Any = None) -> float:
     """Posterior likelihood for an observed action, with a conservative player-style prior."""
     value = action.lower()
     style = str(archetype or "balanced").lower()
@@ -330,12 +332,23 @@ def _action_likelihood(action: str, made: float, draw: float,
             likelihood *= 0.24 + 0.76 * made + 0.10 * draw
     else:
         return 0.5
+    stats = learned_stats if isinstance(learned_stats, dict) else dict(learned_stats or ())
+    sample_hands = max(0.0, float(stats.get("sample_hands", 0.0) or 0.0))
+    confidence = min(0.80, sample_hands / (sample_hands + 24.0)) if sample_hands else 0.0
+    if confidence > 0:
+        if value in {"call", "allin_call", "all_in_call"}:
+            observed = max(0.0, min(1.0, float(stats.get("postflop_call_rate", 0.30))))
+            likelihood *= math.exp(max(-0.70, min(0.70, (observed - 0.30) * 1.55 * confidence)))
+        elif value in {"raise", "bet", "allin", "all_in", "jam", "shove"}:
+            observed = max(0.0, min(1.0, float(stats.get("postflop_aggression_rate", 0.22))))
+            likelihood *= math.exp(max(-0.65, min(0.65, (observed - 0.22) * 1.35 * confidence)))
     return max(0.008, min(1.0, likelihood))
 
 
 def _response_continue_probability(made: float, draw: float,
                                    size_fraction: float, street: str,
-                                   archetype: str = "balanced") -> float:
+                                   archetype: str = "balanced",
+                                   learned_stats: Any = None) -> float:
     """Estimate a player's continue frequency from hand strength, draws, size and style."""
     made = max(0.0, min(1.0, float(made)))
     draw = 0.0 if street == "river" else max(0.0, min(1.0, float(draw)))
@@ -360,6 +373,14 @@ def _response_continue_probability(made: float, draw: float,
         logit += 0.16 + 0.16 * draw
     elif style == "underbluffer":
         logit -= 0.28 * (1.0 - made)
+    stats = learned_stats if isinstance(learned_stats, dict) else dict(learned_stats or ())
+    sample_hands = max(0.0, float(stats.get("sample_hands", 0.0) or 0.0))
+    confidence = min(0.80, sample_hands / (sample_hands + 24.0)) if sample_hands else 0.0
+    if confidence > 0:
+        observed_fold = max(0.0, min(1.0, float(stats.get("fold_to_bet_rate", 0.55))))
+        observed_call = max(0.0, min(1.0, float(stats.get("postflop_call_rate", 0.30))))
+        observed_continue = 0.55 * (1.0 - observed_fold) + 0.45 * observed_call
+        logit += max(-1.0, min(1.0, (observed_continue - 0.35) * 2.0 * confidence))
     if street == "river":
         logit += 0.10 * made
     if logit >= 0:
@@ -473,8 +494,9 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
                 if set(combo) & set(running_board):
                     continue
                 made, draw = _board_metrics(combo, running_board)
+                learned_stats = row.get("learned_behavior", {}) if isinstance(row, dict) else {}
                 likelihood = _action_likelihood(
-                    action, made, draw, size_fraction, street, archetype
+                    action, made, draw, size_fraction, street, archetype, learned_stats
                 )
                 weighted = weight * likelihood
                 if weighted > 0:
@@ -534,9 +556,14 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
                 anchor = anchors[min(3, max(0, raises_seen - 1))]
                 size_factor = max(0.55, min(1.0, anchor / max(1.0, target_bb)))
                 participation *= size_factor
+        learned_stats = row.get("learned_behavior", {}) if isinstance(row, dict) else {}
+        learned_stats_tuple = tuple(sorted(
+            (str(key), float(value)) for key, value in learned_stats.items()
+            if isinstance(value, (int, float)) and math.isfinite(float(value))
+        )) if isinstance(learned_stats, dict) else ()
         ranges[pid] = OpponentRange(
             pid, normalised, source, confidence, participation,
-            archetype, removed_normalised
+            archetype, removed_normalised, learned_stats_tuple
         )
     return ranges
 
@@ -680,7 +707,8 @@ def _fold_probability(ranges: dict[str, OpponentRange], board: list[str],
                 _preflop_strength(_cards_to_class(combo)), 0.0
             )
             continue_mass += max(0.0, float(weight)) * _response_continue_probability(
-                made, draw, bet_fraction, street, opponent_range.archetype
+                made, draw, bet_fraction, street, opponent_range.archetype,
+                opponent_range.learned_stats,
             )
         conditional_continue = max(0.0, min(1.0, continue_mass / total))
         participation = max(0.0, min(1.0, float(opponent_range.participation_probability)))
@@ -743,6 +771,8 @@ def _bet_response_metrics(
             source=opponent_range.source + "+bet-response",
             confidence=opponent_range.confidence,
             participation_probability=actual_call_probability,
+            archetype=opponent_range.archetype,
+            learned_stats=opponent_range.learned_stats,
         )
 
     unconditional_equity, samples = _equity_vs_ranges(
