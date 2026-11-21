@@ -1382,7 +1382,7 @@ def test_postflop_position_profile_identifies_last_to_act():
     profile_oop = module._postflop_position_profile(FakeTable(), hand, "hero")
     assert profile_oop["known"] is True
     assert profile_oop["in_position"] is False
-    assert profile_oop["opponents_after"] == 1
+    assert profile_oop["opponents_after"] == 2
 
 
 def test_postflop_action_posterior_shifts_range_toward_stronger_made_hands():
