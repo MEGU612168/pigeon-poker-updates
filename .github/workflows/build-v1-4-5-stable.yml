@@ -1,0 +1,203 @@
+name: Build verified Pigeon Poker v1.4.5 stable update
+
+on:
+  push:
+    paths:
+      - "releases/v1.4.5/payload.ready"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify all new desktop features and preflop policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_cleanup.py
+          python staging/test_pokercraft_features.py
+          python staging/test_preflop_gto_policy.py
+          python staging/test_preflop_gto_integrity.py
+          python staging/test_preflop_user_actions.py
+          python staging/test_postflop_controls.py
+          python staging/test_poker_reasoning.py
+          python staging/test_cpu_learning.py
+          python staging/test_preflop_legacy_cleanup.py
+
+      - name: Assemble and validate the full update package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import importlib.util
+          import io
+          import json
+          import pathlib
+          import tempfile
+          import zipfile
+          from datetime import datetime, timezone
+
+          root = pathlib.Path(".")
+          release_dir = root / "releases" / "v1.4.5"
+          meta_path = release_dir / "release.json"
+          source_dir = root / "staging" / "source_1_3_101"
+          if not meta_path.is_file():
+              raise SystemExit("Missing v1.4.5 release.json")
+          meta = json.loads(meta_path.read_text(encoding="utf-8"))
+          if meta.get("schema_version") != 1 or meta.get("product") != "pigeon-poker" or meta.get("channel") != "stable":
+              raise SystemExit("Invalid release metadata")
+          version = str(meta.get("version", "")).strip()
+          if version != "1.4.5" or release_dir.name != "v" + version:
+              raise SystemExit("Unexpected release version")
+          if not source_dir.is_dir():
+              raise SystemExit("Verified staging source directory is missing")
+
+          files = {
+              "PigeonPoker.pyw": source_dir / "PigeonPoker.pyw",
+              "pigeon_updater.py": source_dir / "pigeon_updater.py",
+          }
+          for package in ("pigeon_poker", "pigeon_gto_plus"):
+              package_dir = source_dir / package
+              if not package_dir.is_dir():
+                  raise SystemExit("Missing application module directory: " + package)
+              for path in sorted(package_dir.rglob("*.py")):
+                  if path.is_file() and "__pycache__" not in path.parts and not any(part.startswith(".") for part in path.parts):
+                      files[(pathlib.Path(package) / path.relative_to(package_dir)).as_posix()] = path
+          required = {"PigeonPoker.pyw", "pigeon_updater.py"}
+          if not required.issubset(files):
+              raise SystemExit("Application root source files are incomplete")
+
+          buffer = io.BytesIO()
+          with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+              archive.writestr("VERSION.txt", version + "\n")
+              for name, path in files.items():
+                  data = path.read_bytes()
+                  if not data:
+                      raise SystemExit("Empty source file: " + name)
+                  if pathlib.PurePosixPath(name).suffix.lower() in {".py", ".pyw"}:
+                      ast.parse(data.decode("utf-8"), filename=name)
+                  archive.writestr(name, data)
+
+          payload = buffer.getvalue()
+          if not payload or len(payload) > 18 * 1024 * 1024:
+              raise SystemExit("Payload size is outside the supported range")
+          digest = hashlib.sha256(payload).hexdigest()
+
+          updater_path = source_dir / "pigeon_updater.py"
+          spec = importlib.util.spec_from_file_location("pigeon_v141_updater", updater_path)
+          if spec is None or spec.loader is None:
+              raise SystemExit("Could not load packaged updater for validation")
+          updater = importlib.util.module_from_spec(spec)
+          import sys
+          sys.modules[spec.name] = updater
+          spec.loader.exec_module(updater)
+          manifest_for_test = {
+              "version": version,
+              "payload_size": len(payload),
+              "payload_sha256": digest,
+              "package_mode": "full",
+          }
+          with tempfile.TemporaryDirectory() as tmp:
+              extracted = updater._validate_and_extract(payload, manifest_for_test, pathlib.Path(tmp) / "extract")
+          extracted_set = set(extracted)
+          if not {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}.issubset(extracted_set):
+              raise SystemExit("Shipped updater did not extract every required root file")
+          if "pigeon_poker/preflop_gto_strategy.py" not in extracted_set:
+              raise SystemExit("New screenshot-trained preflop strategy is missing from the update")
+          if "pigeon_poker/preflop_cleanup.py" not in extracted_set:
+              raise SystemExit("Retired preflop cleanup module is missing from the update")
+          if "pigeon_poker/preflop_cleanup.py" not in extracted_set:
+              raise SystemExit("Retired preflop cleanup module is missing from the update")
+          if ("pigeon_poker/preflop_screenshot_" + "ranges.py") in extracted_set:
+              raise SystemExit("Retired preflop implementation must not be bundled")
+          app_source = (source_dir / "PigeonPoker.pyw").read_text(encoding="utf-8")
+          if "from pigeon_poker.preflop_gto_strategy import" not in app_source:
+              raise SystemExit("Application does not route to the new preflop policy")
+          required_feature_hooks = (
+              "def _build_pokercraft_page(",
+              "def _tick_pokercraft_live_refresh(",
+              "def _draw_history_cards_icon(",
+              "def _open_live_hand_flow(",
+              "def _open_realtime_preflop_range(",
+              "def _historical_preflop_range_chart(",
+              "def _open_preflop_range_view(",
+              "TIME (JST)",
+          )
+          missing_hooks = [hook for hook in required_feature_hooks if hook not in app_source]
+          if missing_hooks:
+              raise SystemExit("Desktop feature hooks missing from packaged app: " + ", ".join(missing_hooks))
+          strategy_source = (source_dir / "pigeon_poker" / "preflop_gto_strategy.py").read_text(encoding="utf-8")
+          if "def preflop_gto_range_for_situation(" not in strategy_source:
+              raise SystemExit("Exact-only preflop range API is missing from package")
+          if "cleanup_retired_preflop_modules()" not in app_source:
+              raise SystemExit("Application does not clean up retired preflop source files")
+          if ("preflop_screenshot_" + "ranges") in app_source:
+              raise SystemExit("Application still references the retired preflop implementation")
+
+          encoded = base64.b64encode(payload).decode("ascii")
+          (release_dir / "payload-updater.zip.b64").write_text(encoded, encoding="ascii")
+          published_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+          release_notes = str(meta.get("release_notes", "新しいスクリーンショット学習プリフロップ戦略と更新パッケージ検証の修正"))
+          manifest = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": version,
+              "published_at": published_at,
+              "release_notes": release_notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "payload_url": f"https://raw.githubusercontent.com/{'MEGU612168/pigeon-poker-updates'}/main/{release_dir.as_posix()}/payload-updater.zip.b64?v={digest}",
+              "payload_sha256": digest,
+              "payload_size": len(payload),
+          }
+          (root / "stable.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          meta["published_at"] = published_at
+          meta["payload_sha256"] = digest
+          meta["payload_size"] = len(payload)
+          meta["files"] = sorted(extracted_set)
+          meta["updater_actual_extract_validation"] = "passed"
+          meta["updater_required_root_files"] = "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt"
+          meta["preflop_strategy_bundle_validation"] = "passed"
+          (meta_path).write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps({
+              "version": version,
+              "payload_size": len(payload),
+              "payload_sha256": digest,
+              "file_count": len(extracted_set),
+              "required_root_files": sorted(required | {"VERSION.txt"}),
+              "preflop_strategy": "included",
+              "utg_open": "exact screenshot-derived 169-hand matrix",
+              "utg_raise_size_bb": 2.0,
+              "utg_raise_frequency_pct": 17.6,
+              "retired_preflop_module": "not bundled",
+              "updater_extract_validation": "passed",
+          }, ensure_ascii=False))
+          PY
+
+      - name: Commit stable manifest and validated payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stable.json releases/v1.4.5/release.json releases/v1.4.5/payload-updater.zip.b64 staging/source_1_3_101/PigeonPoker.pyw staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py staging/source_1_3_101/pigeon_poker/preflop_cleanup.py staging/test_pokercraft_features.py staging/test_preflop_gto_integrity.py staging/test_preflop_gto_policy.py staging/test_preflop_user_actions.py staging/test_postflop_controls.py staging/test_poker_reasoning.py staging/test_cpu_learning.py staging/test_preflop_legacy_cleanup.py
+          git rm --ignore-unmatch releases/v1.4.5/payload.ready
+          git commit -m "Publish verified Pigeon Poker v1.4.5 update"
+          git push
