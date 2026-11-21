@@ -532,7 +532,21 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
     profile_map = opponent_profiles or {}
     learning_map = opponent_learning or {}
     allowed_archetypes = {"aggressive", "calling_station", "overfolder", "underbluffer"}
-    for player_id, row in latest.items():
+    profile_ids = {
+        str(player_id) for player_id in
+        (set(latest) | set(profile_map) | set(learning_map))
+        if str(player_id) != str(exclude_player_id)
+    }
+    for player_id in sorted(profile_ids):
+        # A CPU may have folded before showing a chart-supported action, or not
+        # acted yet. Still attach its persistent profile so later postflop
+        # reasoning can use the identity's history without inventing a chart row.
+        row = latest.setdefault(player_id, {
+            "supported": False,
+            "position": positions.get(player_id, ""),
+            "action": "unobserved",
+            "reason": "behavior-profile-prior",
+        })
         profile = profile_map.get(str(player_id))
         if isinstance(profile, dict):
             archetype = profile.get("archetype", "balanced")
