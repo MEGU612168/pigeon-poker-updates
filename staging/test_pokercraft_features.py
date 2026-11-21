@@ -159,6 +159,7 @@ def run_tests():
         test_live_range_charges_shared_wallet_once_per_hand_not_stack,
         test_historical_range_uses_only_events_before_hero_first_action,
         test_pokercraft_refreshes_live_without_blocking_table_play,
+        test_live_preflop_range_is_an_overlay_and_pauses_the_action_clock,
     ]
     for test in tests:
         test()
