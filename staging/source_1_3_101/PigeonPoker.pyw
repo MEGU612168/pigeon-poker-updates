@@ -3835,13 +3835,14 @@ class PigeonPokerApp(tk.Tk):
             record["range_chart_cache_key"] = signature
         chart = record.get("range_chart_cache")
         paid = bool(current_key and slot.state.get("range_paid_hand_key") == current_key)
-        try:
-            balance = int(self.wallet_store.get_balance(self.cash_balance_cents))
-        except Exception:
-            balance = max(0, int(getattr(self, "cash_balance_cents", 0)))
+        # Use the already synchronized wallet cache during high-frequency table
+        # refreshes. The click handler re-checks/debits SQLite atomically.
+        balance = max(0, int(getattr(self, "cash_balance_cents", 0)))
         fee = int(getattr(hand, "big_blind", 0) or 0) if hand is not None else 0
         enabled = bool(chart and (paid or (fee > 0 and balance >= fee)))
-        self._draw_range_grid_icon(canvas, enabled=enabled)
+        if record.get("range_icon_enabled") != enabled:
+            self._draw_range_grid_icon(canvas, enabled=enabled)
+            record["range_icon_enabled"] = enabled
         try:
             canvas.configure(
                 state="normal" if enabled else "disabled",
