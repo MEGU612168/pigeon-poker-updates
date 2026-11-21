@@ -201,7 +201,9 @@ def test_live_preflop_range_is_an_overlay_and_pauses_the_action_clock():
     assert "win.overrideredirect(True)" not in view
     assert 'win.attributes("-topmost", True)' not in view
     assert "win.update_idletasks()" in view
-    assert "win.after(80, draw)" in view
+    assert "win.after_idle(safe_draw)" in view
+    assert "win.after(120, safe_draw)" in view
+    assert "win.after(360, safe_draw)" in view
     assert "charge_label" in view
     assert "cash_squeeze_deadline_at" in view
     assert "paused_clock" in view
