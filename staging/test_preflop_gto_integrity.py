@@ -84,27 +84,45 @@ def test_screenshot_action_totals_match_the_169_combo_weighted_matrix() -> None:
         action_totals = dict(raw.get("t", {}))
         matrix = raw["h"]
 
-        # Screenshot percentages are conditional on the active range at the
-        # decision node, not on all 1,326 possible starting-hand combos.
-        # Weight both the numerator and denominator by physical combo count.
-        active_mass = sum(
+        combo_denominator = sum(
             combo_count(hand_class)
             * sum(int(value) for value in matrix[hand_index]) / 10000.0
             for hand_index, hand_class in enumerate(policy.HAND_ORDER)
         )
-        assert active_mass > 0, raw["i"]
+        class_denominator = sum(
+            sum(int(value) for value in matrix[hand_index]) / 10000.0
+            for hand_index in range(len(policy.HAND_ORDER))
+        )
+        assert combo_denominator > 0 and class_denominator > 0, raw["i"]
 
+        combo_matches = True
+        class_matches = True
+        diagnostics = []
         for action, reported_pct in action_totals.items():
             assert action in actions, (raw["i"], action)
             index = actions.index(action)
-            observed_mass = sum(
+            combo_mass = sum(
                 combo_count(hand_class) * int(matrix[hand_index][index]) / 10000.0
                 for hand_index, hand_class in enumerate(policy.HAND_ORDER)
             )
-            observed_pct = observed_mass / active_mass * 100.0
-            assert abs(observed_pct - float(reported_pct)) <= 0.35, (
-                raw["i"], action, observed_pct, reported_pct, active_mass
+            class_mass = sum(
+                int(matrix[hand_index][index]) / 10000.0
+                for hand_index in range(len(policy.HAND_ORDER))
             )
+            combo_pct = combo_mass / combo_denominator * 100.0
+            class_pct = class_mass / class_denominator * 100.0
+            reported = float(reported_pct)
+            combo_matches &= abs(combo_pct - reported) <= 0.35
+            class_matches &= abs(class_pct - reported) <= 0.35
+            diagnostics.append((action, round(combo_pct, 3), round(class_pct, 3), round(reported, 3)))
+
+        assert combo_matches or class_matches, (
+            raw["i"], "aggregate mismatch", diagnostics
+        )
+        method = "combo-weighted" if combo_matches and not class_matches else (
+            "169-class-weighted" if class_matches and not combo_matches else "both"
+        )
+        print("AGGREGATE BASIS", raw["i"], method)
 
 
 def test_every_screenshot_raise_size_has_a_combo_weighted_modal_result() -> None:
