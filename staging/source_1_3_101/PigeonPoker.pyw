@@ -10745,20 +10745,23 @@ class PigeonPokerApp(tk.Tk):
         parent = table_canvas.winfo_toplevel() if table_canvas and table_canvas.winfo_exists() else self
         win = tk.Toplevel(parent)
         win.title("PIGEON POKER • RANGE")
-        win.overrideredirect(True)
+        # Keep normal Windows decorations and z-order. A topmost, borderless
+        # window can cover the Windows taskbar and obscure the table.
         win.configure(bg="#0b1018")
-        width, height = 700, 700
+        win.resizable(False, False)
+        width, height = 620, 680
         try:
             parent.update_idletasks()
             px, py = parent.winfo_rootx(), parent.winfo_rooty()
-            pw, ph = max(700, parent.winfo_width()), max(700, parent.winfo_height())
-            win.geometry(f"{width}x{height}+{px + (pw-width)//2}+{py + (ph-height)//2}")
+            pw, ph = max(width, parent.winfo_width()), max(height, parent.winfo_height())
+            x = px + (pw - width) // 2
+            y = py + (ph - height) // 2
+            win.geometry(f"{width}x{height}+{x}+{y}")
             win.transient(parent)
-            win.attributes("-topmost", True)
             win.lift()
             win.focus_force()
         except tk.TclError:
-            win.geometry("700x700")
+            win.geometry("620x680")
 
         # Freeze only the active hero decision clock while the range overlay
         # is open. Resume with the exact remaining time when it is dismissed.
@@ -10808,11 +10811,19 @@ class PigeonPokerApp(tk.Tk):
 
         win.bind("<Escape>", close_range_overlay)
         win.protocol("WM_DELETE_WINDOW", close_range_overlay)
-        overlay_bar = tk.Frame(win, bg="#0b1018", height=34)
+        overlay_bar = tk.Frame(win, bg="#0b1018", height=38)
         overlay_bar.pack(fill="x", padx=12, pady=(8, 0))
+        position_text = " • ".join(
+            str(chart.get(key, "")).strip()
+            for key in ("actor_position", "opener_position")
+            if str(chart.get(key, "")).strip()
+        )
+        header_text = str(title or "PREFLOP RANGE").upper()
+        if position_text:
+            header_text += "  •  " + position_text
         tk.Label(
-            overlay_bar, text="RANGE", bg="#0b1018", fg="#aebed0",
-            font=("Segoe UI", 9, "bold"),
+            overlay_bar, text=header_text, bg="#0b1018", fg="#f2f6fc",
+            font=("Segoe UI", 10, "bold"),
         ).pack(side="left")
         tk.Button(
             overlay_bar, text="×", command=close_range_overlay,
@@ -10822,9 +10833,16 @@ class PigeonPokerApp(tk.Tk):
             width=3,
         ).pack(side="right")
         canvas = tk.Canvas(
-            win, bg="#0b1018", highlightthickness=0, bd=0,
+            win, width=580, height=580, bg="#0b1018",
+            highlightthickness=0, bd=0,
         )
-        canvas.pack(fill="both", expand=True, padx=12, pady=(2, 12))
+        canvas.pack(fill="both", expand=True, padx=12, pady=(2, 4))
+        tk.Label(
+            win,
+            text="RAISE  ■     CALL / CHECK  ■     FOLD  ■     " + str(charge_label or ""),
+            bg="#0b1018", fg="#aebed0", anchor="w",
+            font=("Segoe UI", 8, "bold"),
+        ).pack(fill="x", padx=14, pady=(0, 8))
 
         # GTO Wizard's three core preflop actions are represented as
         # proportional segments inside each hand-class cell.
@@ -10889,7 +10907,15 @@ class PigeonPokerApp(tk.Tk):
                 )
 
         canvas.bind("<Configure>", draw)
-        win.after_idle(draw)
+        # Force geometry calculation before the first paint. The old
+        # after_idle-only first draw could leave an empty black canvas on
+        # some Windows/Tk DPI configurations.
+        try:
+            win.update_idletasks()
+            draw()
+        except tk.TclError:
+            pass
+        win.after(80, draw)
     def _open_pokercraft_replay(self):
         """Open an animated, step-based replay using only cards shown originally."""
         record = getattr(self, "selected_history_record", None)
