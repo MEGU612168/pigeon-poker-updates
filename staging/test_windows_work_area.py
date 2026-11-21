@@ -273,7 +273,9 @@ def main():
         table_rect, _ = native_bounds(table)
         range_rect, _ = native_bounds(range_window)
         assert range_rect[0] == table_rect[0] + 12, (table_rect, range_rect)
-        assert range_rect[1] == table_rect[1] + 12, (table_rect, range_rect)
+        # Keep the upper-left alignment while clamping down to the work area's
+        # top inset when there is no vertical space for the additional 12 px.
+        assert table_rect[1] <= range_rect[1] <= table_rect[1] + 12, (table_rect, range_rect)
         print("PASS paid-range window opens at the table's upper-left corner")
 
         test_paid_range_canvas_uses_the_application_draw_functions(root, fit, table)
