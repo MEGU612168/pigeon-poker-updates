@@ -722,6 +722,7 @@ class PigeonPokerApp(tk.Tk):
             "cash_hand_instance": self.cash_hand_instance,
             "cash_current_hand_key": self.cash_current_hand_key,
             "range_paid_hand_key": slot_state.get("range_paid_hand_key"),
+            "range_paid_chart": slot_state.get("range_paid_chart"),
             "cash_cpu_profiles": dict(self.cash_cpu_profiles),
             "vip_cpu_roles": dict(self.vip_cpu_roles),
             "cash_visible_board": list(self.cash_visible_board),
@@ -3847,12 +3848,19 @@ class PigeonPokerApp(tk.Tk):
             str(getattr(hand, "next_to_act", "")) if hand is not None else "",
             current_key,
         )
-        if record.get("range_chart_cache_key") != signature:
-            chart = self._range_chart_for_table(slot, hand)
+        paid = bool(current_key and slot.state.get("range_paid_hand_key") == current_key)
+        if paid:
+            # The same paid chart remains available through this hand even
+            # after HERO acts or the board advances; reopening never charges again.
+            chart = slot.state.get("range_paid_chart")
             record["range_chart_cache"] = chart
             record["range_chart_cache_key"] = signature
-        chart = record.get("range_chart_cache")
-        paid = bool(current_key and slot.state.get("range_paid_hand_key") == current_key)
+        else:
+            if record.get("range_chart_cache_key") != signature:
+                chart = self._range_chart_for_table(slot, hand)
+                record["range_chart_cache"] = chart
+                record["range_chart_cache_key"] = signature
+            chart = record.get("range_chart_cache")
         # Use the already synchronized wallet cache during high-frequency table
         # refreshes. The click handler re-checks/debits SQLite atomically.
         balance = max(0, int(getattr(self, "cash_balance_cents", 0)))
@@ -3916,18 +3924,19 @@ class PigeonPokerApp(tk.Tk):
             return
         table = slot.state.get("cash_table")
         hand = table.hand if table is not None else None
-        chart = self._range_chart_for_table(slot, hand)
+        hand_key = str(slot.state.get("cash_current_hand_key") or f"{table_id}:{id(hand)}")
+        paid = str(slot.state.get("range_paid_hand_key") or "") == hand_key
+        chart = slot.state.get("range_paid_chart") if paid else self._range_chart_for_table(slot, hand)
         if chart is None:
             self._update_range_icon_state(slot, self.table_windows.get(table_id, {}), hand)
             return
-        hand_key = str(slot.state.get("cash_current_hand_key") or f"{table_id}:{id(hand)}")
-        paid = str(slot.state.get("range_paid_hand_key") or "") == hand_key
         if not paid:
             fee = int(getattr(hand, "big_blind", 0) or 0)
             if fee <= 0 or not self._debit_live_range_review(fee, table_id, hand_key):
                 self._update_range_icon_state(slot, self.table_windows.get(table_id, {}), hand)
                 return
             slot.state["range_paid_hand_key"] = hand_key
+            slot.state["range_paid_chart"] = chart
             try:
                 if self.active_cash_table_id == table_id:
                     self._save_active_cash_slot()
@@ -10401,7 +10410,7 @@ class PigeonPokerApp(tk.Tk):
             rate = str(row.get("table_rate", ""))
             bb_cents = {
                 "NL2": 2, "NL5": 5, "NL10": 10, "NL25": 25,
-                "NL50": 50, "NL100": 100, "NL200": 200, "VIP25/50": 2500,
+                "NL50": 50, "NL100": 100, "NL200": 200, "VIP25/50": 5000,
             }.get(rate)
             if not bb_cents:
                 return None
