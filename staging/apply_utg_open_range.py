@@ -94,8 +94,8 @@ def replace_utg_open_range() -> dict:
         flags=re.S,
     )
     source, removed = old_inference.subn("\n    _CACHE = {", source, count=1)
-    if removed != 1:
-        raise RuntimeError("Could not remove the obsolete inferred UTG range block")
+    if removed not in (0, 1):
+        raise RuntimeError("Unexpected number of obsolete UTG inference blocks")
 
     source = source.replace(
         "27 screenshot-derived core nodes; hand-class matrix calibrated to "
