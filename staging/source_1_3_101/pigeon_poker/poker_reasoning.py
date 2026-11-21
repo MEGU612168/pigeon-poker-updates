@@ -1217,6 +1217,49 @@ def _best_passive_action(legal_actions: set[str]) -> str:
     return next(iter(legal_actions))
 
 
+def _showdown_value_ev(equity: float, pot: int, estimated_rake: int = 0) -> float:
+    """Approximate the value retained by checking through to showdown.
+
+    Equity is weighted by action-updated opponent ranges and physical blockers.
+    This one-street checkdown proxy is not a full future-street game tree; it
+    prevents the policy from comparing a bet against an artificial zero-value check.
+    """
+    share = max(0.0, min(1.0, float(equity)))
+    distributable = max(0, int(pot) - max(0, int(estimated_rake)))
+    return share * distributable
+
+
+def _postflop_bet_size_fractions(
+    *,
+    to_call: bool,
+    donk_lead: bool,
+    range_advantage: bool,
+    range_disadvantage: bool,
+    nut_advantage: float,
+    expected_callers: float,
+) -> tuple[float, ...]:
+    """Choose sizing candidates from range texture, then let response EV rank them."""
+    callers = max(0.0, float(expected_callers))
+    nut_edge = max(0.0, min(1.0, float(nut_advantage)))
+    if donk_lead:
+        # Donk leads are low-frequency range-protection actions, not a pot-sized default.
+        return (0.20, 0.25, 0.33) if callers >= 1.5 else (0.25, 0.33, 0.50)
+    if to_call:
+        if range_disadvantage:
+            return (0.50, 0.75, 1.00)
+        if range_advantage and nut_edge >= 0.05:
+            return (0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
+        return (0.50, 0.75, 1.00, 1.25, 1.50)
+    if range_disadvantage:
+        return (0.15, 0.25, 0.33, 0.50)
+    if range_advantage and nut_edge >= 0.05:
+        # A real upper-tail edge can support polarized overbets as well as small bets.
+        return (0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
+    if range_advantage:
+        return (0.15, 0.25, 0.33, 0.50, 0.75, 1.00, 1.25)
+    return (0.15, 0.25, 0.33, 0.50, 0.75, 1.00, 1.50)
+
+
 def _range_board_strength_profile(
     row: dict[str, Any],
     board: list[str],
@@ -1316,6 +1359,8 @@ def _preflop_range_advantage_profile(
         "mean_advantage": 0.0,
         "top_decile_advantage": 0.0,
         "two_pair_plus_advantage": 0.0,
+        "range_advantage": False,
+        "range_edge": 0.0,
     }
     if range_estimator is None or len(board) < 3:
         return neutral
@@ -1364,9 +1409,21 @@ def _preflop_range_advantage_profile(
         or top_advantage <= -0.065
         or (nut_advantage <= -0.12 and mean_advantage < 0.0)
     )
+    advantage = bool(
+        (mean_advantage >= 0.025 and top_advantage >= 0.025)
+        or top_advantage >= 0.065
+        or (nut_advantage >= 0.12 and mean_advantage > 0.0)
+    )
+    range_edge = (
+        0.30 * mean_advantage
+        + 0.50 * top_advantage
+        + 0.20 * nut_advantage
+    )
     return {
         "supported": True,
         "range_disadvantage": disadvantage,
+        "range_advantage": advantage,
+        "range_edge": range_edge,
         "hero_mean_strength": hero_profile["mean_strength"],
         "opponent_mean_strength": opponent_mean,
         "mean_advantage": mean_advantage,
@@ -1450,9 +1507,26 @@ def _postflop_board_role_context(
     # Prefer the actual chart-derived range comparison whenever both sides
     # have a supported preflop action. Only custom / unmatched histories use
     # the conservative board-texture proxy.
+    texture_proxy_advantage = bool(
+        aggressor and (
+            (is_hero_aggressor and aggressor_favored)
+            or (not is_hero_aggressor and caller_favored)
+        )
+    )
     range_disadvantage = (
         bool(range_profile["range_disadvantage"])
         if range_profile["supported"] else texture_proxy_disadvantage
+    )
+    range_advantage = (
+        bool(range_profile.get("range_advantage", False))
+        if range_profile["supported"] else texture_proxy_advantage
+    )
+    range_edge = (
+        float(range_profile.get("range_edge", 0.0))
+        if range_profile["supported"] else (
+            0.045 if texture_proxy_advantage else
+            -0.045 if texture_proxy_disadvantage else 0.0
+        )
     )
 
     # Postflop action begins left of the button. A non-aggressor acting before
@@ -1505,10 +1579,14 @@ def _postflop_board_role_context(
         "caller_favored_board": caller_favored,
         "aggressor_favored_board": aggressor_favored,
         "preflop_range_disadvantage": range_disadvantage,
+        "preflop_range_advantage": range_advantage,
+        "preflop_range_edge": range_edge,
         "texture_proxy_range_disadvantage": texture_proxy_disadvantage,
+        "texture_proxy_range_advantage": texture_proxy_advantage,
         "preflop_range_profile": range_profile,
         "donk_lead": donk_lead,
     }
+
 
 
 def _postflop_aggression_gates(
@@ -1527,55 +1605,70 @@ def _postflop_aggression_gates(
     fold_probability: float,
     required_success: float,
     uncertainty_margin: float,
+    range_advantage: bool = False,
+    range_edge: float = 0.0,
 ) -> tuple[bool, bool]:
-    """Stop thin raises and unsupported donk leads without neutering normal value bets."""
+    """Gate aggression using made-hand quality, range edge and opponent count."""
     if str(street).lower() == "preflop":
         return bool(value_gate), bool(bluff_gate)
 
     draw = max(0.0, min(1.0, float(draw_strength)))
     callers = max(0.0, float(expected_callers))
     category = max(0, int(made_category))
+    edge = max(-0.25, min(0.25, float(range_edge)))
+    effective_value_threshold = float(value_threshold)
+    if range_advantage and not range_disadvantage:
+        effective_value_threshold = max(
+            0.48, effective_value_threshold - min(0.02, max(0.0, edge) * 0.20)
+        )
+
     if int(to_call) > 0:
-        # Raising is not just a larger call: require stronger equity when called.
-        # Multiway pots and board textures that favor the opposing preflop range
-        # demand an additional margin. Semi-bluff raises need a real high-equity draw.
         raise_floor = 0.60 + 0.045 * max(0.0, callers - 1.0)
         raise_floor += max(0.0, min(0.12, float(uncertainty_margin) * 0.10))
         if range_disadvantage:
             raise_floor += 0.07
+        elif range_advantage:
+            raise_floor -= min(0.02, max(0.0, edge) * 0.20)
         value_gate = bool(value_gate and float(called_equity) >= max(
-            float(value_threshold), raise_floor
+            effective_value_threshold, raise_floor
         ))
-        draw_floor = 0.84 if range_disadvantage else 0.68
+        draw_floor = 0.84 if range_disadvantage else (
+            0.64 if range_advantage else 0.68
+        )
         bluff_gate = bool(
             bluff_gate and draw >= draw_floor
             and float(fold_probability) >= float(required_success) + 0.08
             + max(0.0, float(uncertainty_margin)) * 0.5
         )
     elif donk_lead:
-        # A lead into the preflop aggressor is an exception, not a default
-        # continuation bet. Keep it to two-pair+ HU, sets+ multiway, or a
-        # genuinely strong combo draw.
-        made_floor = 3 if callers >= 1.5 else 2
-        draw_floor = 0.92 if callers >= 1.5 else 0.82
-        strong_donk_hand = category >= made_floor or draw >= draw_floor
+        # HU donks can include top pair when a verified caller-side range edge
+        # supports it. Multiway leads remain restricted to sets or exceptional draws.
+        if callers >= 1.5:
+            strong_donk_hand = category >= 3 or draw >= 0.92
+            draw_floor = 0.92
+        else:
+            range_supported_top_pair = bool(
+                range_advantage and not range_disadvantage and category >= 1
+                and float(called_equity) >= effective_value_threshold + 0.035
+            )
+            strong_donk_hand = (
+                category >= 2 or range_supported_top_pair or draw >= 0.82
+            )
+            draw_floor = 0.82
         value_gate = bool(value_gate and strong_donk_hand)
         bluff_gate = bool(
             bluff_gate and draw >= max(draw_floor, 0.90)
             and not range_disadvantage
         )
     elif range_disadvantage:
-        # On a board that is a poor fit for our preflop line, avoid turning
-        # medium-strength made hands into low-equity stabs.
         if category < 1:
             value_gate = False
             bluff_gate = bool(bluff_gate and draw >= 0.78)
         else:
             value_gate = bool(
-                value_gate and float(called_equity) >= float(value_threshold) + 0.035
+                value_gate and float(called_equity) >= effective_value_threshold + 0.035
             )
     return bool(value_gate), bool(bluff_gate)
-
 
 def _choose_range_aware_action_impl(
     table: Any,
@@ -1608,7 +1701,8 @@ def _choose_range_aware_action_impl(
     ) if street != "preflop" else {
         "preflop_aggressor": None, "hero_is_preflop_aggressor": False,
         "caller_favored_board": False, "aggressor_favored_board": False,
-        "preflop_range_disadvantage": False, "donk_lead": False,
+        "preflop_range_disadvantage": False, "preflop_range_advantage": False,
+        "preflop_range_edge": 0.0, "donk_lead": False,
     }
     hero_cards = tuple(str(card) for card in list(getattr(player, "hole_cards", ()) or ()))
     if street != "preflop" and len(hero_cards) == 2 and len(board) >= 3:
@@ -1675,13 +1769,19 @@ def _choose_range_aware_action_impl(
         )
         decision_name = "postflop action-updated range decision"
 
+    # SDV is the range-weighted value of checking through to showdown.
+    # A zero-valued check baseline systematically over-bets medium-strength hands.
+    showdown_value_ev = (
+        _showdown_value_ev(equity, pot, estimated_rake)
+        if street != "preflop" else 0.0
+    )
     best_action = _best_passive_action(actions)
     best_amount: int | None = None
     best_ev = -float("inf")
     if best_action == "fold":
         best_ev = 0.0
     elif best_action == "check":
-        best_ev = 0.0
+        best_ev = showdown_value_ev if "check" in actions else 0.0
     elif best_action == "call":
         best_ev = equity * max(0, call_pot - estimated_rake) - to_call
     elif best_action in {"all_in", "allin"}:
@@ -1711,14 +1811,24 @@ def _choose_range_aware_action_impl(
                 for factor in multipliers
             }
         else:
-            fractions = (0.25, 0.33, 0.50, 0.75, 1.00, 1.50)
+            range_profile = board_role.get("preflop_range_profile", {})
+            nut_advantage = float(
+                range_profile.get("top_decile_advantage", 0.0)
+            ) if isinstance(range_profile, dict) else 0.0
+            fractions = _postflop_bet_size_fractions(
+                to_call=bool(to_call),
+                donk_lead=bool(board_role.get("donk_lead", False)),
+                range_advantage=bool(board_role.get("preflop_range_advantage", False)),
+                range_disadvantage=bool(board_role.get("preflop_range_disadvantage", False)),
+                nut_advantage=nut_advantage,
+                expected_callers=expected_opponents,
+            )
             bases = [
                 street_contribution + max(min_target - street_contribution,
                                           int(round(max(1, pot) * fraction)))
                 for fraction in fractions
             ]
             if to_call:
-                fractions = (0.50, 0.75, 1.00, 1.25, 1.50)
                 bases = [
                     max(min_target, current_bet + max(last_full_raise, int(round(max(1, pot) * fraction))))
                     for fraction in fractions
@@ -1803,6 +1913,8 @@ def _choose_range_aware_action_impl(
                 fold_probability=candidate_fold_probability,
                 required_success=required_success,
                 uncertainty_margin=uncertainty_margin,
+                range_advantage=bool(board_role.get("preflop_range_advantage", False)),
+                range_edge=float(board_role.get("preflop_range_edge", 0.0)),
             )
             premium_preflop = False
             if street == "preflop":
@@ -1871,6 +1983,9 @@ def _choose_range_aware_action_impl(
         f"chart-range-supported={bool(board_role.get('preflop_range_profile', {}).get('supported', False))}; "
         f"chart-range-mean-adv={float(board_role.get('preflop_range_profile', {}).get('mean_advantage', 0.0)):.3f}; "
         f"chart-range-top-adv={float(board_role.get('preflop_range_profile', {}).get('top_decile_advantage', 0.0)):.3f}; "
+        f"range-advantage={bool(board_role.get('preflop_range_advantage', False))}; "
+        f"range-edge={float(board_role.get('preflop_range_edge', 0.0)):.3f}; "
+        f"SDV-equity={equity:.1%}; check-EV≈{showdown_value_ev:.1f}; "
         f"donk-lead={bool(board_role.get('donk_lead', False))}; "
         f"hero-made-category={hero_hand_category}; draw={hero_draw_strength:.2f}; "
         "source=range-aware multiway response model with postflop aggression guardrails (not solver exact)"
