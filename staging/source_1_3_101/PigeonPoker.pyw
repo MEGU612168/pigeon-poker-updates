@@ -3961,6 +3961,7 @@ class PigeonPokerApp(tk.Tk):
             title="LIVE PREFLOP RANGE",
             charge_label=("1 BB paid for this hand • re-open free" if not paid
                           else "Already paid this hand • re-open free"),
+            table_id=table_id,
         )
 
     def _open_live_hand_flow(self, table_id: str):
@@ -10729,6 +10730,7 @@ class PigeonPokerApp(tk.Tk):
         *,
         title: str,
         charge_label: str,
+        table_id: str | None = None,
     ):
         """Render only the 13x13 GTO Wizard-style starting-hand matrix."""
         order = list((chart or {}).get("hand_order", []) or [])
@@ -10736,17 +10738,76 @@ class PigeonPokerApp(tk.Tk):
         if len(order) != 169:
             return
 
-        win = tk.Toplevel(self)
+        # Keep the range on top of the actual poker table; never navigate
+        # away to the lobby or open a detached application page.
+        table_record = self.table_windows.get(table_id) if table_id else None
+        table_canvas = table_record.get("canvas") if table_record else None
+        parent = table_canvas.winfo_toplevel() if table_canvas and table_canvas.winfo_exists() else self
+        win = tk.Toplevel(parent)
         win.title("PIGEON POKER • RANGE")
-        win.geometry("700x700")
-        win.minsize(560, 560)
+        win.overrideredirect(True)
         win.configure(bg="#0b1018")
+        width, height = 700, 700
         try:
-            win.transient(self)
+            parent.update_idletasks()
+            px, py = parent.winfo_rootx(), parent.winfo_rooty()
+            pw, ph = max(700, parent.winfo_width()), max(700, parent.winfo_height())
+            win.geometry(f"{width}x{height}+{px + (pw-width)//2}+{py + (ph-height)//2}")
+            win.transient(parent)
+            win.attributes("-topmost", True)
             win.lift()
+            win.focus_force()
         except tk.TclError:
-            pass
+            win.geometry("700x700")
 
+        # Freeze only the active hero decision clock while the range overlay
+        # is open. Resume with the exact remaining time when it is dismissed.
+        paused_clock = None
+        if table_id and table_id in self.multi_tables:
+            slot_for_clock = self.multi_tables[table_id]
+            state_for_clock = slot_for_clock.state
+            deadline = float(state_for_clock.get("cash_squeeze_deadline_at", 0.0) or 0.0)
+            if deadline > 0:
+                paused_clock = {
+                    "slot": slot_for_clock,
+                    "remaining": max(0.0, deadline - time.monotonic()),
+                    "mode": str(state_for_clock.get("cash_action_deadline_mode", "action") or "action"),
+                    "hand_token": id(getattr(state_for_clock.get("cash_table"), "hand", None)),
+                }
+                pending = self.squeeze_deadline_jobs.pop(table_id, None)
+                if pending:
+                    try:
+                        self.after_cancel(pending)
+                    except tk.TclError:
+                        pass
+                state_for_clock["cash_squeeze_deadline_at"] = 0.0
+
+        def close_range_overlay(_event=None):
+            if paused_clock is not None:
+                active_slot = self.multi_tables.get(table_id)
+                active_hand = (
+                    active_slot.state.get("cash_table").hand
+                    if active_slot and active_slot.state.get("cash_table") else None
+                )
+                if active_slot is paused_clock["slot"] and active_hand is not None and id(active_hand) == paused_clock["hand_token"] and active_hand.next_to_act == "hero":
+                    resumed_deadline = time.monotonic() + paused_clock["remaining"]
+                    active_slot.state["cash_squeeze_deadline_at"] = resumed_deadline
+                    active_slot.state["cash_action_deadline_mode"] = paused_clock["mode"]
+                    if table_id == self.active_cash_table_id:
+                        self.cash_squeeze_deadline_at = resumed_deadline
+                        self.cash_action_deadline_mode = paused_clock["mode"]
+                    self._update_action_timer_display(table_id, paused_clock["remaining"], paused_clock["mode"])
+                    self.squeeze_deadline_jobs[table_id] = self.after(
+                        200,
+                        lambda tid=table_id, token=paused_clock["hand_token"]: self._tick_squeeze_action_deadline(tid, token),
+                    )
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
+
+        win.bind("<Escape>", close_range_overlay)
+        win.protocol("WM_DELETE_WINDOW", close_range_overlay)
         canvas = tk.Canvas(
             win, bg="#0b1018", highlightthickness=0, bd=0,
         )
