@@ -27,10 +27,10 @@ def test_all_screenshot_nodes_contain_a_complete_169_hand_matrix() -> None:
 
     assert len(policy.HAND_ORDER) == 169
     assert len(set(policy.HAND_ORDER)) == 169
-    assert len(raw_nodes) == 27
-    assert summary["exact_screenshot_nodes"] == 27
+    assert len(raw_nodes) == 28
+    assert summary["exact_screenshot_nodes"] == 28
     assert summary["node_count"] == 28
-    assert summary["inferred_nodes"] == 1
+    assert summary["inferred_nodes"] == 0
 
     seen: set[str] = set()
     for raw in raw_nodes:
@@ -141,10 +141,9 @@ def test_screenshot_action_totals_match_the_169_combo_weighted_matrix() -> None:
 
 def test_range_conditioned_nodes_match_the_previous_action_range_support() -> None:
     data = policy._data()
-    # UTG first-in has no source screenshot in this chart set, so node 25's
-    # parent is explicitly inferred and is validated separately, not treated as
-    # an exact screenshot-to-screenshot comparison.
-    assert data["nodes_by_id"]["01_UTG_OPEN"].get("inferred") is True
+    # UTG first-in is now a direct screenshot node. The later UTG-vs-HJ
+    # 3-bet response node remains independently sourced from its own screenshot.
+    assert data["nodes_by_id"]["01_UTG_OPEN"]["source_image"] == "スクリーンショット (303).png"
     parents = {
         "26_BTN_VS_BB_3BET": ("04_BTN_OPEN", "raise"),
         "27_BB_VS_BTN_4BET": ("19_BB_VS_BTN", "raise"),
@@ -193,10 +192,44 @@ def test_range_conditioned_nodes_match_the_previous_action_range_support() -> No
         )
 
 
+
+
+
+def test_utg_open_is_exact_screenshot_range_not_inferred() -> None:
+    compact = json.loads(bz2.decompress(base64.b64decode(policy._DATA_B64)))
+    raw = next(node for node in compact["nodes"] if node["i"] == "01_UTG_OPEN")
+    expected = [[100,100,100,100,100,100,100,100,100,100,100,100,43],[100,100,100,100,100,100,100,69,53,53,0,0,0],[100,100,100,100,100,100,7,0,0,0,0,0,0],[100,87,41,100,100,68,0,0,0,0,0,0,0],[100,0,0,0,100,100,0,0,0,0,0,0,0],[0,0,0,0,0,100,16,0,0,0,0,0,0],[0,0,0,0,0,0,100,8,0,0,0,0,0],[0,0,0,0,0,0,0,100,9,0,0,0,0],[0,0,0,0,0,0,0,0,100,11,0,0,0],[0,0,0,0,0,0,0,0,0,51,6,0,0],[0,0,0,0,0,0,0,0,0,0,18,0,0],[0,0,0,0,0,0,0,0,0,0,0,17,0],[0,0,0,0,0,0,0,0,0,0,0,0,17]]
+    expected_flat = [value for row in expected for value in row]
+
+    assert raw["p"] == "スクリーンショット (303).png"
+    assert raw["d"].startswith("UTG first-in, 100 BB, open to 2.0 BB")
+    assert raw["a"] == ["allin", "raise", "fold"]
+    assert float(raw["z"]["raise"]) == 2.0
+    assert len(raw["h"]) == 169
+    assert [int(row[1]) // 100 for row in raw["h"]] == expected_flat
+    assert all(int(row[0]) == 0 for row in raw["h"])
+    assert all(int(row[1]) + int(row[2]) == 10000 for row in raw["h"])
+
+    data = policy._data()
+    node = data["nodes_by_id"]["01_UTG_OPEN"]
+    assert node["source_image"] == raw["p"]
+    assert node["inferred"] is False if "inferred" in node else True
+    assert node["action_totals"]["raise"] == 17.6
+    assert node["hands"]["A2s"][0]["amount_bb"] == 2.0
+
+    weighted = sum(
+        combo_count(hand_class) * int(raw["h"][index][1]) / 10000.0
+        for index, hand_class in enumerate(policy.HAND_ORDER)
+    )
+    assert abs(weighted - 233.26) < 0.005
+    assert abs(weighted / 1326.0 * 100.0 - 17.6) < 0.02
+    assert policy._modal_size_from_node(node) == 2.0
+
+
 def test_every_screenshot_raise_size_has_a_combo_weighted_modal_result() -> None:
     data = policy._data()
     exact_nodes = [node for node in data["nodes"] if not node.get("inferred", False)]
-    assert len(exact_nodes) == 27
+    assert len(exact_nodes) == 28
 
     for node in exact_nodes:
         totals: dict[float, float] = {}
