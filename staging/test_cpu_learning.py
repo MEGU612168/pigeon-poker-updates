@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import tempfile
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent / "source_1_3_101"))
 from pigeon_poker.cpu_learning import CPULearningStore
 
 
