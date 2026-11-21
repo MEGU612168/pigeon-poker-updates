@@ -8006,9 +8006,44 @@ class PigeonPokerApp(tk.Tk):
         self._page_header(page, "Settings & CPU Pool", "Per-stake CPU levels, persistent identities and editable profiles")
         body = tk.Frame(page, bg=COLORS["bg"])
         body.pack(fill="both", expand=True, padx=22, pady=(0, 16))
-        left = tk.Frame(body, bg=COLORS["bg"], width=390)
-        left.pack(side="left", fill="y", padx=(0, 12))
-        left.pack_propagate(False)
+        # The left settings column contains more controls than a typical
+        # viewport can display. Give it its own scroll canvas so the SOUND
+        # sliders and lower controls cannot be clipped by the fixed-width shell.
+        left_shell = tk.Frame(body, bg=COLORS["bg"], width=390)
+        left_shell.pack(side="left", fill="y", padx=(0, 12))
+        left_shell.pack_propagate(False)
+        left_canvas = tk.Canvas(
+            left_shell, bg=COLORS["bg"], highlightthickness=0, bd=0,
+            yscrollincrement=24,
+        )
+        left_scrollbar = ttk.Scrollbar(
+            left_shell, orient="vertical", command=left_canvas.yview
+        )
+        left_canvas.configure(yscrollcommand=left_scrollbar.set)
+        left_scrollbar.pack(side="right", fill="y")
+        left_canvas.pack(side="left", fill="both", expand=True)
+        left = tk.Frame(left_canvas, bg=COLORS["bg"])
+        left_window = left_canvas.create_window(
+            (0, 0), window=left, anchor="nw"
+        )
+
+        def _sync_settings_left_scroll(_event=None):
+            try:
+                left_canvas.configure(scrollregion=left_canvas.bbox("all"))
+            except tk.TclError:
+                return
+
+        def _fit_settings_left_width(event):
+            try:
+                left_canvas.itemconfigure(left_window, width=max(1, event.width))
+                left_canvas.after_idle(_sync_settings_left_scroll)
+            except tk.TclError:
+                return
+
+        left.bind("<Configure>", _sync_settings_left_scroll, add="+")
+        left_canvas.bind("<Configure>", _fit_settings_left_width, add="+")
+        self.nested_page_scroll_canvases.add(left_canvas)
+
         right = tk.Frame(body, bg=COLORS["bg"])
         right.pack(side="left", fill="both", expand=True)
 
