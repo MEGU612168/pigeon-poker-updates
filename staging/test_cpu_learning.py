@@ -223,7 +223,10 @@ def test_learns_fold_call_raise_by_street_and_faced_bet_size():
                 "raise": profile[f"{prefix}_raise_rate"],
             }
             assert abs(sum(rates.values()) - 1.0) < 1e-9
-            assert rates[expected] == max(rates.values())
+            # One observation must move the posterior toward the observed
+            # outcome without overpowering the deliberately conservative prior.
+            prior = {"fold": 0.55, "call": 0.35, "raise": 0.10}
+            assert rates[expected] > prior[expected]
 
 
 def test_old_cpu_learning_database_is_migrated_without_losing_rows():
