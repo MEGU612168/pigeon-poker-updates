@@ -2742,6 +2742,7 @@ class PigeonPokerApp(tk.Tk):
                     event_amount = None
                     gto_used = False
                     chart_used = False
+                    preflop_guardrail_used = False
                     range_policy_used = False
 
                     if session is not None and session.hand_token == id(hand) and session.context is not None:
