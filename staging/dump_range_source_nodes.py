@@ -1,5 +1,8 @@
 from __future__ import annotations
 import json
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent / "source_1_3_101"))
 from pigeon_poker.preflop_gto_strategy import _data
 
 data = _data()
