@@ -354,6 +354,7 @@ class PigeonPokerApp(tk.Tk):
         self.bind_all("<KeyPress>", self._on_global_hotkey, add="+")
         self._job_drain_after_id = self.after(120, self._drain_jobs)
         self._study_cashier_refresh_id = self.after(2500, self._study_cashier_live_refresh)
+        self._pokercraft_live_refresh_job = self.after(1800, self._tick_pokercraft_live_refresh)
         self.after(1200, self._refresh_update_button_state)
         self.after(UPDATE_CHECK_INTERVAL_MS, self._periodic_update_check)
 
@@ -3150,6 +3151,11 @@ class PigeonPokerApp(tk.Tk):
                         compute_allin_ev=False)
                     if saved:
                         self.cash_log_lines.append("PokerCraft: hand history saved")
+                        if getattr(self, "_active_page_key", "") == "poker_craft":
+                            try:
+                                self.after(80, self._refresh_pokercraft)
+                            except tk.TclError:
+                                pass
                         allin_snapshot = next((event for event in hand.events
                                                 if event.get("type") == "allin_ev_snapshot"), None)
                         if allin_snapshot is not None:
@@ -10223,6 +10229,34 @@ class PigeonPokerApp(tk.Tk):
             self._show_pokercraft_hand()
         else:
             self._set_history_detail("Select a hand to inspect its recorded actions.")
+
+    def _tick_pokercraft_live_refresh(self):
+        try:
+            if not self.winfo_exists():
+                return
+            if getattr(self, "_active_page_key", "") == "poker_craft":
+                latest_rows = self.history_store.list_recent(1)
+                signature = None
+                if latest_rows:
+                    latest = latest_rows[0]
+                    signature = (
+                        str(latest.get("hand_key", "")),
+                        str(latest.get("played_at", "")),
+                        latest.get("hero_allin_ev"),
+                        int(latest.get("hero_net", 0)),
+                    )
+                if signature != self._pokercraft_last_latest_signature:
+                    self._pokercraft_last_latest_signature = signature
+                    self._refresh_pokercraft()
+        except (tk.TclError, RuntimeError):
+            return
+        except Exception:
+            # Live history refresh is opportunistic; it must never interrupt play.
+            pass
+        try:
+            self._pokercraft_live_refresh_job = self.after(1800, self._tick_pokercraft_live_refresh)
+        except tk.TclError:
+            pass
 
     def _set_history_detail(self, value: str):
         self.history_detail.configure(state="normal")
