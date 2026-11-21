@@ -431,7 +431,8 @@ def _known_public_blockers(hand: Any, exclude_player_id: str | None) -> tuple[se
 
 def estimate_preflop_opponent_ranges(table: Any, hand: Any,
                                      exclude_player_id: str | None = None,
-                                     opponent_profiles: dict[str, Any] | None = None) -> dict[str, Any]:
+                                     opponent_profiles: dict[str, Any] | None = None,
+                                     opponent_learning: dict[str, dict[str, float]] | None = None) -> dict[str, Any]:
     """Estimate latest supported opponent ranges, adjusted for known hero/board blockers.
 
     Screenshot-derived per-class weights are multiplied by the number of physical
@@ -526,28 +527,63 @@ def estimate_preflop_opponent_ranges(table: Any, hand: Any,
     if exclude_player_id is not None:
         latest.pop(str(exclude_player_id), None)
 
-    # The 100-player CPU pool carries stable archetype labels. They are useful
-    # as weak starting priors for observed actions, not as certainty or a
-    # substitute for hand-history evidence.
+    # The 100-player CPU pool carries stable archetype labels. They are weak
+    # starting priors; observed, per-identity behavior gradually takes priority.
     profile_map = opponent_profiles or {}
+    learning_map = opponent_learning or {}
+    allowed_archetypes = {"aggressive", "calling_station", "overfolder", "underbluffer"}
     for player_id, row in latest.items():
         profile = profile_map.get(str(player_id))
-        if profile is None:
-            continue
         if isinstance(profile, dict):
             archetype = profile.get("archetype", "balanced")
             profile_level = profile.get("level")
-        else:
+        elif profile is not None:
             archetype = getattr(profile, "archetype", "balanced")
             profile_level = getattr(profile, "level", None)
+        else:
+            archetype, profile_level = "balanced", None
         archetype = str(archetype or "balanced").lower()
-        if archetype in {"aggressive", "calling_station", "overfolder", "underbluffer"}:
+        if archetype in allowed_archetypes:
             row["archetype"] = archetype
-            if profile_level is not None:
+        if profile_level is not None:
+            try:
+                row["profile_level"] = max(1, min(5, int(profile_level)))
+            except (TypeError, ValueError, OverflowError):
+                pass
+
+        learned = learning_map.get(str(player_id))
+        if isinstance(learned, dict):
+            clean = {}
+            for key, value in learned.items():
                 try:
-                    row["profile_level"] = max(1, min(5, int(profile_level)))
+                    number = float(value)
+                    if math.isfinite(number):
+                        clean[str(key)] = number
                 except (TypeError, ValueError, OverflowError):
-                    pass
+                    continue
+            if clean:
+                row["learned_behavior"] = clean
+                hands = clean.get("sample_hands", 0.0)
+                fold_opp = clean.get("faced_bet_opportunities", 0.0)
+                call_opp = clean.get("postflop_actions", 0.0)
+                vpip = clean.get("vpip_rate", 0.22)
+                pfr = clean.get("pfr_rate", 0.16)
+                fold_rate = clean.get("fold_to_bet_rate", 0.55)
+                call_rate = clean.get("postflop_call_rate", 0.30)
+                aggression = clean.get("postflop_aggression_rate", 0.22)
+                learned_archetype = None
+                # Require enough real hands/opportunities before classifying a CPU.
+                if hands >= 12 and fold_opp >= 12 and fold_rate >= 0.72:
+                    learned_archetype = "overfolder"
+                elif (hands >= 20 and vpip >= 0.30 and vpip - pfr >= 0.17
+                      and call_opp >= 16 and call_rate >= 0.38):
+                    learned_archetype = "calling_station"
+                elif hands >= 24 and call_opp >= 24 and aggression >= 0.31 and pfr >= 0.18:
+                    learned_archetype = "aggressive"
+                if learned_archetype is not None:
+                    row["archetype"] = learned_archetype
+                    row["learned_archetype"] = learned_archetype
+                row["learned_behavior_confidence"] = min(0.85, hands / (hands + 30.0)) if hands > 0 else 0.0
 
     return {
         "supported": True,
