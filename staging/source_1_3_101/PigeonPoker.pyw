@@ -10808,10 +10808,23 @@ class PigeonPokerApp(tk.Tk):
 
         win.bind("<Escape>", close_range_overlay)
         win.protocol("WM_DELETE_WINDOW", close_range_overlay)
+        overlay_bar = tk.Frame(win, bg="#0b1018", height=34)
+        overlay_bar.pack(fill="x", padx=12, pady=(8, 0))
+        tk.Label(
+            overlay_bar, text="RANGE", bg="#0b1018", fg="#aebed0",
+            font=("Segoe UI", 9, "bold"),
+        ).pack(side="left")
+        tk.Button(
+            overlay_bar, text="×", command=close_range_overlay,
+            bg="#17263a", fg="#f2f6fc", activebackground="#263b55",
+            activeforeground="#ffffff", relief="flat", bd=0,
+            font=("Segoe UI", 15, "bold"), cursor="hand2",
+            width=3,
+        ).pack(side="right")
         canvas = tk.Canvas(
             win, bg="#0b1018", highlightthickness=0, bd=0,
         )
-        canvas.pack(fill="both", expand=True, padx=12, pady=12)
+        canvas.pack(fill="both", expand=True, padx=12, pady=(2, 12))
 
         # GTO Wizard's three core preflop actions are represented as
         # proportional segments inside each hand-class cell.
