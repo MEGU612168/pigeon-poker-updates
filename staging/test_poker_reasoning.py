@@ -1268,6 +1268,13 @@ def test_postflop_size_candidates_follow_range_edge_and_donk_context():
     assert max(disadvantaged) <= 0.50
     assert max(donk_hu) <= 0.50
     assert max(donk_multiway) <= 0.33
+    facing_bet_raise = module._postflop_bet_size_fractions(
+        to_call=True, donk_lead=True, range_advantage=True,
+        range_disadvantage=False, nut_advantage=0.12, expected_callers=1.0,
+    )
+    # Once another player has bet, hero is raising rather than donk-leading.
+    assert 2.00 in facing_bet_raise
+    assert max(facing_bet_raise) > max(donk_hu)
 
 
 def test_verified_caller_range_edge_allows_strong_top_pair_donk():
