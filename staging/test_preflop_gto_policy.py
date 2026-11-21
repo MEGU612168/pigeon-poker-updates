@@ -8,6 +8,12 @@ SOURCE = Path(__file__).resolve().parent / "source_1_3_101"
 sys.path.insert(0, str(SOURCE))
 
 from pigeon_poker import preflop_gto_strategy as policy
+from test_preflop_gto_integrity import (
+    test_all_screenshot_nodes_contain_a_complete_169_hand_matrix,
+    test_every_screenshot_raise_size_has_a_combo_weighted_modal_result,
+    test_gto_size_lookup_is_position_and_history_only_not_hole_card_dependent,
+    test_only_the_new_policy_is_the_runtime_preflop_source,
+)
 
 
 class FakePlayer:
@@ -358,6 +364,10 @@ def run_tests():
         _test_stack_depth_changes_inferred_threebet_size,
         _test_cpu_action_uses_new_node_range_and_preserves_legality,
         _test_opponent_range_estimator_uses_new_preflop_policy,
+        test_all_screenshot_nodes_contain_a_complete_169_hand_matrix,
+        test_every_screenshot_raise_size_has_a_combo_weighted_modal_result,
+        test_gto_size_lookup_is_position_and_history_only_not_hole_card_dependent,
+        test_only_the_new_policy_is_the_runtime_preflop_source,
     ]
     for test in tests:
         test()
