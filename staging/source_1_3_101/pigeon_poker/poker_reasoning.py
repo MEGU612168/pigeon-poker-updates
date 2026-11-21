@@ -505,6 +505,64 @@ def _response_continue_probability(made: float, draw: float,
     return max(0.015, min(0.985, probability))
 
 
+def _response_action_probabilities(
+    made: float,
+    draw: float,
+    size_fraction: float,
+    street: str,
+    archetype: str = "balanced",
+    learned_stats: Any = None,
+) -> tuple[float, float, float]:
+    """Return (fold, call, raise) probabilities when facing a bet.
+
+    Continuation likelihood is split into calls and raises instead of treating
+    every continue as a passive call. Strong made hands and high-equity draws
+    raise more often; player style and public-action learning adjust that
+    split without allowing a small sample to dominate the hand-strength model.
+    """
+    made = max(0.0, min(1.0, float(made)))
+    draw = 0.0 if street == "river" else max(0.0, min(1.0, float(draw)))
+    size = max(0.0, float(size_fraction))
+    style = str(archetype or "balanced").lower()
+    stats = learned_stats if isinstance(learned_stats, dict) else dict(learned_stats or ())
+
+    continue_probability = _response_continue_probability(
+        made, draw, size, street, style, learned_stats
+    )
+    raise_logit = -3.40 + 2.50 * made + 1.60 * draw
+    raise_logit -= 0.12 * math.log1p(size)
+    if style == "aggressive":
+        raise_logit += 0.55
+    elif style == "calling_station":
+        raise_logit -= 0.50
+    elif style == "overfolder":
+        raise_logit -= 0.25
+    elif style == "underbluffer":
+        raise_logit -= 0.85
+
+    sample_hands = max(0.0, float(stats.get("sample_hands", 0.0) or 0.0))
+    confidence = min(0.65, sample_hands / (sample_hands + 36.0)) if sample_hands else 0.0
+    observed_aggression = max(
+        0.0, min(1.0, float(stats.get("postflop_aggression_rate", 0.22)))
+    )
+    raise_logit += (observed_aggression - 0.22) * 1.30 * confidence
+    raise_logit = max(-8.0, min(4.0, raise_logit))
+    raise_share = 1.0 / (1.0 + math.exp(-raise_logit))
+    raise_share = max(0.015, min(0.72, raise_share))
+
+    raise_probability = continue_probability * raise_share
+    call_probability = continue_probability - raise_probability
+    fold_probability = 1.0 - continue_probability
+    total = fold_probability + call_probability + raise_probability
+    if total <= 0:
+        return 1.0, 0.0, 0.0
+    return (
+        max(0.0, min(1.0, fold_probability / total)),
+        max(0.0, min(1.0, call_probability / total)),
+        max(0.0, min(1.0, raise_probability / total)),
+    )
+
+
 def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
                           range_estimator: Callable[..., dict[str, Any]] | None = None
                           ) -> dict[str, OpponentRange]:
@@ -841,6 +899,138 @@ def _fold_probability(ranges: dict[str, OpponentRange], board: list[str],
     return max(0.0, min(1.0, all_fold))
 
 
+def _bet_response_branch_metrics(
+    hand: Any,
+    hero_id: str,
+    ranges: dict[str, OpponentRange],
+    board: list[str],
+    bet_fraction: float,
+    cpu: Any,
+    *,
+    simulation_multiplier: float = 0.40,
+) -> dict[str, float | int]:
+    """Model all-fold, call-only and raise branches separately.
+
+    The call-conditioned equity excludes hands that raise. A raise by any
+    opponent is treated as a branch where hero folds and loses this bet; this
+    is a conservative one-street approximation, not a complete raise-response
+    game tree.
+    """
+    street = {3: "flop", 4: "turn", 5: "river"}.get(len(board), "preflop")
+    call_ranges: dict[str, OpponentRange] = {}
+    all_fold_probability = 1.0
+    no_raise_probability = 1.0
+    conditional_call_probabilities: list[float] = []
+
+    for pid, opponent_range in ranges.items():
+        total_mass = 0.0
+        call_mass = 0.0
+        raise_mass = 0.0
+        call_conditioned: list[tuple[tuple[str, str], float]] = []
+        for combo, weight in opponent_range.combos:
+            base_weight = max(0.0, float(weight))
+            if base_weight <= 0:
+                continue
+            made, draw = _board_metrics(combo, board) if len(board) >= 3 else (
+                _preflop_strength(_cards_to_class(combo)), 0.0
+            )
+            _fold_p, call_p, raise_p = _response_action_probabilities(
+                made, draw, bet_fraction, street, opponent_range.archetype,
+                opponent_range.learned_stats,
+            )
+            total_mass += base_weight
+            call_weight = base_weight * call_p
+            call_mass += call_weight
+            raise_mass += base_weight * raise_p
+            if call_weight > 0:
+                call_conditioned.append((combo, call_weight))
+
+        if total_mass <= 0:
+            continue
+        participation = max(
+            0.0, min(1.0, float(opponent_range.participation_probability))
+        )
+        average_call = max(0.0, min(1.0, call_mass / total_mass))
+        average_raise = max(0.0, min(1.0, raise_mass / total_mass))
+        actual_raise_probability = participation * average_raise
+        actual_call_probability = participation * average_call
+        no_raise_for_player = max(0.0, 1.0 - actual_raise_probability)
+        all_fold_for_player = max(
+            0.0, 1.0 - actual_call_probability - actual_raise_probability
+        )
+        no_raise_probability *= no_raise_for_player
+        all_fold_probability *= all_fold_for_player
+
+        conditional_call_probability = (
+            actual_call_probability / no_raise_for_player
+            if no_raise_for_player > 1e-12 else 0.0
+        )
+        conditional_call_probability = max(
+            0.0, min(1.0, conditional_call_probability)
+        )
+        conditional_call_probabilities.append(conditional_call_probability)
+        if call_mass > 0:
+            combo_weights = tuple(
+                (combo, weight / call_mass)
+                for combo, weight in call_conditioned
+            )
+        else:
+            combo_weights = opponent_range.combos
+        call_ranges[pid] = OpponentRange(
+            player_id=pid,
+            combos=combo_weights,
+            source=opponent_range.source + "+call-response",
+            confidence=opponent_range.confidence,
+            participation_probability=conditional_call_probability,
+            archetype=opponent_range.archetype,
+            learned_stats=opponent_range.learned_stats,
+        )
+
+    all_fold_probability = max(0.0, min(1.0, all_fold_probability))
+    no_raise_probability = max(0.0, min(1.0, no_raise_probability))
+    call_only_probability = max(
+        0.0, min(1.0, no_raise_probability - all_fold_probability)
+    )
+    raise_probability = max(0.0, min(1.0, 1.0 - no_raise_probability))
+    conditional_all_fold = (
+        all_fold_probability / no_raise_probability
+        if no_raise_probability > 1e-12 else 1.0
+    )
+    conditional_all_fold = max(0.0, min(1.0, conditional_all_fold))
+    expected_callers_no_raise = sum(conditional_call_probabilities)
+    probability_any_call_no_raise = 1.0 - conditional_all_fold
+    expected_callers = (
+        expected_callers_no_raise / probability_any_call_no_raise
+        if probability_any_call_no_raise > 1e-12 else 0.0
+    )
+
+    no_raise_equity, samples = _equity_vs_ranges(
+        hand, hero_id, call_ranges, cpu,
+        simulation_multiplier=simulation_multiplier,
+    )
+    if conditional_all_fold >= 0.999999:
+        called_equity = 1.0
+    else:
+        called_equity = (
+            no_raise_equity - conditional_all_fold
+        ) / max(1e-9, 1.0 - conditional_all_fold)
+        called_equity = max(0.0, min(1.0, called_equity))
+
+    total_probability = all_fold_probability + call_only_probability + raise_probability
+    if total_probability > 0 and abs(total_probability - 1.0) > 1e-9:
+        all_fold_probability /= total_probability
+        call_only_probability /= total_probability
+        raise_probability /= total_probability
+    return {
+        "all_fold_probability": all_fold_probability,
+        "call_only_probability": call_only_probability,
+        "raise_probability": raise_probability,
+        "expected_callers": max(0.0, expected_callers),
+        "called_equity": max(0.0, min(1.0, called_equity)),
+        "samples": samples,
+    }
+
+
 def _bet_response_metrics(
     hand: Any,
     hero_id: str,
@@ -851,72 +1041,16 @@ def _bet_response_metrics(
     *,
     simulation_multiplier: float = 0.40,
 ) -> tuple[float, float, float, int]:
-    """Condition ranges on calling; return all-fold, callers, called equity and samples."""
-    street = {3: "flop", 4: "turn", 5: "river"}.get(len(board), "preflop")
-    response_ranges: dict[str, OpponentRange] = {}
-    expected_callers = 0.0
-    all_fold = 1.0
-    for pid, opponent_range in ranges.items():
-        total = 0.0
-        continue_mass = 0.0
-        conditioned: list[tuple[tuple[str, str], float]] = []
-        for combo, weight in opponent_range.combos:
-            base_weight = max(0.0, float(weight))
-            if base_weight <= 0:
-                continue
-            made, draw = _board_metrics(combo, board) if len(board) >= 3 else (
-                _preflop_strength(_cards_to_class(combo)), 0.0
-            )
-            probability = _response_continue_probability(
-                made, draw, bet_fraction, street, opponent_range.archetype,
-                opponent_range.learned_stats,
-            )
-            weighted = base_weight * probability
-            conditioned.append((combo, weighted))
-            continue_mass += weighted
-            total += base_weight
-        if total <= 0:
-            continue
-        conditional_continue = max(0.0, min(1.0, continue_mass / total))
-        participation = max(
-            0.0, min(1.0, float(opponent_range.participation_probability))
-        )
-        actual_call_probability = participation * conditional_continue
-        expected_callers += actual_call_probability
-        all_fold *= 1.0 - actual_call_probability
-        if continue_mass > 0:
-            combo_weights = tuple(
-                (combo, weight / continue_mass)
-                for combo, weight in conditioned if weight > 0
-            )
-        else:
-            combo_weights = opponent_range.combos
-        response_ranges[pid] = OpponentRange(
-            player_id=pid,
-            combos=combo_weights,
-            source=opponent_range.source + "+bet-response",
-            confidence=opponent_range.confidence,
-            participation_probability=actual_call_probability,
-            archetype=opponent_range.archetype,
-            learned_stats=opponent_range.learned_stats,
-        )
-
-    unconditional_equity, samples = _equity_vs_ranges(
-        hand, hero_id, response_ranges, cpu,
+    """Compatibility wrapper returning all-fold and call-conditioned metrics."""
+    metrics = _bet_response_branch_metrics(
+        hand, hero_id, ranges, board, bet_fraction, cpu,
         simulation_multiplier=simulation_multiplier,
     )
-    if all_fold >= 0.999999:
-        called_equity = 1.0
-    else:
-        called_equity = (
-            unconditional_equity - all_fold
-        ) / max(1e-9, 1.0 - all_fold)
-        called_equity = max(0.0, min(1.0, called_equity))
     return (
-        max(0.0, min(1.0, all_fold)),
-        expected_callers,
-        called_equity,
-        samples,
+        float(metrics["all_fold_probability"]),
+        float(metrics["expected_callers"]),
+        float(metrics["called_equity"]),
+        int(metrics["samples"]),
     )
 
 
@@ -1482,6 +1616,7 @@ def _choose_range_aware_action_impl(
     expected_callers = 0.0
     called_equity_estimate = equity
     response_samples = 0
+    raise_response_probability = 0.0
 
     if street == "preflop":
         # Require stronger equity when multiple players still have cards and
@@ -1563,15 +1698,16 @@ def _choose_range_aware_action_impl(
             candidate_blockers = _blocker_removal_metrics(
                 hand, player_id, ranges, bet_fraction
             )
-            (
-                candidate_fold_probability,
-                candidate_expected_callers,
-                candidate_called_equity,
-                candidate_response_samples,
-            ) = _bet_response_metrics(
+            response_metrics = _bet_response_branch_metrics(
                 hand, player_id, ranges, board, bet_fraction, cpu,
                 simulation_multiplier=0.40,
             )
+            candidate_fold_probability = float(response_metrics["all_fold_probability"])
+            candidate_call_probability = float(response_metrics["call_only_probability"])
+            candidate_raise_probability = float(response_metrics["raise_probability"])
+            candidate_expected_callers = float(response_metrics["expected_callers"])
+            candidate_called_equity = float(response_metrics["called_equity"])
+            candidate_response_samples = int(response_metrics["samples"])
             required_success = required_bluff_success(pot, risk)
             candidate_required_bluff = required_success
             raise_increment = max(0, risk - to_call) if to_call else risk
@@ -1579,13 +1715,22 @@ def _choose_range_aware_action_impl(
             called_pot = (
                 pot + risk + candidate_expected_callers * caller_payment
             )
+            candidate_rake = (
+                min(rake_cap, int(called_pot * rake_bps / 10000))
+                if rake_bps else 0
+            )
+            # A fold wins the existing pot, a call-only branch reaches
+            # showdown with its call-conditioned range, and any raise branch
+            # conservatively loses the initial bet until a raise-response tree
+            # is implemented.
             raise_ev = (
                 candidate_fold_probability * pot
-                + (1.0 - candidate_fold_probability)
+                + candidate_call_probability
                 * (
-                    candidate_called_equity * max(0, called_pot - estimated_rake)
+                    candidate_called_equity * max(0, called_pot - candidate_rake)
                     - risk
                 )
+                - candidate_raise_probability * risk
             )
             # Thin value is still value when the weighted calling range
             # loses often enough. More likely callers in multiway pots raise
@@ -1658,6 +1803,7 @@ def _choose_range_aware_action_impl(
                 expected_callers = candidate_expected_callers
                 called_equity_estimate = candidate_called_equity
                 response_samples = candidate_response_samples
+                raise_response_probability = candidate_raise_probability
                 required_bluff = candidate_required_bluff
 
     # If no call is faced, a low-EV bluff is not forced: checking remains the baseline.
@@ -1679,6 +1825,7 @@ def _choose_range_aware_action_impl(
         f"{decision_name}; equity {equity:.1%}; required call {required_call:.1%}; "
         f"pure-bluff required folds {required_bluff:.1%}; estimated all-fold {fold_probability:.1%}; "
         f"expected callers {expected_callers:.2f}; equity when called {called_equity_estimate:.1%}; "
+        f"estimated raise response {raise_response_probability:.1%}; "
         f"blockers value/bluff/draw={blocker_metrics['value_call_combos_blocked']:.1%}/"
         f"{blocker_metrics['bluff_call_combos_blocked']:.1%}/"
         f"{blocker_metrics['draw_call_combos_blocked']:.1%}; "
