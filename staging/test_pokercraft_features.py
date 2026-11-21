@@ -171,6 +171,31 @@ def test_paid_range_window_is_clamped_and_renderer_retries_safely():
     assert "win.after_idle(safe_draw)" in view
     assert "win.after(120, safe_draw)" in view
     assert "win.after(360, safe_draw)" in view
+    assert "top_left_of_anchor=True" in view
+    assert "x = px + 12" in view and "y = py + 12" in view
+    assert "if top_left_of_anchor:" in source_of("_fit_toplevel_to_monitor_work_area")
+
+
+def test_format_table_chips_signature_matches_every_call_site():
+    method = next(
+        node for node in ast.walk(TREE)
+        if isinstance(node, ast.FunctionDef) and node.name == "_format_table_chips"
+    )
+    assert len(method.args.args) == 3  # self, cents, big_blind
+    calls = [
+        node for node in ast.walk(TREE)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_format_table_chips"
+    ]
+    assert calls, "No _format_table_chips call sites found"
+    bad = [
+        (node.lineno, len(node.args), [kw.arg for kw in node.keywords])
+        for node in calls
+        if len(node.args) != 2 or node.keywords
+    ]
+    assert not bad, f"_format_table_chips call signature mismatch: {bad}"
+
 
 
 def run_tests():
@@ -188,6 +213,7 @@ def run_tests():
         test_live_preflop_range_is_an_overlay_and_pauses_the_action_clock,
         test_main_and_table_windows_use_native_monitor_work_area_bounds,
         test_paid_range_window_is_clamped_and_renderer_retries_safely,
+        test_format_table_chips_signature_matches_every_call_site,
     ]
     for test in tests:
         test()
