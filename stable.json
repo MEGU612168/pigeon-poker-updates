@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.4.6",
-  "published_at": "2026-11-21T15:52:15Z",
-  "release_notes": "プレイ中のプリフロップレンジをテーブル画面上の最前面オーバーレイに変更。別画面・別ページへの移動をなくし、レンジ確認中は現在のハンドのアクション残り時間を一時停止、閉じると残り時間から再開。GGPOKERのTime Bank Card仕様を確認。",
+  "version": "1.4.7",
+  "published_at": "2026-11-21T16:17:09Z",
+  "release_notes": "レンジ表示の描画不具合を修正。通常のウィンドウ枠とWindowsタスクバーを維持し、テーブル上に表示。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.6/payload-updater.zip.b64?v=2007d43b41910a6ee700ccac5ad1f2ee787de041f9de1147835f6986f140af5c",
-  "payload_sha256": "2007d43b41910a6ee700ccac5ad1f2ee787de041f9de1147835f6986f140af5c",
-  "payload_size": 276389
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.7/payload-updater.zip.b64?v=8612cef95f432b813a025de389b3e617a35e9f393a6bcf31dc64d20c5bfc3a50",
+  "payload_sha256": "8612cef95f432b813a025de389b3e617a35e9f393a6bcf31dc64d20c5bfc3a50",
+  "payload_size": 276732
 }

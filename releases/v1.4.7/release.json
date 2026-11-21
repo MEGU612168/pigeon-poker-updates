@@ -9,5 +9,20 @@
   "release_notes": "レンジ表示の描画不具合を修正。通常のウィンドウ枠とWindowsタスクバーを維持し、テーブル上に表示。",
   "updater_actual_extract_validation": "passed",
   "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
-  "preflop_strategy_bundle_validation": "passed"
+  "preflop_strategy_bundle_validation": "passed",
+  "published_at": "2026-11-21T16:17:09Z",
+  "payload_sha256": "8612cef95f432b813a025de389b3e617a35e9f393a6bcf31dc64d20c5bfc3a50",
+  "payload_size": 276732,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/cpu_learning.py",
+    "pigeon_poker/poker_reasoning.py",
+    "pigeon_poker/preflop_cleanup.py",
+    "pigeon_poker/preflop_gto_strategy.py",
+    "pigeon_updater.py"
+  ]
 }
