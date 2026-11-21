@@ -2103,6 +2103,17 @@ def _choose_range_aware_action_impl(
     uncertainty_margin = min(
         0.20, uncertainty * 0.11 + guardrail_penalty / 1000.0 * 0.12
     )
+    equity_realization = (
+        _equity_realization_factor(
+            street,
+            in_position=bool(position_profile.get("in_position", False)),
+            position_known=bool(position_profile.get("known", False)),
+            expected_opponents=expected_opponents,
+            made_category=hero_hand_category,
+            draw_strength=hero_draw_strength,
+        ) if street != "preflop" else 1.0
+    )
+    realized_equity = max(0.0, min(1.0, equity * equity_realization))
     rake_bps = max(0, int(getattr(hand, "rake_bps", 0) or 0))
     rake_cap = max(0, int(getattr(hand, "rake_cap", 0) or 0))
     call_pot = pot + to_call
@@ -2139,18 +2150,8 @@ def _choose_range_aware_action_impl(
 
     # SDV is the range-weighted value of checking through to showdown.
     # A zero-valued check baseline systematically over-bets medium-strength hands.
-    equity_realization = (
-        _equity_realization_factor(
-            street,
-            in_position=bool(position_profile.get("in_position", False)),
-            position_known=bool(position_profile.get("known", False)),
-            expected_opponents=expected_opponents,
-            made_category=hero_hand_category,
-            draw_strength=hero_draw_strength,
-        ) if street != "preflop" else 1.0
-    )
     showdown_value_ev = (
-        _showdown_value_ev(equity * equity_realization, pot, estimated_rake)
+        _showdown_value_ev(realized_equity, pot, estimated_rake)
         if street != "preflop" else 0.0
     )
     best_action = _best_passive_action(actions)
@@ -2161,11 +2162,11 @@ def _choose_range_aware_action_impl(
     elif best_action == "check":
         best_ev = showdown_value_ev if "check" in actions else 0.0
     elif best_action == "call":
-        best_ev = equity * max(0, call_pot - estimated_rake) - to_call
+        best_ev = realized_equity * max(0, call_pot - estimated_rake) - to_call
     elif best_action in {"all_in", "allin"}:
         best_ev = equity * max(0, call_pot - estimated_rake) - to_call
 
-    if to_call > 0 and equity < required_call and "fold" in actions:
+    if to_call > 0 and realized_equity < required_call and "fold" in actions:
         best_action, best_amount, best_ev = "fold", None, 0.0
     elif to_call > 0 and "call" in actions:
         best_action, best_amount = "call", None
@@ -2254,6 +2255,9 @@ def _choose_range_aware_action_impl(
             candidate_required_bluff = required_success
             raise_increment = max(0, risk - to_call) if to_call else risk
             caller_payment = raise_increment if to_call else risk
+            candidate_called_realized_equity = max(
+                0.0, min(1.0, candidate_called_equity * equity_realization)
+            )
             called_pot = (
                 pot + risk + candidate_expected_callers * caller_payment
             )
@@ -2269,7 +2273,7 @@ def _choose_range_aware_action_impl(
                 candidate_fold_probability * pot
                 + candidate_call_probability
                 * (
-                    candidate_called_equity * max(0, called_pot - candidate_rake)
+                    candidate_called_realized_equity * max(0, called_pot - candidate_rake)
                     - risk
                 )
                 - candidate_raise_probability * risk
@@ -2282,7 +2286,7 @@ def _choose_range_aware_action_impl(
                 required_call, street,
             )
             value_gate = (
-                candidate_called_equity >= value_threshold
+                candidate_called_realized_equity >= value_threshold
                 and (
                     hero_hand_category >= 1
                     or candidate_called_current_equity >= value_threshold
@@ -2311,7 +2315,7 @@ def _choose_range_aware_action_impl(
                 made_category=hero_hand_category,
                 draw_strength=hero_draw_strength,
                 expected_callers=max(candidate_expected_callers, expected_opponents),
-                called_equity=candidate_called_equity,
+                called_equity=candidate_called_realized_equity,
                 value_threshold=value_threshold,
                 fold_probability=candidate_fold_probability,
                 required_success=required_success,
@@ -2418,7 +2422,8 @@ def _choose_range_aware_action_impl(
         f"chart-range-top-adv={float(board_role.get('preflop_range_profile', {}).get('top_decile_advantage', 0.0)):.3f}; "
         f"range-advantage={bool(board_role.get('preflop_range_advantage', False))}; "
         f"range-edge={float(board_role.get('preflop_range_edge', 0.0)):.3f}; "
-        f"SDV-equity={equity:.1%}; check-EV≈{showdown_value_ev:.1f}; "
+        f"raw-equity={equity:.1%}; realized-equity={realized_equity:.1%}; "
+        f"SDV-check-EV≈{showdown_value_ev:.1f}; "
         f"donk-lead={bool(board_role.get('donk_lead', False))}; "
         f"hero-made-category={hero_hand_category}; draw={hero_draw_strength:.2f}; "
         "source=range-aware multiway response model with postflop aggression guardrails (not solver exact)"
