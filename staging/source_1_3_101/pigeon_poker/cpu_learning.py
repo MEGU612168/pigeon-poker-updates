@@ -72,8 +72,11 @@ class CPULearningStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
+            size_columns_sql = ",\n                    ".join(
+                f"{name} INTEGER NOT NULL DEFAULT 0" for name in _SIZE_COUNTERS
+            )
             connection.execute(
-                """
+                f"""
                 CREATE TABLE IF NOT EXISTS cpu_behavior_stats (
                     stake TEXT NOT NULL,
                     cpu_id TEXT NOT NULL,
@@ -93,7 +96,7 @@ class CPULearningStore:
                     cbets INTEGER NOT NULL DEFAULT 0,
                     fold_to_cbet_opportunities INTEGER NOT NULL DEFAULT 0,
                     folds_to_cbet INTEGER NOT NULL DEFAULT 0,
-                    ${_SIZE_COUNTERS.map(name => name + " INTEGER NOT NULL DEFAULT 0").join(",\n                    ")},
+                    {size_columns_sql},
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (stake, cpu_id)
                 )
