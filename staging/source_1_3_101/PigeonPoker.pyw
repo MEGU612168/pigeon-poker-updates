@@ -17,6 +17,7 @@ import time
 import uuid
 import tkinter as tk
 from pathlib import Path
+# Retire the obsolete chart modules before importing the live preflop policy.
 from pigeon_poker.preflop_cleanup import cleanup_retired_preflop_modules
 cleanup_retired_preflop_modules()
 from tkinter import filedialog, messagebox, ttk
