@@ -1531,7 +1531,7 @@ def test_spr_calibrates_equity_realization_and_thin_value_threshold():
 
 
 def test_spr_expands_stackoff_sizes_when_nut_edge_is_real():
-    texture = module._postflop_board_texture(["9s", "8s", "7d"])
+    texture = module._postflop_board_texture(["As", "7d", "2c"])
     shallow = module._postflop_bet_size_fractions(
         to_call=False, donk_lead=False, range_advantage=True,
         range_disadvantage=False, nut_advantage=0.12, expected_callers=1.0,
