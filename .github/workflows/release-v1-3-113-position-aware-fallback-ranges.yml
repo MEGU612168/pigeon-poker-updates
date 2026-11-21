@@ -160,7 +160,7 @@ jobs:
               "raise_floor",
               "_position_for_player",
               "_fallback_position_adjustment",
-              "position-specific priors"
+              "Position-specific adjustment to the fallback preflop range-strength cutoff"
           )
           for marker in required_reasoning_markers:
               if marker not in reasoning_source:
