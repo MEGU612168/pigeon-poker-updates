@@ -9,5 +9,20 @@
   "release_notes": "レンジ表示の描画修正に加え、Windowsの作業領域に合わせてメイン画面を配置し、タスクバーを隠さないよう修正。ライブレンジ回帰テストをCIで実行。",
   "updater_actual_extract_validation": "passed",
   "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
-  "preflop_strategy_bundle_validation": "passed"
+  "preflop_strategy_bundle_validation": "passed",
+  "published_at": "2026-11-21T16:27:57Z",
+  "payload_sha256": "21df1aa4f60b76eb6e57f01fd0e75826b630cf19b9ebff9ac4f6bbf67bc271f6",
+  "payload_size": 277155,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/cpu_learning.py",
+    "pigeon_poker/poker_reasoning.py",
+    "pigeon_poker/preflop_cleanup.py",
+    "pigeon_poker/preflop_gto_strategy.py",
+    "pigeon_updater.py"
+  ]
 }
