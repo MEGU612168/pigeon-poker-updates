@@ -723,6 +723,152 @@ def test_flop_response_uses_opponent_fold_to_cbet_history():
     assert sticky_cbet > baseline > overfold_cbet
 
 
+
+
+def test_preflop_board_role_detects_caller_favored_connected_flop() -> None:
+    players = [
+        FakePlayer("hero", ("As", "Kh")),
+        FakePlayer("villain", ("2c", "3d")),
+    ]
+    hand = FakeHand(
+        players, board=("8s", "7d", "6c"), pot=500,
+        street="flop", to_call=0, actions=("check", "bet"),
+    )
+    hand.dealer_index = 0
+    hand.seat_by_id = {"villain": 0, "hero": 2}
+    hand.events = [
+        {"type": "action", "street": "preflop", "player": "villain", "action": "raise",
+         "target": 250, "paid": 250, "pot_before": 75, "to_call_before": 0},
+        {"type": "action", "street": "preflop", "player": "hero", "action": "call",
+         "target": 250, "paid": 250, "pot_before": 325, "to_call_before": 250},
+        {"type": "street", "street": "flop", "board": ["8s", "7d", "6c"]},
+    ]
+    context = module._postflop_board_role_context(FakeTable(), hand, "hero")
+    assert context["preflop_aggressor"] == "villain"
+    assert context["caller_favored_board"] is True
+    assert context["hero_is_preflop_aggressor"] is False
+    assert context["preflop_range_disadvantage"] is False
+    assert context["donk_lead"] is True
+
+
+def test_preflop_aggressor_is_flagged_range_disadvantaged_on_low_connected_flop() -> None:
+    players = [
+        FakePlayer("hero", ("As", "Kh")),
+        FakePlayer("villain", ("2c", "3d")),
+    ]
+    hand = FakeHand(
+        players, board=("8s", "7d", "6c"), pot=500,
+        street="flop", to_call=0, actions=("check", "bet"),
+    )
+    hand.dealer_index = 0
+    hand.seat_by_id = {"hero": 0, "villain": 2}
+    hand.events = [
+        {"type": "action", "street": "preflop", "player": "hero", "action": "raise",
+         "target": 250, "paid": 250, "pot_before": 75, "to_call_before": 0},
+        {"type": "action", "street": "preflop", "player": "villain", "action": "call",
+         "target": 250, "paid": 250, "pot_before": 325, "to_call_before": 250},
+        {"type": "street", "street": "flop", "board": ["8s", "7d", "6c"]},
+    ]
+    context = module._postflop_board_role_context(FakeTable(), hand, "hero")
+    assert context["hero_is_preflop_aggressor"] is True
+    assert context["caller_favored_board"] is True
+    assert context["preflop_range_disadvantage"] is True
+    assert context["donk_lead"] is False
+
+
+def test_ace_high_dry_flop_favors_preflop_aggressor_proxy() -> None:
+    players = [
+        FakePlayer("hero", ("2c", "3d")),
+        FakePlayer("villain", ("As", "Ah")),
+    ]
+    hand = FakeHand(
+        players, board=("As", "7d", "3c"), pot=500,
+        street="flop", to_call=0, actions=("check", "bet"),
+    )
+    hand.dealer_index = 0
+    hand.seat_by_id = {"hero": 2, "villain": 0}
+    hand.events = [
+        {"type": "action", "street": "preflop", "player": "villain", "action": "raise",
+         "target": 250, "paid": 250, "pot_before": 75, "to_call_before": 0},
+        {"type": "action", "street": "preflop", "player": "hero", "action": "call",
+         "target": 250, "paid": 250, "pot_before": 325, "to_call_before": 250},
+        {"type": "street", "street": "flop", "board": ["As", "7d", "3c"]},
+    ]
+    context = module._postflop_board_role_context(FakeTable(), hand, "hero")
+    assert context["aggressor_favored_board"] is True
+    assert context["preflop_range_disadvantage"] is True
+
+
+def test_medium_strength_raise_is_blocked_on_range_disadvantage_board() -> None:
+    value_gate, bluff_gate = module._postflop_aggression_gates(
+        True, True,
+        street="flop", to_call=200, donk_lead=False,
+        range_disadvantage=True, made_category=1, draw_strength=0.14,
+        expected_callers=1.0, called_equity=0.60, value_threshold=0.55,
+        fold_probability=0.70, required_success=0.40, uncertainty_margin=0.05,
+    )
+    assert value_gate is False
+    assert bluff_gate is False
+
+
+def test_strong_value_raise_can_pass_the_stricter_postflop_gate() -> None:
+    value_gate, bluff_gate = module._postflop_aggression_gates(
+        True, False,
+        street="flop", to_call=200, donk_lead=False,
+        range_disadvantage=True, made_category=3, draw_strength=0.0,
+        expected_callers=1.0, called_equity=0.78, value_threshold=0.55,
+        fold_probability=0.25, required_success=0.40, uncertainty_margin=0.03,
+    )
+    assert value_gate is True
+    assert bluff_gate is False
+
+
+def test_weak_donk_lead_is_blocked_but_set_and_combo_draw_are_retained() -> None:
+    weak_value, weak_bluff = module._postflop_aggression_gates(
+        True, True,
+        street="flop", to_call=0, donk_lead=True,
+        range_disadvantage=False, made_category=1, draw_strength=0.14,
+        expected_callers=1.0, called_equity=0.62, value_threshold=0.55,
+        fold_probability=0.65, required_success=0.35, uncertainty_margin=0.02,
+    )
+    set_value, _ = module._postflop_aggression_gates(
+        True, False,
+        street="flop", to_call=0, donk_lead=True,
+        range_disadvantage=False, made_category=3, draw_strength=0.0,
+        expected_callers=1.0, called_equity=0.80, value_threshold=0.55,
+        fold_probability=0.20, required_success=0.35, uncertainty_margin=0.02,
+    )
+    draw_value, draw_bluff = module._postflop_aggression_gates(
+        False, True,
+        street="flop", to_call=0, donk_lead=True,
+        range_disadvantage=False, made_category=0, draw_strength=0.96,
+        expected_callers=1.0, called_equity=0.38, value_threshold=0.55,
+        fold_probability=0.75, required_success=0.35, uncertainty_margin=0.02,
+    )
+    assert weak_value is False and weak_bluff is False
+    assert set_value is True
+    assert draw_value is False and draw_bluff is True
+
+
+def test_multiway_donk_gate_requires_set_or_exceptional_draw() -> None:
+    two_pair, _ = module._postflop_aggression_gates(
+        True, False,
+        street="flop", to_call=0, donk_lead=True,
+        range_disadvantage=False, made_category=2, draw_strength=0.0,
+        expected_callers=2.0, called_equity=0.80, value_threshold=0.55,
+        fold_probability=0.20, required_success=0.35, uncertainty_margin=0.02,
+    )
+    set_value, _ = module._postflop_aggression_gates(
+        True, False,
+        street="flop", to_call=0, donk_lead=True,
+        range_disadvantage=False, made_category=3, draw_strength=0.0,
+        expected_callers=2.0, called_equity=0.80, value_threshold=0.55,
+        fold_probability=0.20, required_success=0.35, uncertainty_margin=0.02,
+    )
+    assert two_pair is False
+    assert set_value is True
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
