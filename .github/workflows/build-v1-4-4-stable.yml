@@ -197,7 +197,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stable.json releases/v1.4.4/release.json releases/v1.4.4/payload-updater.zip.b64 releases/v1.4.4/utg-open-range.json staging/source_1_3_101/PigeonPoker.pyw staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py staging/source_1_3_101/pigeon_poker/preflop_cleanup.py staging/test_pokercraft_features.py staging/test_preflop_gto_integrity.py staging/test_preflop_gto_policy.py staging/test_preflop_user_actions.py staging/test_postflop_controls.py staging/test_poker_reasoning.py staging/test_cpu_learning.py staging/test_preflop_legacy_cleanup.py
+          git add stable.json releases/v1.4.4/release.json releases/v1.4.4/payload-updater.zip.b64 staging/source_1_3_101/PigeonPoker.pyw staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py staging/source_1_3_101/pigeon_poker/preflop_cleanup.py staging/test_pokercraft_features.py staging/test_preflop_gto_integrity.py staging/test_preflop_gto_policy.py staging/test_preflop_user_actions.py staging/test_postflop_controls.py staging/test_poker_reasoning.py staging/test_cpu_learning.py staging/test_preflop_legacy_cleanup.py
           git rm --ignore-unmatch releases/v1.4.4/payload.ready
           git commit -m "Publish verified Pigeon Poker v1.4.4 update"
           git push
