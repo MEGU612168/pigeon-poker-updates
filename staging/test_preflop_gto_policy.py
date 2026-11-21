@@ -11,6 +11,7 @@ from pigeon_poker import preflop_gto_strategy as policy
 from test_preflop_legacy_cleanup import test_cleanup_removes_only_retired_preflop_code_and_cache_files
 from test_preflop_gto_integrity import (
     test_all_screenshot_nodes_contain_a_complete_169_hand_matrix,
+    test_utg_open_is_exact_screenshot_range_not_inferred,
     test_screenshot_action_totals_match_the_169_combo_weighted_matrix,
     test_range_conditioned_nodes_match_the_previous_action_range_support,
     test_every_screenshot_raise_size_has_a_combo_weighted_modal_result,
@@ -103,6 +104,7 @@ def _test_schema2_screenshot_policy_metadata():
     summary = policy.coverage_summary()
     assert summary["schema"] == 2
     assert summary["exact_screenshot_nodes"] >= 27
+    assert summary["inferred_nodes"] == 0
     assert summary["archive_screenshots"] == 174
     assert summary["fixed_2_5bb_opening"] is False
     data = policy._data()
@@ -368,6 +370,7 @@ def run_tests():
         _test_cpu_action_uses_new_node_range_and_preserves_legality,
         _test_opponent_range_estimator_uses_new_preflop_policy,
         test_all_screenshot_nodes_contain_a_complete_169_hand_matrix,
+        test_utg_open_is_exact_screenshot_range_not_inferred,
         test_screenshot_action_totals_match_the_169_combo_weighted_matrix,
         test_range_conditioned_nodes_match_the_previous_action_range_support,
         test_every_screenshot_raise_size_has_a_combo_weighted_modal_result,
