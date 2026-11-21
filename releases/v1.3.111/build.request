@@ -1,5 +1,5 @@
 {
   "version": "1.3.111",
-  "reason": "Restore the preflop CHART SIZE control on a dedicated visible row. Resolve size strictly from position plus complete observed preflop action/raise-size history; do not use the hero hand class. Add regression tests proving identical sizes for AA and 72o in the same node and keep all user actions/amounts editable.",
+  "reason": "Retry release validation after correcting the shared action UI regression test. Human-only CHART SIZE uses position plus complete preflop action/raise-size history and is hand-class independent. It selects normal raise size only; all-in is separate. A regression test enforces that BOT decisions remain hand-class-specific and continue using the fixed 75-node action-frequency chart, with no call to the human sizing helper.",
   "source_version": "1.3.110"
 }
