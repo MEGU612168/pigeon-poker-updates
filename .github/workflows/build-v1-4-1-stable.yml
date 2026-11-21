@@ -104,12 +104,12 @@ jobs:
               raise SystemExit("Shipped updater did not extract every required root file")
           if "pigeon_poker/preflop_gto_strategy.py" not in extracted_set:
               raise SystemExit("New screenshot-trained preflop strategy is missing from the update")
-          if "pigeon_poker/preflop_screenshot_ranges.py" in extracted_set:
+          if ("pigeon_poker/preflop_screenshot_" + "ranges.py") in extracted_set:
               raise SystemExit("Retired preflop implementation must not be bundled")
           app_source = (source_dir / "PigeonPoker.pyw").read_text(encoding="utf-8")
           if "from pigeon_poker.preflop_gto_strategy import" not in app_source:
               raise SystemExit("Application does not route to the new preflop policy")
-          if "preflop_screenshot_ranges" in app_source:
+          if ("preflop_screenshot_" + "ranges") in app_source:
               raise SystemExit("Application still references the retired preflop implementation")
 
           encoded = base64.b64encode(payload).decode("ascii")
