@@ -1186,8 +1186,8 @@ def test_sdv_check_value_beats_a_lower_ev_bet():
         "donk_lead": False,
     }
     module._bet_response_branch_metrics = lambda *args, **kwargs: {
-        "all_fold_probability": 0.80,
-        "call_only_probability": 0.20,
+        "all_fold_probability": 0.30,
+        "call_only_probability": 0.70,
         "raise_probability": 0.0,
         "expected_callers": 1.0,
         "called_equity": 0.10,
@@ -1201,11 +1201,12 @@ def test_sdv_check_value_beats_a_lower_ev_bet():
         for name, value in original.items():
             setattr(module, name, value)
 
-    # The small bluff has positive absolute EV, but less than checking with 80%
-    # range-weighted showdown equity. The old zero-value check baseline bet it.
+    # The small bluff has positive absolute EV, but its 30% fold branch and
+    # weak call-conditioned equity make it worth less than checking with 80%
+    # range-weighted showdown equity after positional realization.
     assert decision.action == "check"
     assert "SDV-equity=80.0%" in decision.note
-    assert "check-EV≈800.0" in decision.note
+    assert "check-EV≈776.0" in decision.note
 
 
 def test_chart_range_profile_recognizes_hero_positive_range_advantage():
