@@ -1,0 +1,22 @@
+name: Inspect Pigeon Poker source range-node mapping
+
+on:
+  push:
+    paths:
+      - "staging/dump_range_source_nodes.py"
+      - ".github/workflows/inspect-range-source-nodes.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Print source image to exact-node mapping
+        run: python staging/dump_range_source_nodes.py
