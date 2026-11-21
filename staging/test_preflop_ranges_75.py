@@ -495,6 +495,27 @@ def test_hand_class_parsing():
     assert module.hand_class_from_cards(('A♠','K♠'))=='AKs'
     assert module.hand_class_from_cards(('K♦','A♠'))=='AKo'
 
+
+def test_human_situation_size_lookup_survives_non_100bb_current_stack():
+    node = next(
+        node for node in module._data()['nodes']
+        if any(
+            action.get('action') == 'raise' and float(action.get('frequency', 0.0)) > 0
+            for actions in node['hands'].values() for action in actions
+        )
+    )
+    hand = FakeHand(node, 'AKo')
+    expected = module.preflop_situation_size(FakeTable(), hand, hand.actor_id)
+    assert expected is not None
+
+    # BOT's 100-BB chart gate remains intact, while the hero's sizing helper
+    # follows the requested position/action-history-only rule.
+    hand.player(hand.actor_id).stack -= 700
+    assert not module._supports_100bb_effective_stack(hand)
+    assert module._node_for_actor(FakeTable(), hand, hand.actor_id) is None
+    assert module.preflop_situation_size(FakeTable(), hand, hand.actor_id) == expected
+
+
 if __name__=='__main__':
     tests=[v for k,v in globals().items() if k.startswith('test_') and callable(v)]
     for test in tests:
