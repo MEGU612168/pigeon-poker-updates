@@ -59,7 +59,7 @@ def test_persists_per_cpu_public_action_statistics_and_is_idempotent():
         assert profiles["cpu-A"]["vpip_rate"] > 0.0
         assert profiles["cpu-A"]["pfr_rate"] > 0.0
         assert profiles["cpu-B"]["vpip_rate"] > 0.0
-        assert profiles["cpu-B"]["fold_to_bet_opportunities"] == 1.0
+        assert profiles["cpu-B"]["faced_bet_opportunities"] == 1.0
         assert profiles["cpu-B"]["fold_to_bet_rate"] > 0.55
         assert profiles["cpu-A"]["cbet_opportunities"] == 1.0
         assert profiles["cpu-A"]["cbet_rate"] > 0.0
