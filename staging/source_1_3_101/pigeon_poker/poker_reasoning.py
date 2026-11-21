@@ -1969,6 +1969,10 @@ def _postflop_aggression_gates(
         effective_value_threshold = max(
             0.48, effective_value_threshold - min(0.02, max(0.0, edge) * 0.20)
         )
+    # A draw may have substantial all-in equity, but it is not automatically
+    # a value hand. Require current made-hand equity to support thin value.
+    if category < 1 and current_equity < effective_value_threshold:
+        value_gate = False
 
     if int(to_call) > 0:
         raise_floor = 0.60 + 0.045 * max(0.0, callers - 1.0)
