@@ -928,7 +928,161 @@ def _best_passive_action(legal_actions: set[str]) -> str:
     return next(iter(legal_actions))
 
 
-def _postflop_board_role_context(table: Any, hand: Any, player_id: str) -> dict[str, Any]:
+def _range_board_strength_profile(
+    row: dict[str, Any],
+    board: list[str],
+    *,
+    max_samples: int = 240,
+) -> dict[str, float] | None:
+    """Summarise a chart-derived preflop range's made-hand distribution on a board."""
+    if not isinstance(row, dict) or not row.get("supported"):
+        return None
+    classes = row.get("unblocked_hand_class_probabilities")
+    if not isinstance(classes, dict):
+        classes = row.get("hand_class_probabilities")
+    if not isinstance(classes, dict) or len(board) < 3:
+        return None
+    blockers = set(str(card) for card in board)
+    options: list[tuple[tuple[str, str], float]] = []
+    for hand_class, raw_weight in classes.items():
+        try:
+            class_weight = max(0.0, float(raw_weight))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if class_weight <= 0:
+            continue
+        combos = [
+            combo for combo in _physical_combos(str(hand_class))
+            if not (set(combo) & blockers)
+        ]
+        if combos:
+            options.extend((combo, class_weight / len(combos)) for combo in combos)
+    total = sum(weight for _, weight in options)
+    if total <= 0:
+        return None
+
+    # Systematic weighted sampling caps work while preserving the full weighted
+    # class distribution. Cache sharing keeps repeated streets inexpensive.
+    options.sort(key=lambda item: item[0])
+    if len(options) > max(1, int(max_samples)):
+        sample_count = max(1, int(max_samples))
+        step = total / sample_count
+        sampled: list[tuple[tuple[str, str], float]] = []
+        index = 0
+        cumulative = options[0][1]
+        for sample_index in range(sample_count):
+            target = (sample_index + 0.5) * step
+            while index < len(options) - 1 and cumulative < target:
+                index += 1
+                cumulative += options[index][1]
+            sampled.append((options[index][0], step))
+        profile_options = sampled
+    else:
+        profile_options = options
+
+    weighted_scores = [
+        (_board_metrics(combo, board)[0], weight)
+        for combo, weight in profile_options if weight > 0
+    ]
+    profile_total = sum(weight for _, weight in weighted_scores)
+    if profile_total <= 0:
+        return None
+    mean = sum(score * weight for score, weight in weighted_scores) / profile_total
+    nut_mass = sum(
+        weight for score, weight in weighted_scores if score >= 0.315
+    ) / profile_total
+    # The upper decile is a compact proxy for nut advantage; integrate partial
+    # weights rather than rounding a combo count at the percentile boundary.
+    upper_mass = profile_total * 0.10
+    upper_sum = 0.0
+    remaining = upper_mass
+    for score, weight in sorted(weighted_scores, key=lambda item: item[0], reverse=True):
+        take = min(weight, remaining)
+        upper_sum += score * take
+        remaining -= take
+        if remaining <= 1e-12:
+            break
+    upper_mean = upper_sum / max(1e-12, upper_mass)
+    return {
+        "mean_strength": mean,
+        "top_decile_strength": upper_mean,
+        "two_pair_plus_mass": nut_mass,
+        "sampled_combos": float(len(weighted_scores)),
+    }
+
+
+def _preflop_range_advantage_profile(
+    table: Any,
+    hand: Any,
+    hero_id: str,
+    board: list[str],
+    range_estimator: Callable[..., dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Compare chart-derived preflop ranges on the current board, without hidden-card blockers."""
+    neutral = {
+        "supported": False,
+        "range_disadvantage": False,
+        "hero_mean_strength": 0.0,
+        "opponent_mean_strength": 0.0,
+        "mean_advantage": 0.0,
+        "top_decile_advantage": 0.0,
+        "two_pair_plus_advantage": 0.0,
+    }
+    if range_estimator is None or len(board) < 3:
+        return neutral
+    try:
+        estimate = range_estimator(
+            table=table, hand=hand, exclude_player_id=None
+        ) or {}
+    except Exception:
+        return neutral
+    rows = estimate.get("players", {}) if isinstance(estimate, dict) else {}
+    if not isinstance(rows, dict):
+        return neutral
+    hero_row = rows.get(str(hero_id))
+    hero_profile = _range_board_strength_profile(hero_row, board)
+    if hero_profile is None:
+        return neutral
+
+    opponent_profiles = []
+    for player in list(getattr(hand, "players", ()) or ()):
+        pid = str(getattr(player, "player_id", ""))
+        if not pid or pid == str(hero_id) or not bool(getattr(player, "eligible", False)):
+            continue
+        profile = _range_board_strength_profile(rows.get(pid, {}), board)
+        if profile is not None:
+            opponent_profiles.append(profile)
+    if not opponent_profiles:
+        return neutral
+
+    opponent_mean = sum(row["mean_strength"] for row in opponent_profiles) / len(opponent_profiles)
+    opponent_top = sum(row["top_decile_strength"] for row in opponent_profiles) / len(opponent_profiles)
+    opponent_nut = sum(row["two_pair_plus_mass"] for row in opponent_profiles) / len(opponent_profiles)
+    mean_advantage = hero_profile["mean_strength"] - opponent_mean
+    top_advantage = hero_profile["top_decile_strength"] - opponent_top
+    nut_advantage = hero_profile["two_pair_plus_mass"] - opponent_nut
+    # Require a meaningful gap in the average/top end, or a clear nut-density
+    # deficit, before labelling a line as range-disadvantaged.
+    disadvantage = bool(
+        (mean_advantage <= -0.025 and top_advantage <= -0.025)
+        or top_advantage <= -0.065
+        or (nut_advantage <= -0.12 and mean_advantage < 0.0)
+    )
+    return {
+        "supported": True,
+        "range_disadvantage": disadvantage,
+        "hero_mean_strength": hero_profile["mean_strength"],
+        "opponent_mean_strength": opponent_mean,
+        "mean_advantage": mean_advantage,
+        "top_decile_advantage": top_advantage,
+        "two_pair_plus_advantage": nut_advantage,
+    }
+
+
+def _postflop_board_role_context(
+    table: Any, hand: Any, player_id: str,
+    range_estimator: Callable[..., dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Estimate preflop-aggressor / board-texture fit and detect a true flop donk spot.
 
     This is a conservative board-role heuristic, not a solver range-frequency claim.
@@ -988,11 +1142,21 @@ def _postflop_board_role_context(table: Any, hand: Any, player_id: str) -> dict[
         and span >= 5
     )
     is_hero_aggressor = bool(aggressor and aggressor == str(player_id))
-    range_disadvantage = bool(
+    texture_proxy_disadvantage = bool(
         aggressor and (
             (is_hero_aggressor and caller_favored)
             or (not is_hero_aggressor and aggressor_favored)
         )
+    )
+    range_profile = _preflop_range_advantage_profile(
+        table, hand, str(player_id), board, range_estimator
+    )
+    # Prefer the actual chart-derived range comparison whenever both sides
+    # have a supported preflop action. Only custom / unmatched histories use
+    # the conservative board-texture proxy.
+    range_disadvantage = (
+        bool(range_profile["range_disadvantage"])
+        if range_profile["supported"] else texture_proxy_disadvantage
     )
 
     # Postflop action begins left of the button. A non-aggressor acting before
@@ -1045,6 +1209,8 @@ def _postflop_board_role_context(table: Any, hand: Any, player_id: str) -> dict[
         "caller_favored_board": caller_favored,
         "aggressor_favored_board": aggressor_favored,
         "preflop_range_disadvantage": range_disadvantage,
+        "texture_proxy_range_disadvantage": texture_proxy_disadvantage,
+        "preflop_range_profile": range_profile,
         "donk_lead": donk_lead,
     }
 
@@ -1141,7 +1307,9 @@ def _choose_range_aware_action_impl(
     ranges = infer_opponent_ranges(table, hand, player_id, range_estimator=range_estimator)
     equity, samples = _equity_vs_ranges(hand, player_id, ranges, cpu)
     blocker_metrics = _blocker_removal_metrics(hand, player_id, ranges)
-    board_role = _postflop_board_role_context(table, hand, player_id) if street != "preflop" else {
+    board_role = _postflop_board_role_context(
+        table, hand, player_id, range_estimator=range_estimator
+    ) if street != "preflop" else {
         "preflop_aggressor": None, "hero_is_preflop_aggressor": False,
         "caller_favored_board": False, "aggressor_favored_board": False,
         "preflop_range_disadvantage": False, "donk_lead": False,
@@ -1391,6 +1559,9 @@ def _choose_range_aware_action_impl(
         f"policy penalty {guardrail_penalty}; EV≈{best_ev:.1f}; "
         f"preflop aggressor={board_role.get('preflop_aggressor') or 'unknown'}; "
         f"range-disadvantage={bool(board_role.get('preflop_range_disadvantage', False))}; "
+        f"chart-range-supported={bool(board_role.get('preflop_range_profile', {}).get('supported', False))}; "
+        f"chart-range-mean-adv={float(board_role.get('preflop_range_profile', {}).get('mean_advantage', 0.0)):.3f}; "
+        f"chart-range-top-adv={float(board_role.get('preflop_range_profile', {}).get('top_decile_advantage', 0.0)):.3f}; "
         f"donk-lead={bool(board_role.get('donk_lead', False))}; "
         f"hero-made-category={hero_hand_category}; draw={hero_draw_strength:.2f}; "
         "source=range-aware multiway response model with postflop aggression guardrails (not solver exact)"
