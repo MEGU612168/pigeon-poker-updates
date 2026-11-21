@@ -168,3 +168,14 @@ def run_tests():
 
 if __name__ == "__main__":
     run_tests()
+
+
+def test_live_preflop_range_is_an_overlay_and_pauses_the_action_clock():
+    view = source_of("_open_preflop_range_view")
+    assert "table_canvas.winfo_toplevel()" in view
+    assert "win.overrideredirect(True)" in view
+    assert "win.attributes(\"-topmost\", True)" in view
+    assert "cash_squeeze_deadline_at" in view
+    assert "paused_clock" in view
+    assert "close_range_overlay" in view
+    assert "resumed_deadline = time.monotonic() + paused_clock[\"remaining\"]" in view
