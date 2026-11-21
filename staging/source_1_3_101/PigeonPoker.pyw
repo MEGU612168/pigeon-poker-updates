@@ -35,6 +35,7 @@ from pigeon_poker.preflop_screenshot_ranges import (
     choose_preflop_action, preflop_chart_options, estimate_preflop_opponent_ranges
 )
 from pigeon_poker.poker_reasoning import choose_range_aware_action
+from pigeon_poker.cpu_learning import CPULearningStore
 from pigeon_gto_plus.live_range_builder import build_live_hu_solver_setup
 from pigeon_poker.multitable import MultiTableRegistry, next_big_blind_index_after_rotation
 from pigeon_poker.betting_ui import (DEFAULT_POT_PRESETS, normalize_pot_presets, format_chip_amount,
@@ -260,6 +261,7 @@ class PigeonPokerApp(tk.Tk):
         self.history_store = HandHistoryStore(ROOT / "data" / "pigeon_hands.sqlite3")
         self.cpu_pool_store = CPUPoolStore(ROOT / "data" / "pigeon_cpu_pool.sqlite3",
                                                    stakes=("NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200", VIP_STAKE_KEY))
+        self.cpu_learning_store = CPULearningStore(ROOT / "data" / "pigeon_cpu_learning.sqlite3")
         self.ggcare_ledger = GGCareLedger(ROOT / "data" / "pigeon_ggcare.sqlite3")
         self.ggcare_candidate = None
         # The independent Study Wallet is now the single balance/ledger source.
@@ -2543,6 +2545,8 @@ class PigeonPokerApp(tk.Tk):
             rake_pct = 0.0
         cpus = dict(self.cash_cpus)
         profiles = dict(self.cash_cpu_profiles)
+        # Stable CPU identities carry empirical action statistics between Rush hands.
+        opponent_learning = self.cpu_learning_store.get_profiles(self.cash_rate, profiles.keys())
         vip_roles = dict(slot_state.get("vip_cpu_roles", self.vip_cpu_roles))
         active_mode = normalize_table_mode(slot_state.get("cash_game_mode", self.cash_game_mode))
         # GTO+ live CPU execution has been removed; always use the local range policy.
@@ -2673,13 +2677,13 @@ class PigeonPokerApp(tk.Tk):
                         else:
                             fallback_decision = choose_range_aware_action(
                                 table, hand, pid, cpu,
-                                range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(**kwargs, opponent_profiles=profiles),
+                                range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(**kwargs, opponent_profiles=profiles, opponent_learning=opponent_learning),
                             )
                     elif not (session is not None and session.hand_token == id(hand) and session.context is not None):
                         # The same opponent-range engine handles postflop decisions.
                         fallback_decision = choose_range_aware_action(
                             table, hand, pid, cpu,
-                            range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(**kwargs, opponent_profiles=profiles),
+                            range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(**kwargs, opponent_profiles=profiles, opponent_learning=opponent_learning),
                         )
                     if hand.street == "preflop":
                         if fallback_decision is not None and fallback_decision.action == "fold":
@@ -2780,7 +2784,7 @@ class PigeonPokerApp(tk.Tk):
                             # Never fall back to the old random-equity CPU.
                             decision = choose_range_aware_action(
                                 table, hand, pid, cpu,
-                                range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(**kwargs, opponent_profiles=profiles),
+                                range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(**kwargs, opponent_profiles=profiles, opponent_learning=opponent_learning),
                             )
                         if cancel_event.is_set():
                             break
@@ -3054,6 +3058,11 @@ class PigeonPokerApp(tk.Tk):
                     try:
                         if self.cpu_pool_store.record_hand(self.cash_current_hand_key, self.cash_rate, hand):
                             self.cash_log_lines.append("CPU pool: opponent statistics updated")
+                        if self.cpu_learning_store.record_hand(
+                            self.cash_current_hand_key, self.cash_rate, hand,
+                            cpu_ids=self.cash_cpu_profiles.keys(),
+                        ):
+                            self.cash_log_lines.append("CPU learning: per-opponent behavior saved")
                     except Exception as cpu_stats_exc:
                         self.cash_log_lines.append(f"CPU statistics error: {cpu_stats_exc}")
             if not self.cash_gto_spot_mode and self.ggcare_candidate is not None:
