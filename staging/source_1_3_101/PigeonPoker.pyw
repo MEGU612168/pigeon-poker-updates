@@ -144,6 +144,7 @@ def _fit_toplevel_to_monitor_work_area(
     max_outer_height: int | None = None,
     margin: int = 0,
     anchor: tk.Misc | None = None,
+    top_left_of_anchor: bool = False,
 ) -> tuple[int, int] | None:
     """Fit a native Tk top-level inside its monitor's Windows work area.
 
@@ -177,6 +178,8 @@ def _fit_toplevel_to_monitor_work_area(
         user32.MonitorFromWindow.restype = wintypes.HANDLE
         user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_MONITORINFO)]
         user32.GetMonitorInfoW.restype = wintypes.BOOL
+        user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(_RECT)]
+        user32.GetWindowRect.restype = wintypes.BOOL
         user32.SetWindowPos.argtypes = [
             wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
             ctypes.c_int, ctypes.c_int, wintypes.UINT,
@@ -207,8 +210,19 @@ def _fit_toplevel_to_monitor_work_area(
         outer_height = available_height if max_outer_height is None else min(
             available_height, max(1, int(max_outer_height))
         )
-        x = int(work.left) + max(0, (work_width - outer_width) // 2)
-        y = int(work.top) + max(0, (work_height - outer_height) // 2)
+        if top_left_of_anchor:
+            anchor_rect = _RECT()
+            if not user32.GetWindowRect(anchor_root, ctypes.byref(anchor_rect)):
+                return None
+            min_x = int(work.left) + max(0, int(margin))
+            min_y = int(work.top) + max(0, int(margin))
+            max_x = max(min_x, int(work.right) - outer_width - max(0, int(margin)))
+            max_y = max(min_y, int(work.bottom) - outer_height - max(0, int(margin)))
+            x = min(max(int(anchor_rect.left) + max(0, int(margin)), min_x), max_x)
+            y = min(max(int(anchor_rect.top) + max(0, int(margin)), min_y), max_y)
+        else:
+            x = int(work.left) + max(0, (work_width - outer_width) // 2)
+            y = int(work.top) + max(0, (work_height - outer_height) // 2)
         flags = 0x0004 | 0x0010 | 0x0020  # NOZORDER | NOACTIVATE | FRAMECHANGED
         if not user32.SetWindowPos(
             target_root, None, x, y, outer_width, outer_height, flags
@@ -7282,7 +7296,7 @@ class PigeonPokerApp(tk.Tk):
             hero_player = next((p for p in paused_hand.players if p.player_id == "hero"), None) if paused_hand else None
             hero_seat = next((s for s in table.seats if s.get("id") == "hero"), None) if table is not None else None
             hero_stack = int(hero_player.stack if hero_player is not None else (hero_seat or {}).get("stack", 0))
-            stack_text = self._format_table_chips(hero_stack, max(1, int(getattr(table, "big_blind", 1))), self.chip_display_unit) if table is not None else ""
+            stack_text = self._format_table_chips(hero_stack, max(1, int(getattr(table, "big_blind", 1)))) if table is not None else ""
             cx, cy = w * .50, h * .76
             radius = max(23, min(34, int(min(w, h) * .045)))
             canvas.create_oval(cx-radius, cy-radius, cx+radius, cy+radius,
@@ -10858,16 +10872,17 @@ class PigeonPokerApp(tk.Tk):
             # its native frame to the work area so it cannot spill off-screen.
             fitted_range_size = _fit_toplevel_to_monitor_work_area(
                 win, max_outer_width=660, max_outer_height=720,
-                margin=12, anchor=parent,
+                margin=12, anchor=parent, top_left_of_anchor=True,
             )
             if fitted_range_size is None:
                 parent.update_idletasks()
                 px, py = parent.winfo_rootx(), parent.winfo_rooty()
                 pw, ph = max(width, parent.winfo_width()), max(height, parent.winfo_height())
-                x = px + (pw - width) // 2
-                y = py + (ph - height) // 2
+                x = px + 12
+                y = py + 12
                 win.geometry(f"{width}x{height}+{x}+{y}")
             win.transient(parent)
+            win.deiconify()
             win.lift()
             win.focus_force()
         except tk.TclError:
@@ -11049,19 +11064,27 @@ class PigeonPokerApp(tk.Tk):
                     pass
 
         canvas.bind("<Configure>", safe_draw)
-        # Paint after layout, after mapping, and once more after the Windows
-        # compositor settles. This avoids a blank canvas when the first
-        # Configure event arrives before Tk has final DPI-adjusted dimensions.
+        canvas.bind("<Map>", safe_draw, add="+")
+        canvas.bind("<Expose>", safe_draw, add="+")
+        win.bind("<Map>", lambda _event: win.after_idle(safe_draw), add="+")
+        # Paint only after the native range window is visible. Repaint on
+        # Map/Expose as Windows can discard a newly-created Toplevel surface
+        # while its owner is being raised or moved between monitors.
         try:
             win.update_idletasks()
             canvas.update_idletasks()
-            safe_draw()
+            win.deiconify()
             win.lift()
+            safe_draw()
+            win.update()
+            canvas.update()
         except tk.TclError:
             pass
         win.after_idle(safe_draw)
-        win.after(120, safe_draw)
-        win.after(360, safe_draw)
+        win.after(80, safe_draw)
+        win.after(180, safe_draw)
+        win.after(420, safe_draw)
+        win.after(800, safe_draw)
     def _open_pokercraft_replay(self):
         """Open an animated, step-based replay using only cards shown originally."""
         record = getattr(self, "selected_history_record", None)
