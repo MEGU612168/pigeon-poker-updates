@@ -78,22 +78,32 @@ def test_all_screenshot_nodes_contain_a_complete_169_hand_matrix() -> None:
 
 def test_screenshot_action_totals_match_the_169_combo_weighted_matrix() -> None:
     compact = json.loads(bz2.decompress(base64.b64decode(policy._DATA_B64)))
-    denominator = sum(combo_count(hand_class) for hand_class in policy.HAND_ORDER)
-    assert denominator == 1326
 
     for raw in compact["nodes"]:
         actions = list(raw["a"])
         action_totals = dict(raw.get("t", {}))
         matrix = raw["h"]
+
+        # Screenshot percentages are conditional on the active range at the
+        # decision node, not on all 1,326 possible starting-hand combos.
+        # Weight both the numerator and denominator by physical combo count.
+        active_mass = sum(
+            combo_count(hand_class)
+            * sum(int(value) for value in matrix[hand_index]) / 10000.0
+            for hand_index, hand_class in enumerate(policy.HAND_ORDER)
+        )
+        assert active_mass > 0, raw["i"]
+
         for action, reported_pct in action_totals.items():
             assert action in actions, (raw["i"], action)
             index = actions.index(action)
-            observed_pct = sum(
+            observed_mass = sum(
                 combo_count(hand_class) * int(matrix[hand_index][index]) / 10000.0
                 for hand_index, hand_class in enumerate(policy.HAND_ORDER)
-            ) / denominator * 100.0
+            )
+            observed_pct = observed_mass / active_mass * 100.0
             assert abs(observed_pct - float(reported_pct)) <= 0.35, (
-                raw["i"], action, observed_pct, reported_pct
+                raw["i"], action, observed_pct, reported_pct, active_mass
             )
 
 
