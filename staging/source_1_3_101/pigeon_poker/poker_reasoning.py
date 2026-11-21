@@ -1241,15 +1241,16 @@ def _postflop_bet_size_fractions(
     """Choose sizing candidates from range texture, then let response EV rank them."""
     callers = max(0.0, float(expected_callers))
     nut_edge = max(0.0, min(1.0, float(nut_advantage)))
-    if donk_lead:
-        # Donk leads are low-frequency range-protection actions, not a pot-sized default.
-        return (0.20, 0.25, 0.33) if callers >= 1.5 else (0.25, 0.33, 0.50)
+    # Facing a bet is a raise-sizing problem, never a donk-sizing problem.
     if to_call:
         if range_disadvantage:
             return (0.50, 0.75, 1.00)
         if range_advantage and nut_edge >= 0.05:
             return (0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
         return (0.50, 0.75, 1.00, 1.25, 1.50)
+    if donk_lead:
+        # Donk leads are low-frequency range-protection actions, not a pot-sized default.
+        return (0.20, 0.25, 0.33) if callers >= 1.5 else (0.25, 0.33, 0.50)
     if range_disadvantage:
         return (0.15, 0.25, 0.33, 0.50)
     if range_advantage and nut_edge >= 0.05:
