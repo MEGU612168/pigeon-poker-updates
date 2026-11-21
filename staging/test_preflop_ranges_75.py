@@ -107,7 +107,7 @@ def test_situation_size_uses_position_and_raise_history_not_hero_hand_class():
     checked = 0
     for node in module._data()['nodes']:
         has_raise = any(
-            item.get('action') in {'raise', 'allin'}
+            item.get('action') == 'raise'
             and float(item.get('frequency', 0.0)) > 0
             for actions in node['hands'].values()
             for item in actions
