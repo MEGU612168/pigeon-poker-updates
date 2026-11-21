@@ -454,26 +454,22 @@ def _action_likelihood(action: str, made: float, draw: float,
     return max(0.008, min(1.0, likelihood))
 
 
+
 def _response_continue_probability(made: float, draw: float,
                                    size_fraction: float, street: str,
                                    archetype: str = "balanced",
-                                   learned_stats: Any = None) -> float:
-    """Estimate a player's continue frequency from hand strength, draws, size and style."""
+                                   learned_stats: Any = None,
+                                   spr: float | None = None) -> float:
+    """Estimate continuation frequency from strength, sizing, style and SPR."""
     made = max(0.0, min(1.0, float(made)))
     draw = 0.0 if street == "river" else max(0.0, min(1.0, float(draw)))
     size = max(0.0, float(size_fraction))
     style = str(archetype or "balanced").lower()
     size_sensitivity = {
-        "calling_station": 0.48,
-        "aggressive": 0.78,
-        "balanced": 1.0,
-        "underbluffer": 1.08,
-        "overfolder": 1.34,
+        "calling_station": 0.48, "aggressive": 0.78, "balanced": 1.0,
+        "underbluffer": 1.08, "overfolder": 1.34,
     }.get(style, 1.0)
-    logit = (
-        -1.0 + 4.1 * made + 1.5 * draw
-        - 0.72 * size_sensitivity * math.log1p(size)
-    )
+    logit = -1.0 + 4.1 * made + 1.5 * draw - 0.72 * size_sensitivity * math.log1p(size)
     if style == "calling_station":
         logit += 0.52 * (1.0 - made) + 0.10 * draw
     elif style == "overfolder":
@@ -482,6 +478,12 @@ def _response_continue_probability(made: float, draw: float,
         logit += 0.16 + 0.16 * draw
     elif style == "underbluffer":
         logit -= 0.28 * (1.0 - made)
+    if spr is not None:
+        effective_spr = max(0.0, float(spr))
+        if effective_spr <= 2.0:
+            logit += 0.20 * (2.0 - effective_spr) / 2.0
+        elif effective_spr >= 8.0:
+            logit -= min(0.24, (effective_spr - 8.0) * 0.015)
     stats = learned_stats if isinstance(learned_stats, dict) else dict(learned_stats or ())
     sample_hands = max(0.0, float(stats.get("sample_hands", 0.0) or 0.0))
     confidence = min(0.80, sample_hands / (sample_hands + 24.0)) if sample_hands else 0.0
@@ -512,25 +514,18 @@ def _response_action_probabilities(
     street: str,
     archetype: str = "balanced",
     learned_stats: Any = None,
+    spr: float | None = None,
 ) -> tuple[float, float, float]:
-    """Return (fold, call, raise) probabilities when facing a bet.
-
-    Continuation likelihood is split into calls and raises instead of treating
-    every continue as a passive call. Strong made hands and high-equity draws
-    raise more often; player style and public-action learning adjust that
-    split without allowing a small sample to dominate the hand-strength model.
-    """
+    """Return (fold, call, raise) probabilities with style, size and SPR."""
     made = max(0.0, min(1.0, float(made)))
     draw = 0.0 if street == "river" else max(0.0, min(1.0, float(draw)))
     size = max(0.0, float(size_fraction))
     style = str(archetype or "balanced").lower()
     stats = learned_stats if isinstance(learned_stats, dict) else dict(learned_stats or ())
-
     continue_probability = _response_continue_probability(
-        made, draw, size, street, style, learned_stats
+        made, draw, size, street, style, learned_stats, spr=spr
     )
-    raise_logit = -3.40 + 2.50 * made + 1.60 * draw
-    raise_logit -= 0.12 * math.log1p(size)
+    raise_logit = -3.40 + 2.50 * made + 1.60 * draw - 0.12 * math.log1p(size)
     if style == "aggressive":
         raise_logit += 0.55
     elif style == "calling_station":
@@ -539,36 +534,22 @@ def _response_action_probabilities(
         raise_logit -= 0.25
     elif style == "underbluffer":
         raise_logit -= 0.85
-
+    if spr is not None and float(spr) <= 2.0:
+        raise_logit += 0.18 * (2.0 - max(0.0, float(spr))) / 2.0
     sample_hands = max(0.0, float(stats.get("sample_hands", 0.0) or 0.0))
     confidence = min(0.65, sample_hands / (sample_hands + 36.0)) if sample_hands else 0.0
-    observed_aggression = max(
-        0.0, min(1.0, float(stats.get("postflop_aggression_rate", 0.22)))
-    )
+    observed_aggression = max(0.0, min(1.0, float(stats.get("postflop_aggression_rate", 0.22))))
     raise_logit += (observed_aggression - 0.22) * 1.30 * confidence
     raise_logit = max(-8.0, min(4.0, raise_logit))
-    raise_share = 1.0 / (1.0 + math.exp(-raise_logit))
-    raise_share = max(0.015, min(0.72, raise_share))
-
+    raise_share = max(0.015, min(0.72, 1.0 / (1.0 + math.exp(-raise_logit))))
     raise_probability = continue_probability * raise_share
     call_probability = continue_probability - raise_probability
     fold_probability = 1.0 - continue_probability
-
-    # Use public, per-CPU observations only when the same street and sizing
-    # bucket have enough samples. Smaller samples are smoothed toward the
-    # theory/style prior instead of being treated as a reliable read.
     street_key = str(street or "").lower()
     if street_key in {"flop", "turn", "river"}:
-        size_bucket = (
-            "small" if size <= 0.33 else
-            "medium" if size <= 0.75 else
-            "large" if size <= 1.25 else "overbet"
-        )
+        size_bucket = "small" if size <= 0.33 else "medium" if size <= 0.75 else "large" if size <= 1.25 else "overbet"
         profile_prefix = f"{street_key}_{size_bucket}"
-        opportunities = max(
-            0.0,
-            float(stats.get(f"{profile_prefix}_response_opportunities", 0.0) or 0.0),
-        )
+        opportunities = max(0.0, float(stats.get(f"{profile_prefix}_response_opportunities", 0.0) or 0.0))
         if opportunities >= 3.0:
             observed = [
                 max(0.0, float(stats.get(f"{profile_prefix}_fold_rate", 0.55))),
@@ -578,25 +559,19 @@ def _response_action_probabilities(
             observed_total = sum(observed)
             if observed_total > 0:
                 observed = [value / observed_total for value in observed]
-                # Cap the influence so the heuristic prior still contributes
-                # even after a substantial sample.
                 sample_weight = min(0.78, opportunities / (opportunities + 12.0))
                 model = [fold_probability, call_probability, raise_probability]
                 fold_probability, call_probability, raise_probability = [
-                    (1.0 - sample_weight) * model_value
-                    + sample_weight * observed_value
+                    (1.0 - sample_weight) * model_value + sample_weight * observed_value
                     for model_value, observed_value in zip(model, observed)
                 ]
-
     total = fold_probability + call_probability + raise_probability
     if total <= 0:
         return 1.0, 0.0, 0.0
-    return (
-        max(0.0, min(1.0, fold_probability / total)),
-        max(0.0, min(1.0, call_probability / total)),
-        max(0.0, min(1.0, raise_probability / total)),
+    return tuple(
+        max(0.0, min(1.0, value / total))
+        for value in (fold_probability, call_probability, raise_probability)
     )
-
 
 def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
                           range_estimator: Callable[..., dict[str, Any]] | None = None
@@ -1020,6 +995,7 @@ def _postflop_position_profile(
     }
 
 
+
 def _equity_realization_factor(
     street: str,
     *,
@@ -1028,16 +1004,19 @@ def _equity_realization_factor(
     expected_opponents: float,
     made_category: int,
     draw_strength: float,
+    spr: float | None = None,
 ) -> float:
-    """Approximate how much raw equity can be realized when checking.
-
-    Realization falls OOP and multiway, rises with a strong made hand/draw, and
-    reaches 100% on the river where no future cards or betting streets remain.
-    """
+    """Approximate equity realization when future betting remains possible."""
     current = str(street or "").lower()
     if current == "river":
         return 1.0
     base = {"flop": 0.935, "turn": 0.965}.get(current, 0.94)
+    if spr is not None:
+        effective_spr = max(0.0, float(spr))
+        if effective_spr <= 2.0:
+            base += 0.020
+        elif effective_spr >= 8.0:
+            base -= min(0.025, (effective_spr - 8.0) * 0.002)
     if position_known:
         base += 0.035 if in_position else -0.035
     else:
@@ -1052,7 +1031,6 @@ def _equity_realization_factor(
         base += 0.010
     base -= max(0.0, float(expected_opponents) - 1.0) * 0.025
     return max(0.78, min(0.995, base))
-
 
 def _action_updated_range_board_profile(
     row: dict[str, Any],
@@ -1279,6 +1257,15 @@ def _bet_response_branch_metrics(
     game tree.
     """
     street = {3: "flop", 4: "turn", 5: "river"}.get(len(board), "preflop")
+    hero_stack = max(0, int(getattr(hand.player(hero_id), "stack", 0) or 0))
+    effective_stack = hero_stack
+    for opponent_id in ranges:
+        try:
+            opponent_stack = max(0, int(getattr(hand.player(opponent_id), "stack", 0) or 0))
+            effective_stack = min(effective_stack, opponent_stack)
+        except Exception:
+            continue
+    effective_spr = effective_stack / max(1, int(getattr(hand, "pot", 0) or 0))
     call_ranges: dict[str, OpponentRange] = {}
     all_fold_probability = 1.0
     no_raise_probability = 1.0
@@ -1298,7 +1285,7 @@ def _bet_response_branch_metrics(
             )
             _fold_p, call_p, raise_p = _response_action_probabilities(
                 made, draw, bet_fraction, street, opponent_range.archetype,
-                opponent_range.learned_stats,
+                opponent_range.learned_stats, spr=effective_spr,
             )
             total_mass += base_weight
             call_weight = base_weight * call_p
@@ -1402,6 +1389,7 @@ def _bet_response_branch_metrics(
         "made_samples": made_samples,
         "samples": samples + made_samples,
     }
+
 
 
 def _bet_response_metrics(
@@ -1526,14 +1514,17 @@ def required_bluff_success(pot_before_bet: int, risk_amount: int) -> float:
     risk = max(0, int(risk_amount))
     return min(1.0, risk / max(1, pot + risk))
 
+
 def _thin_value_threshold(
     level: int,
     uncertainty: float,
     expected_callers: float,
     required_call: float,
     street: str,
+    spr: float | None = None,
+    made_category: int = 0,
 ) -> float:
-    """Minimum equity when called for thin-value betting, stricter multiway."""
+    """Minimum realized equity when called, calibrated for table state and SPR."""
     cpu_level = min(5, max(1, int(level)))
     level_margin = {1: 0.105, 2: 0.075, 3: 0.050, 4: 0.025, 5: 0.010}[cpu_level]
     unknown = max(0.0, min(1.0, float(uncertainty)))
@@ -1545,8 +1536,14 @@ def _thin_value_threshold(
         0.50 + level_margin * 0.22 + unknown * 0.15
         + max(0.0, callers - 1.0) * 0.025
     )
-    return max(0.50, min(0.78, max(price_floor, multiway_floor)))
-
+    threshold = max(price_floor, multiway_floor)
+    if spr is not None:
+        effective_spr = max(0.0, float(spr))
+        if effective_spr >= 8.0:
+            threshold += min(0.035, (effective_spr - 8.0) * 0.0035)
+        elif effective_spr <= 2.0 and int(made_category) >= 2:
+            threshold -= 0.015
+    return max(0.48, min(0.82, threshold))
 
 def _best_passive_action(legal_actions: set[str]) -> str:
     for action in ("check", "fold", "call"):
@@ -1631,6 +1628,7 @@ def _postflop_board_texture(board: list[str]) -> dict[str, Any]:
 
 
 
+
 def _postflop_bet_size_fractions(
     *,
     to_call: bool,
@@ -1640,31 +1638,37 @@ def _postflop_bet_size_fractions(
     nut_advantage: float,
     expected_callers: float,
     board_texture: dict[str, Any] | None = None,
+    spr: float | None = None,
 ) -> tuple[float, ...]:
-    """Choose sizes from position, range edge, nut density and board dynamism."""
+    """Choose sizes from position, range edge, nut density, board and SPR."""
     callers = max(0.0, float(expected_callers))
     nut_edge = max(0.0, min(1.0, float(nut_advantage)))
     texture = board_texture if isinstance(board_texture, dict) else {}
     wetness = max(0.0, min(1.0, float(texture.get("wetness", 0.30) or 0.0)))
     paired = bool(texture.get("paired", False))
     monotone = bool(texture.get("monotone", False))
+    effective_spr = max(0.0, float(spr)) if spr is not None else 5.0
+    shallow = effective_spr <= 2.0
+    deep = effective_spr >= 8.0
     if to_call:
-        # Facing a bet is a raise-sizing decision; never apply donk sizes here.
         if range_disadvantage:
             return (0.50, 0.75, 1.00)
         if range_advantage and nut_edge >= 0.05:
             if wetness >= 0.50 or monotone:
-                return (0.75, 1.00, 1.25, 1.50, 2.00)
+                return (0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
             return (0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
         return (0.50, 0.75, 1.00, 1.25, 1.50)
     if donk_lead:
-        # Donk leads are low-frequency range-protection actions, not a pot-sized default.
         if callers >= 1.5:
             return (0.20, 0.25, 0.33)
         return (0.20, 0.25, 0.33, 0.50) if wetness >= 0.50 else (0.25, 0.33, 0.50)
     if range_disadvantage:
         return (0.15, 0.25, 0.33) if paired or wetness < 0.30 else (0.20, 0.33, 0.50)
     if range_advantage and nut_edge >= 0.05:
+        if shallow:
+            return (0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50)
+        if deep and wetness < 0.50 and not monotone:
+            return (0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
         if wetness >= 0.50 or monotone:
             return (0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
         return (0.15, 0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
@@ -2171,6 +2175,16 @@ def _choose_range_aware_action_impl(
         max(0.0, min(1.0, float(opponent.participation_probability)))
         for opponent in ranges.values()
     )
+    effective_stack = stack
+    for opponent_id in ranges:
+        try:
+            effective_stack = min(
+                effective_stack,
+                max(0, int(getattr(hand.player(opponent_id), "stack", 0) or 0)),
+            )
+        except Exception:
+            continue
+    spr = effective_stack / max(1, pot)
     uncertainty = (
         sum(
             max(0.0, min(1.0, float(opponent.participation_probability)))
@@ -2190,6 +2204,7 @@ def _choose_range_aware_action_impl(
             expected_opponents=expected_opponents,
             made_category=hero_hand_category,
             draw_strength=hero_draw_strength,
+            spr=spr,
         ) if street != "preflop" else 1.0
     )
     realized_equity = max(0.0, min(1.0, equity * equity_realization))
@@ -2298,6 +2313,7 @@ def _choose_range_aware_action_impl(
                 nut_advantage=nut_advantage,
                 expected_callers=expected_opponents,
                 board_texture=board_texture,
+                spr=spr,
             )
             bases = [
                 street_contribution + max(min_target - street_contribution,
@@ -2364,7 +2380,8 @@ def _choose_range_aware_action_impl(
             # the required threshold; level and uncertainty calibrate caution.
             value_threshold = _thin_value_threshold(
                 level, uncertainty_margin, candidate_expected_callers,
-                required_call, street,
+                required_call, street, spr=spr,
+                made_category=hero_hand_category,
             )
             value_gate = (
                 candidate_called_realized_equity >= value_threshold
@@ -2506,7 +2523,7 @@ def _choose_range_aware_action_impl(
         f"chart-range-top-adv={float(board_role.get('preflop_range_profile', {}).get('top_decile_advantage', 0.0)):.3f}; "
         f"range-advantage={bool(board_role.get('preflop_range_advantage', False))}; "
         f"range-edge={float(board_role.get('preflop_range_edge', 0.0)):.3f}; "
-        f"raw-equity={equity:.1%}; realized-equity={realized_equity:.1%}; "
+        f"raw-equity={equity:.1%}; realized-equity={realized_equity:.1%}; SPR={spr:.2f}; "
         f"SDV-check-EV≈{showdown_value_ev:.1f}; "
         f"donk-lead={bool(board_role.get('donk_lead', False))}; "
         f"hero-made-category={hero_hand_category}; draw={hero_draw_strength:.2f}; "
