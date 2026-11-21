@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.5.0",
+  "package_mode": "full",
+  "source_version": "1.3.101",
+  "source_directory": "staging/source_1_3_101",
+  "release_notes": "テーブル起動時のチップ表示関数の引数不一致を修正。有料プリフロップレンジ窓をテーブルの左上に配置し、WindowsのMap/Exposeイベント時にも再描画。実際のスクリーンショット由来レンジデータを用いたCanvasピクセル検証を追加。",
+  "updater_actual_extract_validation": "pending",
+  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
+  "preflop_strategy_bundle_validation": "pending"
+}
