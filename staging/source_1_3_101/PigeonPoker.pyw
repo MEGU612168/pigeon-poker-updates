@@ -9383,10 +9383,38 @@ class PigeonPokerApp(tk.Tk):
         notebook = ttk.Notebook(page)
         self.poker_notebook = notebook
         notebook.pack(fill="both", expand=True, padx=22, pady=(0, 15))
-        hands_host, hands_tab = self._make_scrollable_tab(notebook, "Hands & Actions", COLORS["bg"])
-        analytics_host, analytics_tab = self._make_scrollable_tab(notebook, "Profit / All-in EV", COLORS["bg"])
-        breakdown_host, breakdown_tab = self._make_scrollable_tab(notebook, "Opponents / Positions", COLORS["bg"])
+        hands_host, hands_tab = self._make_scrollable_tab(notebook, "Game History", COLORS["bg"])
+        analytics_host, analytics_tab = self._make_scrollable_tab(notebook, "EV Graph", COLORS["bg"])
+        hole_cards_host, hole_cards_tab = self._make_scrollable_tab(notebook, "Hole Cards", COLORS["bg"])
+        breakdown_host, breakdown_tab = self._make_scrollable_tab(notebook, "Position / Opponents", COLORS["bg"])
         stats_host, stats_tab = self._make_scrollable_tab(notebook, "Player Stats", COLORS["bg"])
+
+        hole_header = tk.Frame(hole_cards_tab, bg=COLORS["bg"])
+        hole_header.pack(fill="x", pady=(0, 7))
+        self.poker_hole_cards_summary_var = tk.StringVar(value="Starting-hand results from the selected sessions")
+        tk.Label(hole_header, textvariable=self.poker_hole_cards_summary_var,
+                 bg=COLORS["bg"], fg=COLORS["green"],
+                 font=("Segoe UI", 10, "bold")).pack(side="left")
+        hole_panel, hole_inner = self._panel(hole_cards_tab, "STARTING HAND PERFORMANCE  •  169 HAND CLASSES")
+        hole_panel.pack(fill="both", expand=True)
+        hole_columns = ("hand", "hands", "winrate", "net", "avgpot", "avgnet")
+        self.poker_hole_cards_tree = ttk.Treeview(
+            hole_inner, columns=hole_columns, show="headings", height=20)
+        hole_headings = {
+            "hand": "HAND", "hands": "HANDS", "winrate": "WIN RATE",
+            "net": "NET", "avgpot": "AVG POT", "avgnet": "AVG NET",
+        }
+        hole_widths = {"hand": 100, "hands": 90, "winrate": 110,
+                       "net": 130, "avgpot": 120, "avgnet": 120}
+        for column in hole_columns:
+            self.poker_hole_cards_tree.heading(
+                column, text=hole_headings[column],
+                command=lambda col=column: self._sort_pokercraft_hole_cards(col))
+            self.poker_hole_cards_tree.column(column, width=hole_widths[column], anchor="center")
+        self.poker_hole_cards_tree.pack(fill="both", expand=True)
+        self.poker_hole_cards_rows: list[dict[str, Any]] = []
+        self.poker_hole_cards_sort_column = "hands"
+        self.poker_hole_cards_sort_reverse = True
 
         filters = tk.Frame(hands_tab, bg=COLORS["panel"], padx=10, pady=7)
         filters.pack(fill="x", pady=(0, 7))
@@ -10003,6 +10031,90 @@ class PigeonPokerApp(tk.Tk):
         except Exception as exc:
             messagebox.showerror("PokerCraft export", f"CSV出力に失敗しました。\n{exc}")
 
+    @staticmethod
+    def _pokercraft_hand_class(cards_value: Any) -> str | None:
+        try:
+            cards = (str(cards_value).split() if isinstance(cards_value, str)
+                     else [str(card) for card in list(cards_value or ())])
+            if len(cards) != 2 or any(not card for card in cards):
+                return None
+            rank_order = "AKQJT98765432"
+            rank_a, rank_b = cards[0][0].upper(), cards[1][0].upper()
+            if rank_a not in rank_order or rank_b not in rank_order:
+                return None
+            if rank_a == rank_b:
+                return rank_a * 2
+            high, low = sorted((rank_a, rank_b), key=rank_order.index)
+            suit_a, suit_b = cards[0][-1:].lower(), cards[1][-1:].lower()
+            return high + low + ("s" if suit_a == suit_b else "o")
+        except (TypeError, ValueError, IndexError):
+            return None
+
+    def _refresh_pokercraft_hole_cards(self, rows: list[dict[str, Any]]):
+        grouped: dict[str, dict[str, int]] = {}
+        for row in rows:
+            hand_class = self._pokercraft_hand_class(row.get("hero_cards", ""))
+            if not hand_class:
+                continue
+            stat = grouped.setdefault(hand_class, {
+                "hand": hand_class, "hands": 0, "wins": 0, "net": 0,
+                "pot": 0, "positive_ev": 0, "ev_count": 0,
+            })
+            net = int(row.get("display_net", row.get("hero_net", 0)))
+            stat["hands"] += 1
+            stat["net"] += net
+            stat["pot"] += int(row.get("pot", 0))
+            if net > 0:
+                stat["wins"] += 1
+            if row.get("hero_allin_ev") is not None:
+                stat["positive_ev"] += int(row["hero_allin_ev"])
+                stat["ev_count"] += 1
+        self.poker_hole_cards_rows = list(grouped.values())
+        total = sum(int(item["hands"]) for item in self.poker_hole_cards_rows)
+        self.poker_hole_cards_summary_var.set(
+            f"{len(self.poker_hole_cards_rows)} starting-hand classes • {total} hands • "
+            "current PokerCraft filters applied")
+        self._render_pokercraft_hole_cards()
+
+    def _render_pokercraft_hole_cards(self):
+        tree = self.poker_hole_cards_tree
+        for child in tree.get_children():
+            tree.delete(child)
+        rows = list(self.poker_hole_cards_rows)
+        column = self.poker_hole_cards_sort_column
+        reverse = bool(self.poker_hole_cards_sort_reverse)
+        sorters = {
+            "hand": lambda item: str(item["hand"]),
+            "hands": lambda item: int(item["hands"]),
+            "winrate": lambda item: int(item["wins"]) / max(1, int(item["hands"])),
+            "net": lambda item: int(item["net"]),
+            "avgpot": lambda item: int(item["pot"]) / max(1, int(item["hands"])),
+            "avgnet": lambda item: int(item["net"]) / max(1, int(item["hands"])),
+        }
+        rows.sort(key=sorters.get(column, sorters["hands"]), reverse=reverse)
+        labels = {"hand": "HAND", "hands": "HANDS", "winrate": "WIN RATE",
+                  "net": "NET", "avgpot": "AVG POT", "avgnet": "AVG NET"}
+        for col, label in labels.items():
+            arrow = (" ↓" if reverse else " ↑") if column == col else ""
+            tree.heading(col, text=label + arrow)
+        for index, item in enumerate(rows):
+            hands = max(1, int(item["hands"]))
+            win_rate = int(item["wins"]) / hands * 100.0
+            tree.insert("", "end", iid=f"hole_{index}", values=(
+                item["hand"], int(item["hands"]), f"{win_rate:.1f}%",
+                f"${int(item['net'])/100:+.2f}",
+                f"${int(item['pot'])/hands/100:.2f}",
+                f"${int(item['net'])/hands/100:+.2f}",
+            ))
+
+    def _sort_pokercraft_hole_cards(self, column: str):
+        if self.poker_hole_cards_sort_column == column:
+            self.poker_hole_cards_sort_reverse = not bool(self.poker_hole_cards_sort_reverse)
+        else:
+            self.poker_hole_cards_sort_column = column
+            self.poker_hole_cards_sort_reverse = False
+        self._render_pokercraft_hole_cards()
+
     def _refresh_pokercraft_player_stats(self, rows: list[dict[str, Any]]):
         if not hasattr(self, "poker_stats_tree"):
             return
@@ -10227,6 +10339,7 @@ class PigeonPokerApp(tk.Tk):
                 "non-all-in hands follow actual net • click a point to open that hand.")
         self._refresh_pokercraft_breakdowns(filtered)
         self._refresh_pokercraft_player_stats(filtered)
+        self._refresh_pokercraft_hole_cards(filtered)
 
         for item in self.history_tree.get_children():
             self.history_tree.delete(item)
