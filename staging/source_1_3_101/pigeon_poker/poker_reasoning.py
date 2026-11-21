@@ -1950,6 +1950,7 @@ def _postflop_aggression_gates(
     uncertainty_margin: float,
     range_advantage: bool = False,
     range_edge: float = 0.0,
+    called_current_equity: float | None = None,
 ) -> tuple[bool, bool]:
     """Gate aggression using made-hand quality, range edge and opponent count."""
     if str(street).lower() == "preflop":
@@ -1959,6 +1960,10 @@ def _postflop_aggression_gates(
     callers = max(0.0, float(expected_callers))
     category = max(0, int(made_category))
     edge = max(-0.25, min(0.25, float(range_edge)))
+    current_equity = (
+        float(called_current_equity)
+        if called_current_equity is not None else float(called_equity)
+    )
     effective_value_threshold = float(value_threshold)
     if range_advantage and not range_disadvantage:
         effective_value_threshold = max(
@@ -1972,9 +1977,11 @@ def _postflop_aggression_gates(
             raise_floor += 0.07
         elif range_advantage:
             raise_floor -= min(0.02, max(0.0, edge) * 0.20)
-        value_gate = bool(value_gate and float(called_equity) >= max(
-            effective_value_threshold, raise_floor
-        ))
+        value_gate = bool(
+            value_gate
+            and float(called_equity) >= max(effective_value_threshold, raise_floor)
+            and (category >= 1 or current_equity >= max(0.52, effective_value_threshold))
+        )
         draw_floor = 0.84 if range_disadvantage else (
             0.64 if range_advantage else 0.68
         )
@@ -1998,7 +2005,10 @@ def _postflop_aggression_gates(
                 category >= 2 or range_supported_top_pair or draw >= 0.82
             )
             draw_floor = 0.82
-        value_gate = bool(value_gate and strong_donk_hand)
+        value_gate = bool(
+            value_gate and strong_donk_hand
+            and (category >= 1 or current_equity >= effective_value_threshold)
+        )
         bluff_gate = bool(
             bluff_gate and draw >= max(draw_floor, 0.90)
             and not range_disadvantage
@@ -2010,6 +2020,7 @@ def _postflop_aggression_gates(
         else:
             value_gate = bool(
                 value_gate and float(called_equity) >= effective_value_threshold + 0.035
+                and (category >= 1 or current_equity >= effective_value_threshold)
             )
     return bool(value_gate), bool(bluff_gate)
 
@@ -2038,6 +2049,10 @@ def _choose_range_aware_action_impl(
     board = [str(card) for card in list(getattr(hand, "board", ()) or ())]
     ranges = infer_opponent_ranges(table, hand, player_id, range_estimator=range_estimator)
     equity, samples = _equity_vs_ranges(hand, player_id, ranges, cpu)
+    current_made_equity, made_samples = (
+        _current_showdown_equity(hand, player_id, ranges, cpu)
+        if street != "preflop" else (equity, 0)
+    )
     blocker_metrics = _blocker_removal_metrics(hand, player_id, ranges)
     board_role = _postflop_board_role_context(
         table, hand, player_id, range_estimator=range_estimator
@@ -2057,6 +2072,12 @@ def _choose_range_aware_action_impl(
     else:
         hero_hand_category, hero_draw_strength = 0, 0.0
 
+    position_profile = (
+        _postflop_position_profile(table, hand, player_id)
+        if street != "preflop" else {
+            "known": False, "in_position": False, "opponents_after": 0
+        }
+    )
     level = min(5, max(1, int(getattr(cpu, "level", 3) or 3)))
     archetype = str(getattr(cpu, "archetype", "balanced") or "balanced")
     margin = {1: 0.105, 2: 0.075, 3: 0.050, 4: 0.025, 5: 0.010}[level]
@@ -2114,8 +2135,18 @@ def _choose_range_aware_action_impl(
 
     # SDV is the range-weighted value of checking through to showdown.
     # A zero-valued check baseline systematically over-bets medium-strength hands.
+    equity_realization = (
+        _equity_realization_factor(
+            street,
+            in_position=bool(position_profile.get("in_position", False)),
+            position_known=bool(position_profile.get("known", False)),
+            expected_opponents=expected_opponents,
+            made_category=hero_hand_category,
+            draw_strength=hero_draw_strength,
+        ) if street != "preflop" else 1.0
+    )
     showdown_value_ev = (
-        _showdown_value_ev(equity, pot, estimated_rake)
+        _showdown_value_ev(equity * equity_realization, pot, estimated_rake)
         if street != "preflop" else 0.0
     )
     best_action = _best_passive_action(actions)
@@ -2135,6 +2166,22 @@ def _choose_range_aware_action_impl(
     elif to_call > 0 and "call" in actions:
         best_action, best_amount = "call", None
         best_ev = equity * max(0, call_pot - estimated_rake) - to_call
+
+    # Candidate actions are retained for a controlled near-indifference mix
+    # at high CPU levels; lower levels continue to choose the pure best EV.
+    strategy_candidates: list[tuple[str, int | None, float]] = []
+    if street != "preflop" and to_call > 0:
+        if "fold" in actions:
+            strategy_candidates.append(("fold", None, 0.0))
+        if "call" in actions:
+            strategy_candidates.append((
+                "call", None,
+                equity * max(0, call_pot - estimated_rake) - to_call,
+            ))
+    elif street != "preflop" and "check" in actions:
+        strategy_candidates.append(("check", None, showdown_value_ev))
+    else:
+        strategy_candidates.append((best_action, best_amount, best_ev))
 
     # A range-aware raise can be a value raise or a fold-equity play.
     can_raise = bool(legal.get("raise_allowed")) and (
@@ -2195,6 +2242,9 @@ def _choose_range_aware_action_impl(
             candidate_raise_probability = float(response_metrics["raise_probability"])
             candidate_expected_callers = float(response_metrics["expected_callers"])
             candidate_called_equity = float(response_metrics["called_equity"])
+            candidate_called_current_equity = float(
+                response_metrics.get("called_current_equity", candidate_called_equity)
+            )
             candidate_response_samples = int(response_metrics["samples"])
             required_success = required_bluff_success(pot, risk)
             candidate_required_bluff = required_success
@@ -2227,7 +2277,13 @@ def _choose_range_aware_action_impl(
                 level, uncertainty_margin, candidate_expected_callers,
                 required_call, street,
             )
-            value_gate = candidate_called_equity >= value_threshold
+            value_gate = (
+                candidate_called_equity >= value_threshold
+                and (
+                    hero_hand_category >= 1
+                    or candidate_called_current_equity >= value_threshold
+                )
+            )
             blocker_bluff_pressure = max(
                 0.0,
                 min(
@@ -2258,6 +2314,7 @@ def _choose_range_aware_action_impl(
                 uncertainty_margin=uncertainty_margin,
                 range_advantage=bool(board_role.get("preflop_range_advantage", False)),
                 range_edge=float(board_role.get("preflop_range_edge", 0.0)),
+                called_current_equity=candidate_called_current_equity,
             )
             premium_preflop = False
             if street == "preflop":
@@ -2283,6 +2340,8 @@ def _choose_range_aware_action_impl(
                 ev_margin = int(round(ev_margin * 0.60))
             ev_margin += int(round(max(1, pot) * guardrail_penalty / 1000.0 * 0.06))
             action_name = "raise" if to_call else "bet"
+            if (value_gate or bluff_gate) and action_name in actions:
+                strategy_candidates.append((action_name, target, raise_ev))
             if (
                 (value_gate or bluff_gate)
                 and action_name in actions
@@ -2306,6 +2365,28 @@ def _choose_range_aware_action_impl(
     if best_action in {"bet", "raise"} and best_amount is None:
         best_action = "check" if "check" in actions else _best_passive_action(actions)
 
+    mixed_action = False
+    mixed_candidate_count = 1
+    if street != "preflop" and level >= 4 and strategy_candidates:
+        strategy_best_ev = max(float(item[2]) for item in strategy_candidates)
+        rng = getattr(cpu, "rng", None) or random.Random()
+        mixed_name, mixed_amount, mixed_action, mixed_candidate_count = (
+            _sample_near_optimal_action(
+                strategy_candidates,
+                best_ev=strategy_best_ev,
+                pot=pot,
+                level=level,
+                rng=rng,
+            )
+        )
+        if mixed_name in actions:
+            best_action, best_amount = mixed_name, mixed_amount
+            chosen = next((
+                item for item in strategy_candidates
+                if item[0] == mixed_name and item[1] == mixed_amount
+            ), None)
+            if chosen is not None:
+                best_ev = float(chosen[2])
     if best_amount is not None:
         best_amount = max(min_target, min(max_target, int(best_amount)))
     if best_action == "allin":
@@ -2321,6 +2402,11 @@ def _choose_range_aware_action_impl(
         f"{blocker_metrics['draw_call_combos_blocked']:.1%}; "
         f"ranges {len(ranges)}; samples {samples + response_samples}; uncertainty {uncertainty:.2f}; "
         f"policy penalty {guardrail_penalty}; EV≈{best_ev:.1f}; "
+        f"current-made-equity={current_made_equity:.1%}; "
+        f"equity-realization={equity_realization:.3f}; "
+        f"position-known={bool(position_profile.get('known', False))}; "
+        f"in-position={bool(position_profile.get('in_position', False))}; "
+        f"mixed-action={mixed_action}; mixed-candidates={mixed_candidate_count}; "
         f"preflop aggressor={board_role.get('preflop_aggressor') or 'unknown'}; "
         f"range-disadvantage={bool(board_role.get('preflop_range_disadvantage', False))}; "
         f"chart-range-supported={bool(board_role.get('preflop_range_profile', {}).get('supported', False))}; "
