@@ -2,12 +2,12 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.4.3",
-  "published_at": "2026-11-21T13:22:46Z",
-  "release_notes": "UTG初回オープンの推定レンジを廃止し、2026-11-21に提供されたGTO WizardのUTG未オープン局面スクリーンショットから読み取った169ハンドクラスのレンジへ置換。Raise 2.0 BB（100 BB effective）、Raise 17.6%（233.26コンボ）、Fold 82.4%、All-in 0%。UTGの旧推定分岐自体を削除し、01_UTG_OPENを画像由来の正式ノードとして登録。ハンド別頻度、2.0 BBサイズ、集計コンボ数、GTO SIZEの履歴ベース参照をテストする。その他の既存チャートノード、ユーザーの自由なアクション、旧実装ファイルの起動時クリーンアップ、ウォレット・履歴・設定・CPU学習データ保護は維持。",
+  "version": "1.4.4",
+  "published_at": "2026-11-21T15:03:53Z",
+  "release_notes": "PokerCraftをPokerCraft型のセッション・ハンド分析ページへ拡張。プレイ履歴は1.8秒間隔でライブ更新し、JST表示・JST日付検索・各列クリックで昇順/降順ソート・CSVのJST出力を搭載。分析タブはGame History、EV Graph、Hole Cards、Position、Opponents、Player Statsに分離し、履歴行からハンド再生と該当時点のプリフロップレンジ確認を開ける。プレイ中テーブルの左上に、黒背景・白い実カード2枚を左へ10度傾けた直近ハンドフローアイコンを追加。右隣にマス目型レンジ確認アイコンを追加し、正確なスクリーンショット由来ノードが一致するときだけ有効化。リアルタイム確認は共有Wallet残高から1BBをSQLiteのBEGIN IMMEDIATEで1回だけ差し引き、同じハンド中の再表示は無料。テーブルスタックは変更しない。履歴からのレンジ確認は無料だが、ヒーローの最初のプリフロップ判断直前のアクション履歴から正確な画像由来ノードが解決できる場合だけ表示し、データがない場合はボタンを無効にする。履歴DB・ウォレットDB・CPU学習DBを保持。",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.3/payload-updater.zip.b64?v=3d92db99a14141d0685395b7309737995b058e19be3e2cb85094239599d4fd80",
-  "payload_sha256": "3d92db99a14141d0685395b7309737995b058e19be3e2cb85094239599d4fd80",
-  "payload_size": 263489
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.4/payload-updater.zip.b64?v=9116d290bb532ceff6826cac4f4a16a4f5ba28591126731489a38c019db1fa54",
+  "payload_sha256": "9116d290bb532ceff6826cac4f4a16a4f5ba28591126731489a38c019db1fa54",
+  "payload_size": 273718
 }

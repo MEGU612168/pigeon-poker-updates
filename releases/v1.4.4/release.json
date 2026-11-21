@@ -6,5 +6,23 @@
   "package_mode": "full",
   "source_version": "1.3.101",
   "source_directory": "staging/source_1_3_101",
-  "release_notes": "PokerCraftをPokerCraft型のセッション・ハンド分析ページへ拡張。プレイ履歴は1.8秒間隔でライブ更新し、JST表示・JST日付検索・各列クリックで昇順/降順ソート・CSVのJST出力を搭載。分析タブはGame History、EV Graph、Hole Cards、Position、Opponents、Player Statsに分離し、履歴行からハンド再生と該当時点のプリフロップレンジ確認を開ける。プレイ中テーブルの左上に、黒背景・白い実カード2枚を左へ10度傾けた直近ハンドフローアイコンを追加。右隣にマス目型レンジ確認アイコンを追加し、正確なスクリーンショット由来ノードが一致するときだけ有効化。リアルタイム確認は共有Wallet残高から1BBをSQLiteのBEGIN IMMEDIATEで1回だけ差し引き、同じハンド中の再表示は無料。テーブルスタックは変更しない。履歴からのレンジ確認は無料だが、ヒーローの最初のプリフロップ判断直前のアクション履歴から正確な画像由来ノードが解決できる場合だけ表示し、データがない場合はボタンを無効にする。履歴DB・ウォレットDB・CPU学習DBを保持。"
+  "release_notes": "PokerCraftをPokerCraft型のセッション・ハンド分析ページへ拡張。プレイ履歴は1.8秒間隔でライブ更新し、JST表示・JST日付検索・各列クリックで昇順/降順ソート・CSVのJST出力を搭載。分析タブはGame History、EV Graph、Hole Cards、Position、Opponents、Player Statsに分離し、履歴行からハンド再生と該当時点のプリフロップレンジ確認を開ける。プレイ中テーブルの左上に、黒背景・白い実カード2枚を左へ10度傾けた直近ハンドフローアイコンを追加。右隣にマス目型レンジ確認アイコンを追加し、正確なスクリーンショット由来ノードが一致するときだけ有効化。リアルタイム確認は共有Wallet残高から1BBをSQLiteのBEGIN IMMEDIATEで1回だけ差し引き、同じハンド中の再表示は無料。テーブルスタックは変更しない。履歴からのレンジ確認は無料だが、ヒーローの最初のプリフロップ判断直前のアクション履歴から正確な画像由来ノードが解決できる場合だけ表示し、データがない場合はボタンを無効にする。履歴DB・ウォレットDB・CPU学習DBを保持。",
+  "published_at": "2026-11-21T15:03:53Z",
+  "payload_sha256": "9116d290bb532ceff6826cac4f4a16a4f5ba28591126731489a38c019db1fa54",
+  "payload_size": 273718,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/cpu_learning.py",
+    "pigeon_poker/poker_reasoning.py",
+    "pigeon_poker/preflop_cleanup.py",
+    "pigeon_poker/preflop_gto_strategy.py",
+    "pigeon_updater.py"
+  ],
+  "updater_actual_extract_validation": "passed",
+  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
+  "preflop_strategy_bundle_validation": "passed"
 }
