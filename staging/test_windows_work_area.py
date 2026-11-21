@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import ctypes
+import math
 import os
 from ctypes import wintypes
 from pathlib import Path
@@ -78,6 +79,85 @@ def assert_inside_work_area(window, margin=0):
     assert bottom <= work_bottom - margin, (rect, work, margin)
 
 
+def test_paid_range_canvas_uses_the_application_draw_functions(root, fit_helper):
+    source_text = SOURCE.read_text(encoding="utf-8")
+    tree = ast.parse(source_text, filename=str(SOURCE))
+    view = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_open_preflop_range_view"
+    )
+    nested = {
+        node.name: node for node in ast.walk(view)
+        if isinstance(node, ast.FunctionDef)
+    }
+    required = ("safe_frequency", "draw", "safe_draw")
+    assert all(name in nested for name in required), required
+
+    window = tk.Toplevel(root)
+    window.title("Pigeon Poker range canvas smoke test")
+    window.geometry("620x680+0+0")
+    root.update_idletasks()
+    fit_helper(
+        window, max_outer_width=660, max_outer_height=720,
+        margin=12, anchor=root,
+    )
+    canvas = tk.Canvas(
+        window, width=580, height=580, bg="#0b1018",
+        highlightthickness=0, bd=0,
+    )
+    canvas.pack(fill="both", expand=True)
+    root.update()
+
+    order = [f"H{i:03d}" for i in range(169)]
+    hands = {
+        hand: [
+            {"action": "raise", "frequency": 0.4},
+            {"action": "fold", "frequency": 0.6},
+        ]
+        for hand in order
+    }
+    palette = {
+        "raise": "#e05252", "allin": "#e05252",
+        "call": "#45a879", "limp": "#45a879",
+        "check": "#45a879", "fold": "#438ac5",
+    }
+    namespace = {
+        "canvas": canvas, "order": order, "hands": hands,
+        "palette": palette, "math": math, "tk": tk,
+    }
+    module = ast.Module(
+        body=[nested[name] for name in required], type_ignores=[]
+    )
+    ast.fix_missing_locations(module)
+    exec(compile(module, str(SOURCE), "exec"), namespace)
+
+    namespace["safe_draw"]()
+    root.update()
+    drawn_items = canvas.find_all()
+    assert len(drawn_items) >= 169 * 3, len(drawn_items)
+    print("PASS paid-range app draw function renders the 169-cell Canvas on Windows")
+
+    # A bad frequency must be ignored safely rather than aborting the paint.
+    hands[order[0]] = [{"action": "raise", "frequency": "not-a-number"}]
+    namespace["safe_draw"]()
+    root.update()
+    assert len(canvas.find_all()) >= 169 * 3
+    print("PASS malformed frequency data does not blank the range Canvas")
+
+    # A renderer exception must produce a visible diagnostic, not an empty black canvas.
+    namespace["draw"] = lambda _event=None: (_ for _ in ()).throw(RuntimeError("smoke"))
+    namespace["safe_draw"]()
+    root.update()
+    visible_messages = [
+        str(canvas.itemcget(item, "text"))
+        for item in canvas.find_all()
+        if str(canvas.type(item)) == "text"
+    ]
+    assert any(message.startswith("RANGE DISPLAY ERROR") for message in visible_messages), visible_messages
+    print("PASS range-render errors produce a visible diagnostic instead of a black screen")
+
+
 def main():
     if os.name != "nt":
         raise SystemExit("This smoke test must run on Windows")
@@ -117,6 +197,8 @@ def main():
         assert range_size and min(range_size) > 0, range_size
         assert_inside_work_area(range_window, margin=11)
         print("PASS paid-range outer frame is clamped to the same monitor work area")
+
+        test_paid_range_canvas_uses_the_application_draw_functions(root, fit)
     finally:
         root.destroy()
 
