@@ -143,8 +143,11 @@ jobs:
               "fold_to_cbet_opportunities",
               "_postflop_board_role_context",
               "_postflop_aggression_gates",
+              "_preflop_range_advantage_profile",
+              "_range_board_strength_profile",
               "preflop_range_disadvantage",
               "donk_lead",
+              "chart-range-top-adv",
               "raise_floor"
           )
           for marker in required_reasoning_markers:
@@ -257,8 +260,11 @@ jobs:
               "実際の強いドローがある場合に限定。相手のプリフロップレイザーが未行動で後ろに"
               "残るフロップのドンクベットは、HUでは2ペア以上または強いコンボドロー、"
               "マルチウェイではセット以上または例外的な強いドローに限定。"
-              "ドンクベット/レンジ不利判定は保守的なボード構造ヒューリスティックであり、"
-              "ソルバー完全再現ではない。"
+              "チャート対応局面では各プレイヤーの75局面プリフロップレンジを復元し、"
+              "ボード上の平均強度・上位10%強度・ツーペア以上密度を比較してレンジ不利を判定。"
+              "ユーザーのカスタムサイズ等でチャート履歴が対応しない場合のみ、"
+              "プリフロップ最終レイザーとボード構造による保守的ヒューリスティックへフォールバック。"
+              "このローカルEVモデルはソルバー完全再現ではない。"
               "設定画面の左カラムに専用スクロール領域を追加し、マスター音量と個別音量"
               "スライダーまでマウスホイールで確実にスクロール可能にする。"
           )
@@ -288,6 +294,8 @@ jobs:
               "bot_postflop_range_disadvantage_guard": True,
               "bot_postflop_raise_requires_stronger_called_equity": True,
               "bot_postflop_donk_leads_restricted_to_strong_value_or_draws": True,
+              "bot_postflop_uses_chart_derived_preflop_range_advantage": True,
+              "bot_postflop_uses_texture_fallback_for_unmatched_lines": True,
               "settings_sound_controls_nested_scrollable": True,
               "settings_sound_volume_scroll_tests": "passed",
               "preflop_chart_policy_data_immutable": True,
