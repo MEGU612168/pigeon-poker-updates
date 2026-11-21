@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import ast
 import ctypes
+import importlib.util
 import math
 import os
+import sys
 from ctypes import wintypes
 from pathlib import Path
 import tkinter as tk
@@ -79,7 +81,26 @@ def assert_inside_work_area(window, margin=0):
     assert bottom <= work_bottom - margin, (rect, work, margin)
 
 
-def test_paid_range_canvas_uses_the_application_draw_functions(root, fit_helper):
+def load_real_screenshot_range():
+    strategy_path = SOURCE.parent / "pigeon_poker" / "preflop_gto_strategy.py"
+    spec = importlib.util.spec_from_file_location(
+        "pigeon_preflop_strategy_display_smoke", strategy_path
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Cannot load the bundled screenshot-derived preflop policy")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    data = module._data()
+    node = next(
+        item for item in data["nodes"]
+        if len(item.get("hands", {})) == 169
+        and all(hand in item["hands"] for hand in module.HAND_ORDER)
+    )
+    return list(module.HAND_ORDER), node["hands"]
+
+
+def test_paid_range_canvas_uses_the_application_draw_functions(root, fit_helper, parent):
     source_text = SOURCE.read_text(encoding="utf-8")
     tree = ast.parse(source_text, filename=str(SOURCE))
     view = next(
@@ -94,29 +115,24 @@ def test_paid_range_canvas_uses_the_application_draw_functions(root, fit_helper)
     required = ("safe_frequency", "draw", "safe_draw")
     assert all(name in nested for name in required), required
 
-    window = tk.Toplevel(root)
+    window = tk.Toplevel(parent)
     window.title("Pigeon Poker range canvas smoke test")
     window.geometry("620x680+0+0")
     root.update_idletasks()
     fit_helper(
         window, max_outer_width=660, max_outer_height=720,
-        margin=12, anchor=root,
+        margin=12, anchor=parent, top_left_of_anchor=True,
     )
     canvas = tk.Canvas(
         window, width=580, height=580, bg="#0b1018",
         highlightthickness=0, bd=0,
     )
     canvas.pack(fill="both", expand=True)
+    window.deiconify()
+    window.lift()
     root.update()
 
-    order = [f"H{i:03d}" for i in range(169)]
-    hands = {
-        hand: [
-            {"action": "raise", "frequency": 0.4},
-            {"action": "fold", "frequency": 0.6},
-        ]
-        for hand in order
-    }
+    order, hands = load_real_screenshot_range()
     palette = {
         "raise": "#e05252", "allin": "#e05252",
         "call": "#45a879", "limp": "#45a879",
@@ -126,23 +142,81 @@ def test_paid_range_canvas_uses_the_application_draw_functions(root, fit_helper)
         "canvas": canvas, "order": order, "hands": hands,
         "palette": palette, "math": math, "tk": tk,
     }
-    module = ast.Module(
+    module_ast = ast.Module(
         body=[nested[name] for name in required], type_ignores=[]
     )
-    ast.fix_missing_locations(module)
-    exec(compile(module, str(SOURCE), "exec"), namespace)
+    ast.fix_missing_locations(module_ast)
+    exec(compile(module_ast, str(SOURCE), "exec"), namespace)
 
     namespace["safe_draw"]()
     root.update()
+    canvas.update()
     drawn_items = canvas.find_all()
     assert len(drawn_items) >= 169 * 3, len(drawn_items)
-    print("PASS paid-range app draw function renders the 169-cell Canvas on Windows")
+    print("PASS real screenshot-derived range data creates all 169 Canvas cells")
+
+    # Confirm the actual Windows Canvas surface contains strategy colors, not
+    # merely retained drawing commands on an all-black client area.
+    gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.GetDC.argtypes = [wintypes.HWND]
+    user32.GetDC.restype = wintypes.HDC
+    user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
+    user32.ReleaseDC.restype = ctypes.c_int
+    gdi32.GetPixel.argtypes = [wintypes.HDC, ctypes.c_int, ctypes.c_int]
+    gdi32.GetPixel.restype = wintypes.COLORREF
+    hdc = user32.GetDC(canvas.winfo_id())
+    if not hdc:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        canvas_width = max(1, canvas.winfo_width())
+        canvas_height = max(1, canvas.winfo_height())
+        cell_width = canvas_width / 13.0
+        cell_height = canvas_height / 13.0
+        sample = None
+        for index, hand_class in enumerate(order):
+            choices = hands.get(hand_class, [])
+            total = sum(max(0.0, float(item.get("frequency", 0.0) or 0.0)) for item in choices)
+            if total <= 0:
+                continue
+            cumulative = 0.0
+            for choice in choices:
+                frequency = max(0.0, float(choice.get("frequency", 0.0) or 0.0))
+                action = str(choice.get("action", "fold")).lower().replace("_", "")
+                if frequency > 0.2:
+                    fraction = (cumulative + (frequency / total) / 2.0)
+                    row, col = divmod(index, 13)
+                    px = min(canvas_width - 2, max(2, int((col + fraction) * cell_width)))
+                    py = min(canvas_height - 2, max(2, int((row + 0.25) * cell_height)))
+                    expected = palette.get(action, "#438ac5")
+                    sample = (px, py, expected)
+                    break
+                cumulative += frequency / total
+            if sample:
+                break
+        assert sample is not None, "No visible color segment in real screenshot-derived chart"
+        px, py, expected = sample
+        root.update()
+        canvas.update()
+        pixel = int(gdi32.GetPixel(hdc, px, py))
+        actual_rgb = (pixel & 0xFF, (pixel >> 8) & 0xFF, (pixel >> 16) & 0xFF)
+        expected_rgb = tuple(int(expected[i:i+2], 16) for i in (1, 3, 5))
+        assert all(abs(a - e) <= 4 for a, e in zip(actual_rgb, expected_rgb)), {
+            "point": (px, py), "actual_rgb": actual_rgb, "expected_rgb": expected_rgb,
+            "pixel": hex(pixel),
+        }
+        print("PASS Windows Canvas pixels visibly contain the screenshot-derived range colors")
+    finally:
+        user32.ReleaseDC(canvas.winfo_id(), hdc)
 
     # A bad frequency must be ignored safely rather than aborting the paint.
-    hands[order[0]] = [{"action": "raise", "frequency": "not-a-number"}]
+    first_hand = order[0]
+    original = hands[first_hand]
+    hands[first_hand] = [{"action": "raise", "frequency": "not-a-number"}]
     namespace["safe_draw"]()
     root.update()
     assert len(canvas.find_all()) >= 169 * 3
+    hands[first_hand] = original
     print("PASS malformed frequency data does not blank the range Canvas")
 
     # A renderer exception must produce a visible diagnostic, not an empty black canvas.
@@ -191,14 +265,18 @@ def main():
         root.update_idletasks()
         range_size = fit(
             range_window, max_outer_width=660, max_outer_height=720,
-            margin=12, anchor=table,
+            margin=12, anchor=table, top_left_of_anchor=True,
         )
         root.update()
         assert range_size and min(range_size) > 0, range_size
         assert_inside_work_area(range_window, margin=11)
-        print("PASS paid-range outer frame is clamped to the same monitor work area")
+        table_rect, _ = native_bounds(table)
+        range_rect, _ = native_bounds(range_window)
+        assert range_rect[0] == table_rect[0] + 12, (table_rect, range_rect)
+        assert range_rect[1] == table_rect[1] + 12, (table_rect, range_rect)
+        print("PASS paid-range window opens at the table's upper-left corner")
 
-        test_paid_range_canvas_uses_the_application_draw_functions(root, fit)
+        test_paid_range_canvas_uses_the_application_draw_functions(root, fit, table)
     finally:
         root.destroy()
 
