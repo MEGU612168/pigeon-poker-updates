@@ -363,21 +363,31 @@ def test_unsupported_preflop_history_never_returns_a_legacy_limp():
     assert decision.action in {"check", "fold", "call"}
     assert decision.action != "limp"
 
-def test_100bb_stack_gate_and_folded_short_stack():
+def test_fixed_chart_decisions_survive_normal_stack_variation():
     node=module._data()['nodes'][0]
     hand=FakeHand(node,'AA')
+    expected_node_id=node['id']
     assert module._supports_100bb_effective_stack(hand)
-    # A participating 60 BB stack remains outside the fixed 100 BB chart.
+    assert module._node_for_actor(FakeTable(),hand,hand.actor_id)==expected_node_id
+
+    # One seat winning/losing chips must not make every CPU fall back to
+    # the preflop check/fold guardrail. The fixed chart itself is unchanged.
     hand.players[4].stack=6000
     assert not module._supports_100bb_effective_stack(hand)
-    assert module._node_for_actor(FakeTable(),hand,hand.actor_id) is None
-    # A folded short stack still influenced the line; it must invalidate the 100BB chart.
+    assert module._node_for_actor(FakeTable(),hand,hand.actor_id)==expected_node_id
+    decision=module.choose_preflop_action(
+        FakeTable(),hand,hand.actor_id,FakeCPU(0.0)
+    )
+    assert decision is not None and decision.source=='screenshot-range'
+
+    # A folded short stack still occupies a seat in the six-max history;
+    # it must not invalidate another player's chart action.
     hand=FakeHand(node,'AA')
     hand.players[1].eligible=False
     hand.players[1].stack=0
     hand.players[1].total_contribution=2000
     assert not module._supports_100bb_effective_stack(hand)
-    assert module._node_for_actor(FakeTable(),hand,hand.actor_id) is None
+    assert module._node_for_actor(FakeTable(),hand,hand.actor_id)==expected_node_id
 
 def test_opponent_ranges_follow_the_observed_action_line():
     node=module._data()['nodes_by_id']['21_UTG_VS_HJ_3BET']
