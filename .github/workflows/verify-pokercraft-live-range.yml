@@ -11,6 +11,7 @@ on:
       - "staging/test_preflop_gto_integrity.py"
       - "staging/test_preflop_user_actions.py"
       - "staging/test_pokercraft_features.py"
+      - ".github/workflows/verify-pokercraft-live-range.yml"
   pull_request:
     branches:
       - main
