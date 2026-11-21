@@ -109,6 +109,7 @@ jobs:
               "_apply_preflop_chart_size",
               "preflop_situation_size(table, hand, actor_id)",
               "preflop_situation_size(table, hand, \"hero\")",
+              "SIZE = POSITION + PREFLOP RAISE HISTORY (NOT YOUR HAND)",
               "situation_actions = tk.Frame(action_outer",
               'situation_frame, "CHART SIZE"',
               "SIZE = POSITION + PREFLOP RAISE HISTORY (NOT YOUR HAND)",
@@ -159,6 +160,8 @@ jobs:
                   raise SystemExit("Required bot performance behavior missing: " + marker)
           if "def preflop_situation_size(" not in ranges_source:
               raise SystemExit("Missing position/history-only preflop sizing resolver")
+          if 'if frequency <= 0.0 or action != "raise":' not in ranges_source:
+              raise SystemExit("Situation-size presets must exclude all-in actions")
           for marker in (
               "unblocked_hand_class_probabilities",
               "opponent_profiles",
@@ -276,6 +279,9 @@ jobs:
               "ポジションとプリフロップの全アクション/レイズサイズ履歴から一致する"
               "75ノードを特定し、そのノード全体の物理コンボ加重の最頻サイズを選択。"
               "ユーザーの手札・アクション・入力金額は変更/固定しない。"
+              "この操作補助はユーザー本人の手動入力専用であり、BOTの判断には適用しない。"
+              "BOTは従来どおり各自のハンドクラスと75ノードのレンジ別アクション頻度に従う。"
+              "オールインは通常レイズサイズの候補へ混ぜず、独立した戦略アクションとして維持。"
               "チャート外の局面では入力金額を変更せず、非対応を画面に表示。"
               "設定画面の左カラムに専用スクロール領域を追加し、マスター音量と個別音量"
               "スライダーまでマウスホイールで確実にスクロール可能にする。"
