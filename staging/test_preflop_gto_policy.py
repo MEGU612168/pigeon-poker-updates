@@ -113,6 +113,27 @@ def _test_schema2_screenshot_policy_metadata():
     assert not list(staging.rglob("preflop_range_data*.py"))
     assert not list(staging.glob("preflop-screenshot-module.part-*"))
 
+    repo_root = staging.parent
+    app_main = (current_package.parent / "PigeonPoker.pyw").read_text(encoding="utf-8")
+    assert "preflop_screenshot_ranges" not in app_main
+    workflow_root = repo_root / ".github" / "workflows"
+    workflow_sources = [
+        item.read_text(encoding="utf-8")
+        for item in workflow_root.iterdir()
+        if item.is_file() and item.suffix.lower() in {".yml", ".yaml"}
+    ]
+    retired_tokens = (
+        "preflop_screenshot_ranges",
+        "preflop_range_policy",
+        "preflop_range_data",
+        "preflop_autonomous",
+        "12,675",
+        "75-node",
+    )
+    for workflow_source in workflow_sources:
+        for token in retired_tokens:
+            assert token not in workflow_source, f"Retired preflop reference {token!r} remains in a workflow"
+
 
 def _test_position_specific_open_sizes_replace_fixed_2_5bb():
     cases = [
