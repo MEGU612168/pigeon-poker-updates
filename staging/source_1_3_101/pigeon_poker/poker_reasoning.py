@@ -1297,6 +1297,10 @@ def _bet_response_branch_metrics(
                 made, draw, bet_fraction, street, opponent_range.archetype,
                 opponent_range.learned_stats, spr=effective_spr,
             )
+            if bet_fraction >= effective_spr and effective_spr > 0:
+                # An effective all-in cannot be raised over; merge raise mass into calls.
+                call_p += raise_p
+                raise_p = 0.0
             total_mass += base_weight
             call_weight = base_weight * call_p
             raise_weight = base_weight * raise_p
@@ -2280,6 +2284,7 @@ def _choose_range_aware_action_impl(
     called_equity_estimate = equity
     response_samples = 0
     raise_response_probability = 0.0
+    raise_equity_estimate = 0.0
 
     if street == "preflop":
         # Require stronger equity when multiple players still have cards and
@@ -2403,6 +2408,9 @@ def _choose_range_aware_action_impl(
             candidate_fold_probability = float(response_metrics["all_fold_probability"])
             candidate_call_probability = float(response_metrics["call_only_probability"])
             candidate_raise_probability = float(response_metrics["raise_probability"])
+            candidate_raise_equity = float(
+                response_metrics.get("raise_conditioned_equity", 0.0)
+            )
             candidate_expected_callers = float(response_metrics["expected_callers"])
             candidate_called_equity = float(response_metrics["called_equity"])
             candidate_called_current_equity = float(
@@ -2423,10 +2431,29 @@ def _choose_range_aware_action_impl(
                 min(rake_cap, int(called_pot * rake_bps / 10000))
                 if rake_bps else 0
             )
-            # A fold wins the existing pot, a call-only branch reaches
-            # showdown with its call-conditioned range, and any raise branch
-            # conservatively loses the initial bet until a raise-response tree
-            # is implemented.
+            # The raise branch is evaluated against a separate raise-conditioned
+            # range. Hero either folds and loses the initial investment, or calls
+            # the modeled re-raise when its price and equity make continuation +EV.
+            raise_branch_ev = -float(risk)
+            if candidate_raise_probability > 0.0 and candidate_raise_equity > 0.0:
+                opponent_commitment = min(
+                    max(0, int(round(2.5 * risk))), effective_stack
+                )
+                extra_to_call = max(0, opponent_commitment - risk)
+                hero_extra = min(extra_to_call, max(0, stack - risk))
+                raise_branch_pot = (
+                    pot + risk + opponent_commitment + hero_extra
+                )
+                raise_branch_rake = (
+                    min(rake_cap, int(raise_branch_pot * rake_bps / 10000))
+                    if rake_bps else 0
+                )
+                continue_ev = (
+                    candidate_raise_equity
+                    * max(0, raise_branch_pot - raise_branch_rake)
+                    - (risk + hero_extra)
+                )
+                raise_branch_ev = max(-float(risk), continue_ev)
             raise_ev = (
                 candidate_fold_probability * pot
                 + candidate_call_probability
@@ -2434,7 +2461,7 @@ def _choose_range_aware_action_impl(
                     candidate_called_realized_equity * max(0, called_pot - candidate_rake)
                     - risk
                 )
-                - candidate_raise_probability * risk
+                + candidate_raise_probability * raise_branch_ev
             )
             # Thin value is still value when the weighted calling range
             # loses often enough. More likely callers in multiway pots raise
@@ -2520,6 +2547,7 @@ def _choose_range_aware_action_impl(
                 called_equity_estimate = candidate_called_equity
                 response_samples = candidate_response_samples
                 raise_response_probability = candidate_raise_probability
+                raise_equity_estimate = candidate_raise_equity
                 required_bluff = candidate_required_bluff
 
     # If no call is faced, a low-EV bluff is not forced: checking remains the baseline.
@@ -2564,6 +2592,7 @@ def _choose_range_aware_action_impl(
         f"pure-bluff required folds {required_bluff:.1%}; estimated all-fold {fold_probability:.1%}; "
         f"expected callers {expected_callers:.2f}; equity when called {called_equity_estimate:.1%}; "
         f"estimated raise response {raise_response_probability:.1%}; "
+        f"equity vs raise range {raise_equity_estimate:.1%}; "
         f"blockers value/bluff/draw={blocker_metrics['value_call_combos_blocked']:.1%}/"
         f"{blocker_metrics['bluff_call_combos_blocked']:.1%}/"
         f"{blocker_metrics['draw_call_combos_blocked']:.1%}; "
