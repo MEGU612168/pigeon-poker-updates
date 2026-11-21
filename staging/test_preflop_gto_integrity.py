@@ -141,8 +141,11 @@ def test_screenshot_action_totals_match_the_169_combo_weighted_matrix() -> None:
 
 def test_range_conditioned_nodes_match_the_previous_action_range_support() -> None:
     data = policy._data()
+    # UTG first-in has no source screenshot in this chart set, so node 25's
+    # parent is explicitly inferred and is validated separately, not treated as
+    # an exact screenshot-to-screenshot comparison.
+    assert data["nodes_by_id"]["01_UTG_OPEN"].get("inferred") is True
     parents = {
-        "25_UTG_VS_HJ_3BET": ("01_UTG_OPEN", "raise"),
         "26_BTN_VS_BB_3BET": ("04_BTN_OPEN", "raise"),
         "27_BB_VS_BTN_4BET": ("19_BB_VS_BTN", "raise"),
         "28_BTN_VS_BB_5BET": ("26_BTN_VS_BB_3BET", "raise"),
