@@ -8,6 +8,7 @@ on:
       - "staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py"
       - "staging/source_1_3_101/pigeon_gto_plus/live_range_builder.py"
       - "staging/test_preflop_gto_policy.py"
+      - "staging/test_preflop_gto_integrity.py"
       - "staging/test_preflop_user_actions.py"
       - "staging/test_poker_reasoning.py"
       - "staging/test_cpu_learning.py"
@@ -19,6 +20,7 @@ on:
       - "staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py"
       - "staging/source_1_3_101/pigeon_gto_plus/live_range_builder.py"
       - "staging/test_preflop_gto_policy.py"
+      - "staging/test_preflop_gto_integrity.py"
       - "staging/test_preflop_user_actions.py"
       - "staging/test_poker_reasoning.py"
       - "staging/test_cpu_learning.py"
@@ -43,6 +45,7 @@ jobs:
       - name: Verify screenshot-trained ranges and inferred branches
         run: |
           python staging/test_preflop_gto_policy.py
+          python staging/test_preflop_gto_integrity.py
       - name: Verify postflop compatibility and fixed user action freedom
         run: |
           python staging/test_preflop_user_actions.py
