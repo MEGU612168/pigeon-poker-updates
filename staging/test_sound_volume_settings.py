@@ -71,6 +71,21 @@ def test_windows_action_voice_uses_parallel_speech_instances() -> None:
     assert "$s.SpeakAsync($p[1])" not in worker
 
 
+
+def test_card_deal_default_is_quieter_and_fallback_respects_volume() -> None:
+    assert 'self.config_data.get("sound_volume", 50)' in SOURCE_TEXT
+    play_sound = method_text("_play_sound")
+    assert '0.45 if key not in {"deal", "card_land"} else 0.15' in play_sound
+
+    attenuate = method_text("_attenuated_wav_file")
+    assert "factor = level / 1000.0" in attenuate
+    assert "writeframes(attenuated)" in attenuate
+
+    playback = method_text("_play_wav_nonblocking")
+    assert "volume_set == 0" in playback
+    assert "self._attenuated_wav_file(sound_path, volume)" in playback
+    assert "winsound.PlaySound(str(fallback_path)" in playback
+
 if __name__ == "__main__":
     tests = [
         test_effect_volume_has_a_clear_percent_slider_and_preview,
@@ -78,6 +93,7 @@ if __name__ == "__main__":
         test_volume_is_clamped_and_saved_persistently,
         test_preview_uses_pending_values_and_restores_runtime_settings,
         test_windows_action_voice_uses_parallel_speech_instances,
+        test_card_deal_default_is_quieter_and_fallback_respects_volume,
     ]
     for test_case in tests:
         test_case()
