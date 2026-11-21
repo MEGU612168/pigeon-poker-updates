@@ -1,1 +1,2 @@
 Build v1.5.0 with table chip-format fix, top-left live range window and Windows pixel-level renderer regression test.
+Retry release after correcting renderer and monitor-boundary regression assertions.
