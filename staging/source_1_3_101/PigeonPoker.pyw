@@ -10863,7 +10863,12 @@ class PigeonPokerApp(tk.Tk):
         # Keep normal Windows decorations and z-order. A topmost, borderless
         # window can cover the Windows taskbar and obscure the table.
         win.configure(bg="#0b1018")
-        win.resizable(False, False)
+        # Allow the native window to shrink to the monitor work area first.
+        # Lock it only after SetWindowPos has applied the final fitted size;
+        # setting resizable(False) before that made Tk retain the original
+        # 680px client height and overlap the Windows taskbar on short/DPI-scaled displays.
+        win.resizable(True, True)
+        win.minsize(360, 320)
         width, height = 620, 680
         try:
             win.geometry(f"{width}x{height}")
@@ -10877,10 +10882,12 @@ class PigeonPokerApp(tk.Tk):
             if fitted_range_size is None:
                 parent.update_idletasks()
                 px, py = parent.winfo_rootx(), parent.winfo_rooty()
-                pw, ph = max(width, parent.winfo_width()), max(height, parent.winfo_height())
                 x = px + 12
                 y = py + 12
                 win.geometry(f"{width}x{height}+{x}+{y}")
+            # Freeze the fitted native size after the work-area calculation.
+            win.update_idletasks()
+            win.resizable(False, False)
             win.transient(parent)
             win.deiconify()
             win.lift()
