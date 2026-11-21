@@ -1143,6 +1143,146 @@ def test_size_specific_opponent_learning_changes_only_matching_street_and_size()
         assert abs(sum(probabilities) - 1.0) < 1e-9
 
 
+
+def test_sdv_check_value_beats_a_lower_ev_bet():
+    players = [
+        FakePlayer("hero", ("As", "Ah")),
+        FakePlayer("villain", ()),
+    ]
+    hand = FakeHand(
+        players, board=("Jc", "7d", "2s"), pot=1000, street="flop",
+        to_call=0, actions=("check", "bet"), min_target=150, max_target=3000,
+    )
+    opponent = module.OpponentRange(
+        player_id="villain",
+        combos=((("Qc", "Qd"), 1.0),),
+        source="test-range",
+        confidence=1.0,
+    )
+    original = {
+        "infer_opponent_ranges": module.infer_opponent_ranges,
+        "_equity_vs_ranges": module._equity_vs_ranges,
+        "_blocker_removal_metrics": module._blocker_removal_metrics,
+        "_postflop_board_role_context": module._postflop_board_role_context,
+        "_bet_response_branch_metrics": module._bet_response_branch_metrics,
+    }
+    module.infer_opponent_ranges = lambda *args, **kwargs: {"villain": opponent}
+    module._equity_vs_ranges = lambda *args, **kwargs: (0.80, 500)
+    module._blocker_removal_metrics = lambda *args, **kwargs: {
+        "value_call_combos_blocked": 0.0,
+        "bluff_call_combos_blocked": 0.0,
+        "draw_call_combos_blocked": 0.0,
+        "removed_combo_mass": 0.0,
+    }
+    module._postflop_board_role_context = lambda *args, **kwargs: {
+        "preflop_aggressor": "villain",
+        "hero_is_preflop_aggressor": False,
+        "caller_favored_board": False,
+        "aggressor_favored_board": False,
+        "preflop_range_disadvantage": False,
+        "preflop_range_advantage": False,
+        "preflop_range_edge": 0.0,
+        "preflop_range_profile": {"supported": False, "top_decile_advantage": 0.0},
+        "donk_lead": False,
+    }
+    module._bet_response_branch_metrics = lambda *args, **kwargs: {
+        "all_fold_probability": 0.80,
+        "call_only_probability": 0.20,
+        "raise_probability": 0.0,
+        "expected_callers": 1.0,
+        "called_equity": 0.10,
+        "samples": 120,
+    }
+    try:
+        decision = module.choose_range_aware_action(
+            FakeTable(), hand, "hero", FakeCPU(5)
+        )
+    finally:
+        for name, value in original.items():
+            setattr(module, name, value)
+
+    # The small bluff has positive absolute EV, but less than checking with 80%
+    # range-weighted showdown equity. The old zero-value check baseline bet it.
+    assert decision.action == "check"
+    assert "SDV-equity=80.0%" in decision.note
+    assert "check-EV≈800.0" in decision.note
+
+
+def test_chart_range_profile_recognizes_hero_positive_range_advantage():
+    players = [
+        FakePlayer("hero", ("9h", "Th")),
+        FakePlayer("villain", ("2c", "3d")),
+    ]
+    hand = FakeHand(
+        players, board=("8s", "7d", "6c"), pot=500,
+        street="flop", to_call=0, actions=("check", "bet"),
+    )
+
+    def chart_estimator(*, table, hand, exclude_player_id=None):
+        return {
+            "supported": True,
+            "players": {
+                "hero": {
+                    "supported": True,
+                    "hand_class_probabilities": {
+                        "88": 0.40, "77": 0.40, "87s": 0.20,
+                    },
+                },
+                "villain": {
+                    "supported": True,
+                    "hand_class_probabilities": {
+                        "AA": 0.40, "KK": 0.30, "QQ": 0.30,
+                    },
+                },
+            },
+        }
+
+    profile = module._preflop_range_advantage_profile(
+        FakeTable(), hand, "hero", hand.board, chart_estimator
+    )
+    assert profile["supported"] is True
+    assert profile["mean_advantage"] > 0.0
+    assert profile["top_decile_advantage"] > 0.0
+    assert profile["range_advantage"] is True
+    assert profile["range_edge"] > 0.0
+
+
+def test_postflop_size_candidates_follow_range_edge_and_donk_context():
+    polarized = module._postflop_bet_size_fractions(
+        to_call=False, donk_lead=False, range_advantage=True,
+        range_disadvantage=False, nut_advantage=0.12, expected_callers=1.0,
+    )
+    disadvantaged = module._postflop_bet_size_fractions(
+        to_call=False, donk_lead=False, range_advantage=False,
+        range_disadvantage=True, nut_advantage=-0.08, expected_callers=1.0,
+    )
+    donk_hu = module._postflop_bet_size_fractions(
+        to_call=False, donk_lead=True, range_advantage=True,
+        range_disadvantage=False, nut_advantage=0.12, expected_callers=1.0,
+    )
+    donk_multiway = module._postflop_bet_size_fractions(
+        to_call=False, donk_lead=True, range_advantage=True,
+        range_disadvantage=False, nut_advantage=0.12, expected_callers=2.0,
+    )
+    assert 2.00 in polarized
+    assert max(disadvantaged) <= 0.50
+    assert max(donk_hu) <= 0.50
+    assert max(donk_multiway) <= 0.33
+
+
+def test_verified_caller_range_edge_allows_strong_top_pair_donk():
+    value_gate, bluff_gate = module._postflop_aggression_gates(
+        True, False,
+        street="flop", to_call=0, donk_lead=True,
+        range_disadvantage=False, range_advantage=True, range_edge=0.10,
+        made_category=1, draw_strength=0.14, expected_callers=1.0,
+        called_equity=0.68, value_threshold=0.55,
+        fold_probability=0.25, required_success=0.35, uncertainty_margin=0.02,
+    )
+    assert value_gate is True
+    assert bluff_gate is False
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
