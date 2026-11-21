@@ -78,12 +78,12 @@ def test_all_screenshot_nodes_contain_a_complete_169_hand_matrix() -> None:
 
 def test_screenshot_action_totals_match_the_169_combo_weighted_matrix() -> None:
     compact = json.loads(bz2.decompress(base64.b64decode(policy._DATA_B64)))
+    mismatches = []
 
     for raw in compact["nodes"]:
         actions = list(raw["a"])
         action_totals = dict(raw.get("t", {}))
         matrix = raw["h"]
-
         combo_denominator = sum(
             combo_count(hand_class)
             * sum(int(value) for value in matrix[hand_index]) / 10000.0
@@ -98,12 +98,6 @@ def test_screenshot_action_totals_match_the_169_combo_weighted_matrix() -> None:
         combo_matches = True
         class_matches = True
         diagnostics = []
-        if raw["i"] in {"25_UTG_VS_HJ_3BET", "26_BTN_VS_BB_3BET", "27_BB_VS_BTN_4BET", "28_BTN_VS_BB_5BET"}:
-            print("RAW NODE", raw["i"], "DESCRIPTION", raw.get("d"), "SOURCE", raw.get("p"), "ACTIVE_RANGE", raw.get("r"), "ACTIONS", actions, "TOTALS", action_totals)
-            print("RAW ROWS", [
-                (policy.HAND_ORDER[index], row)
-                for index, row in enumerate(matrix) if any(int(value) for value in row)
-            ])
         for action, reported_pct in action_totals.items():
             assert action in actions, (raw["i"], action)
             index = actions.index(action)
@@ -122,13 +116,12 @@ def test_screenshot_action_totals_match_the_169_combo_weighted_matrix() -> None:
             class_matches &= abs(class_pct - reported) <= 0.35
             diagnostics.append((action, round(combo_pct, 3), round(class_pct, 3), round(reported, 3)))
 
-        assert combo_matches or class_matches, (
-            raw["i"], "aggregate mismatch", diagnostics
-        )
-        method = "combo-weighted" if combo_matches and not class_matches else (
-            "169-class-weighted" if class_matches and not combo_matches else "both"
-        )
-        print("AGGREGATE BASIS", raw["i"], method)
+        if raw["i"] in {"25_UTG_VS_HJ_3BET", "26_BTN_VS_BB_3BET", "27_BB_VS_BTN_4BET", "28_BTN_VS_BB_5BET"}:
+            print("ADVANCED NODE META", raw["i"], raw.get("d"), raw.get("p"), raw.get("r"), diagnostics)
+        if not (combo_matches or class_matches):
+            mismatches.append((raw["i"], diagnostics))
+
+    assert not mismatches, mismatches
 
 
 def test_every_screenshot_raise_size_has_a_combo_weighted_modal_result() -> None:
