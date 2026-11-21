@@ -157,7 +157,8 @@ def test_main_and_table_windows_use_native_monitor_work_area_bounds():
     assert "root_client_size = _fit_toplevel_to_monitor_work_area(self)" in init
     assert "min(1180, root_client_size[0])" in init
     assert "table_client_size = _fit_toplevel_to_monitor_work_area(" in table
-    assert "winfo_screenheight()" not in table
+    assert table.index("table_client_size = _fit_toplevel_to_monitor_work_area(") < table.index("screen_w, screen_h =")
+    assert "height = max(470, min(860, screen_h - 110))" in table
 
 
 def test_paid_range_window_is_clamped_and_renderer_retries_safely():
