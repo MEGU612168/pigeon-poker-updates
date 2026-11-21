@@ -329,15 +329,33 @@ def _node_for_situation_size(table: Any, hand: Any, actor_id: str) -> str | None
     return None
 
 
-def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
-    """Resolve the fixed 75-node BOT action chart from the observed 6-max line.
+def _has_six_dealt_players(hand: Any) -> bool:
+    """Require a real six-handed deal, but do not require identical stacks."""
+    players = list(getattr(hand, "players", ()) or ())
+    if len(players) != 6 or any(not _player_id(player) for player in players):
+        return False
+    for player in players:
+        try:
+            if len(list(getattr(player, "hole_cards", ()) or ())) != 2:
+                return False
+        except TypeError:
+            return False
+    return True
 
-    Do not invalidate the entire table's preflop policy because one seat's
-    stack changed after winning or losing chips. The chart action rows,
-    frequencies and raise sizes remain the sole strategy source; the normal
-    legal-action filter still removes actions that cannot be made at the
-    current stack. Exact chart-history matching remains mandatory.
+
+def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
+    """Resolve the fixed 75-node BOT action chart from a dealt 6-max line.
+
+    Stack drift after winning or losing chips must not send every CPU to the
+    check/fold guardrail. The chart action rows, frequencies and raise sizes
+    remain the sole strategy source; the normal legal-action filter still
+    removes actions that cannot be made at the current stack. Exact
+    position/action/raise-history matching and six dealt players remain
+    mandatory. The 100-BB gate remains available for chart-derived opponent
+    range estimation, where stack depth affects the inferred range.
     """
+    if not _has_six_dealt_players(hand):
+        return None
     return _node_for_situation_size(table, hand, actor_id)
 
 
