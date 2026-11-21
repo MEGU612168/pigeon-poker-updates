@@ -100,63 +100,124 @@ def load_real_screenshot_range():
     return list(module.HAND_ORDER), node["hands"]
 
 
-def test_paid_range_canvas_uses_the_application_draw_functions(root, fit_helper, parent):
+def load_real_screenshot_range():
+    strategy_path = SOURCE.parent / "pigeon_poker" / "preflop_gto_strategy.py"
+    spec = importlib.util.spec_from_file_location(
+        "pigeon_preflop_strategy_display_smoke", strategy_path
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Cannot load the bundled screenshot-derived preflop policy")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    data = module._data()
+    node = next(
+        item for item in data["nodes"]
+        if len(item.get("hands", {})) == 169
+        and all(hand in item["hands"] for hand in module.HAND_ORDER)
+    )
+    return list(module.HAND_ORDER), node["hands"]
+
+
+def load_full_range_view_method():
     source_text = SOURCE.read_text(encoding="utf-8")
     tree = ast.parse(source_text, filename=str(SOURCE))
-    view = next(
+    method = next(
         node for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef)
         and node.name == "_open_preflop_range_view"
     )
-    nested = {
-        node.name: node for node in ast.walk(view)
-        if isinstance(node, ast.FunctionDef)
-    }
-    required = ("safe_frequency", "draw", "safe_draw")
-    assert all(name in nested for name in required), required
-
-    window = tk.Toplevel(parent)
-    window.title("Pigeon Poker range canvas smoke test")
-    window.geometry("620x680+0+0")
-    root.update_idletasks()
-    fit_helper(
-        window, max_outer_width=660, max_outer_height=720,
-        margin=12, anchor=parent, top_left_of_anchor=True,
-    )
-    canvas = tk.Canvas(
-        window, width=580, height=580, bg="#0b1018",
-        highlightthickness=0, bd=0,
-    )
-    canvas.pack(fill="both", expand=True)
-    window.deiconify()
-    window.lift()
-    root.update()
-
-    order, hands = load_real_screenshot_range()
-    palette = {
-        "raise": "#e05252", "allin": "#e05252",
-        "call": "#45a879", "limp": "#45a879",
-        "check": "#45a879", "fold": "#438ac5",
-    }
-    namespace = {
-        "canvas": canvas, "order": order, "hands": hands,
-        "palette": palette, "math": math, "tk": tk,
-    }
     module_ast = ast.Module(
-        body=[nested[name] for name in required], type_ignores=[]
+        body=[
+            ast.ImportFrom(
+                module="__future__",
+                names=[ast.alias(name="annotations")],
+                level=0,
+            ),
+            method,
+        ],
+        type_ignores=[],
     )
     ast.fix_missing_locations(module_ast)
+    namespace = {
+        "tk": tk,
+        "math": math,
+        "time": __import__("time"),
+        "_fit_toplevel_to_monitor_work_area": load_fit_helper(),
+    }
     exec(compile(module_ast, str(SOURCE), "exec"), namespace)
+    return namespace["_open_preflop_range_view"]
 
-    namespace["safe_draw"]()
+
+def all_widgets(widget):
+    yield widget
+    for child in widget.winfo_children():
+        yield from all_widgets(child)
+
+
+def test_paid_range_full_application_flow_on_windows(root, table):
+    # Execute the complete application method, not an extracted draw() helper.
+    order, hands = load_real_screenshot_range()
+    chart = {
+        "hand_order": order,
+        "hands": hands,
+        "actor_position": "BTN",
+        "opener_position": "UTG",
+    }
+
+    table_canvas = tk.Canvas(table, width=900, height=620, bg="#0a1220")
+    table_canvas.pack(fill="both", expand=True)
+    table.update_idletasks()
     root.update()
-    canvas.update()
-    drawn_items = canvas.find_all()
-    assert len(drawn_items) >= 169 * 3, len(drawn_items)
-    print("PASS real screenshot-derived range data creates all 169 Canvas cells")
 
-    # Confirm the actual Windows Canvas surface contains strategy colors, not
-    # merely retained drawing commands on an all-black client area.
+    app_stub = type("AppStub", (), {})()
+    app_stub.table_windows = {"smoke": {"canvas": table_canvas}}
+    app_stub.multi_tables = {}
+    app_stub.active_cash_table_id = None
+    app_stub.squeeze_deadline_jobs = {}
+
+    open_range = load_full_range_view_method()
+    open_range(
+        app_stub,
+        chart,
+        title="LIVE PREFLOP RANGE",
+        charge_label="Windows end-to-end smoke test",
+        table_id="smoke",
+    )
+    root.update()
+    table.update()
+    root.update()
+
+    range_window = next(
+        widget for widget in all_widgets(root)
+        if isinstance(widget, tk.Toplevel)
+        and widget is not table
+        and widget.title() == "PIGEON POKER • RANGE"
+    )
+    assert range_window.winfo_viewable(), "The actual range Toplevel is not viewable"
+
+    range_widgets = list(all_widgets(range_window))
+    labels = [
+        str(widget.cget("text"))
+        for widget in range_widgets
+        if isinstance(widget, tk.Label)
+    ]
+    assert any("LIVE PREFLOP RANGE" in label for label in labels), labels
+    assert any("Windows end-to-end smoke test" in label for label in labels), labels
+    print("PASS full application range method creates its visible header and footer")
+
+    range_canvas = next(
+        widget for widget in range_widgets if isinstance(widget, tk.Canvas)
+    )
+    root.update()
+    range_window.update()
+    range_canvas.update()
+    drawn_items = range_canvas.find_all()
+    assert len(drawn_items) >= 169 * 3, len(drawn_items)
+    print("PASS full application range method draws all 169 screenshot-derived cells")
+
+    # Read pixels from the actual Canvas client surface created by the full
+    # application method. Retained drawing commands alone are not enough.
     gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     user32.GetDC.argtypes = [wintypes.HWND]
@@ -165,71 +226,127 @@ def test_paid_range_canvas_uses_the_application_draw_functions(root, fit_helper,
     user32.ReleaseDC.restype = ctypes.c_int
     gdi32.GetPixel.argtypes = [wintypes.HDC, ctypes.c_int, ctypes.c_int]
     gdi32.GetPixel.restype = wintypes.COLORREF
-    hdc = user32.GetDC(canvas.winfo_id())
+
+    palette = {
+        "raise": "#e05252", "allin": "#e05252",
+        "call": "#45a879", "limp": "#45a879",
+        "check": "#45a879", "fold": "#438ac5",
+    }
+    canvas_width = max(1, range_canvas.winfo_width())
+    canvas_height = max(1, range_canvas.winfo_height())
+    cell_width = canvas_width / 13.0
+    cell_height = canvas_height / 13.0
+    sample = None
+
+    for index, hand_class in enumerate(order):
+        choices = hands.get(hand_class, [])
+        total = sum(
+            max(0.0, float(item.get("frequency", 0.0) or 0.0))
+            for item in choices
+        )
+        if total <= 0:
+            continue
+        cumulative = 0.0
+        for choice in choices:
+            frequency = max(0.0, float(choice.get("frequency", 0.0) or 0.0))
+            action = str(choice.get("action", "fold")).lower().replace("_", "")
+            if frequency > 0.2:
+                fraction = cumulative + (frequency / total) / 2.0
+                row, col = divmod(index, 13)
+                px = min(canvas_width - 2, max(2, int((col + fraction) * cell_width)))
+                py = min(canvas_height - 2, max(2, int((row + 0.25) * cell_height)))
+                sample = (px, py, palette.get(action, "#438ac5"))
+                break
+            cumulative += frequency / total
+        if sample:
+            break
+    assert sample is not None, "No visible colored segment in the real range chart"
+
+    root.update()
+    range_window.update()
+    range_canvas.update()
+    hdc = user32.GetDC(range_canvas.winfo_id())
     if not hdc:
         raise ctypes.WinError(ctypes.get_last_error())
     try:
-        canvas_width = max(1, canvas.winfo_width())
-        canvas_height = max(1, canvas.winfo_height())
-        cell_width = canvas_width / 13.0
-        cell_height = canvas_height / 13.0
-        sample = None
-        for index, hand_class in enumerate(order):
-            choices = hands.get(hand_class, [])
-            total = sum(max(0.0, float(item.get("frequency", 0.0) or 0.0)) for item in choices)
-            if total <= 0:
-                continue
-            cumulative = 0.0
-            for choice in choices:
-                frequency = max(0.0, float(choice.get("frequency", 0.0) or 0.0))
-                action = str(choice.get("action", "fold")).lower().replace("_", "")
-                if frequency > 0.2:
-                    fraction = (cumulative + (frequency / total) / 2.0)
-                    row, col = divmod(index, 13)
-                    px = min(canvas_width - 2, max(2, int((col + fraction) * cell_width)))
-                    py = min(canvas_height - 2, max(2, int((row + 0.25) * cell_height)))
-                    expected = palette.get(action, "#438ac5")
-                    sample = (px, py, expected)
-                    break
-                cumulative += frequency / total
-            if sample:
-                break
-        assert sample is not None, "No visible color segment in real screenshot-derived chart"
         px, py, expected = sample
-        root.update()
-        canvas.update()
         pixel = int(gdi32.GetPixel(hdc, px, py))
-        actual_rgb = (pixel & 0xFF, (pixel >> 8) & 0xFF, (pixel >> 16) & 0xFF)
-        expected_rgb = tuple(int(expected[i:i+2], 16) for i in (1, 3, 5))
-        assert all(abs(a - e) <= 4 for a, e in zip(actual_rgb, expected_rgb)), {
-            "point": (px, py), "actual_rgb": actual_rgb, "expected_rgb": expected_rgb,
+        actual_rgb = (
+            pixel & 0xFF,
+            (pixel >> 8) & 0xFF,
+            (pixel >> 16) & 0xFF,
+        )
+        expected_rgb = tuple(int(expected[i:i + 2], 16) for i in (1, 3, 5))
+        assert all(
+            abs(actual - wanted) <= 4
+            for actual, wanted in zip(actual_rgb, expected_rgb)
+        ), {
+            "point": (px, py),
+            "actual_rgb": actual_rgb,
+            "expected_rgb": expected_rgb,
             "pixel": hex(pixel),
         }
-        print("PASS Windows Canvas pixels visibly contain the screenshot-derived range colors")
     finally:
-        user32.ReleaseDC(canvas.winfo_id(), hdc)
+        user32.ReleaseDC(range_canvas.winfo_id(), hdc)
+    print("PASS actual application range Canvas pixels visibly contain strategy colors")
 
-    # A bad frequency must be ignored safely rather than aborting the paint.
+    table_rect, _ = native_bounds(table)
+    range_rect, _ = native_bounds(range_window)
+    assert range_rect[0] == table_rect[0] + 12, (table_rect, range_rect)
+    assert table_rect[1] <= range_rect[1] <= table_rect[1] + 12, (
+        table_rect, range_rect
+    )
+    assert_inside_work_area(range_window, margin=11)
+    print("PASS actual application range window opens at the table's upper-left")
+
+    # Supplemental: malformed frequency data is ignored safely, and rendering
+    # exceptions leave a visible diagnostic rather than a blank dark canvas.
+    source_text = SOURCE.read_text(encoding="utf-8")
+    source_tree = ast.parse(source_text, filename=str(SOURCE))
+    view = next(
+        node for node in ast.walk(source_tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_open_preflop_range_view"
+    )
+    nested = {
+        node.name: node for node in ast.walk(view)
+        if isinstance(node, ast.FunctionDef)
+    }
+    namespace = {
+        "canvas": range_canvas,
+        "order": order,
+        "hands": hands,
+        "palette": palette,
+        "math": math,
+        "tk": tk,
+    }
+    nested_module = ast.Module(
+        body=[nested[name] for name in ("safe_frequency", "draw", "safe_draw")],
+        type_ignores=[],
+    )
+    ast.fix_missing_locations(nested_module)
+    exec(compile(nested_module, str(SOURCE), "exec"), namespace)
     first_hand = order[0]
     original = hands[first_hand]
     hands[first_hand] = [{"action": "raise", "frequency": "not-a-number"}]
     namespace["safe_draw"]()
     root.update()
-    assert len(canvas.find_all()) >= 169 * 3
+    assert len(range_canvas.find_all()) >= 169 * 3
     hands[first_hand] = original
-    print("PASS malformed frequency data does not blank the range Canvas")
+    print("PASS malformed range frequencies do not blank the actual range Canvas")
 
-    # A renderer exception must produce a visible diagnostic, not an empty black canvas.
-    namespace["draw"] = lambda _event=None: (_ for _ in ()).throw(RuntimeError("smoke"))
+    namespace["draw"] = lambda _event=None: (
+        _ for _ in ()
+    ).throw(RuntimeError("smoke"))
     namespace["safe_draw"]()
     root.update()
-    visible_messages = [
-        str(canvas.itemcget(item, "text"))
-        for item in canvas.find_all()
-        if str(canvas.type(item)) == "text"
+    messages = [
+        str(range_canvas.itemcget(item, "text"))
+        for item in range_canvas.find_all()
+        if str(range_canvas.type(item)) == "text"
     ]
-    assert any(message.startswith("RANGE DISPLAY ERROR") for message in visible_messages), visible_messages
-    print("PASS range-render errors produce a visible diagnostic instead of a black screen")
+    assert any(message.startswith("RANGE DISPLAY ERROR") for message in messages), messages
+    print("PASS renderer failures produce a visible diagnostic in the actual range Canvas")
 
 
 def main():
@@ -277,8 +394,10 @@ def main():
         # top inset when there is no vertical space for the additional 12 px.
         assert table_rect[1] <= range_rect[1] <= table_rect[1] + 12, (table_rect, range_rect)
         print("PASS paid-range window opens at the table's upper-left corner")
+        range_window.destroy()
+        root.update()
 
-        test_paid_range_canvas_uses_the_application_draw_functions(root, fit, table)
+        test_paid_range_full_application_flow_on_windows(root, table)
     finally:
         root.destroy()
 
