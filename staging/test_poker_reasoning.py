@@ -1615,6 +1615,23 @@ def test_one_pair_plus_draw_needs_made_hand_equity_to_be_thin_value():
 
 
 
+
+def test_semi_bluff_draw_strength_uses_call_range_improvement_equity():
+    clean_draw = module._range_conditioned_draw_strength(
+        0.24, 0.56, 0.18, "flop"
+    )
+    no_improvement = module._range_conditioned_draw_strength(
+        0.50, 0.48, 0.22, "turn"
+    )
+    river = module._range_conditioned_draw_strength(
+        0.30, 0.30, 0.99, "river"
+    )
+    assert clean_draw > 0.50
+    assert no_improvement == 0.22
+    assert river == 0.0
+
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
