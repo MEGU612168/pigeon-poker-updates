@@ -1458,6 +1458,46 @@ def test_draw_equity_does_not_automatically_qualify_as_thin_value():
     assert bluff is True
 
 
+
+def test_board_texture_changes_size_plan_for_dry_wet_and_paired_boards():
+    dry = module._postflop_board_texture(["As", "7d", "2c"])
+    wet = module._postflop_board_texture(["9s", "8s", "7d"])
+    paired = module._postflop_board_texture(["8s", "8d", "2c"])
+    monotone = module._postflop_board_texture(["As", "Ks", "4s"])
+    assert dry["wetness"] < wet["wetness"]
+    assert paired["paired"] is True
+    assert monotone["monotone"] is True
+
+    dry_plan = module._postflop_bet_size_fractions(
+        to_call=False, donk_lead=False, range_advantage=True,
+        range_disadvantage=False, nut_advantage=0.10, expected_callers=1.0,
+        board_texture=dry,
+    )
+    wet_plan = module._postflop_bet_size_fractions(
+        to_call=False, donk_lead=False, range_advantage=True,
+        range_disadvantage=False, nut_advantage=0.10, expected_callers=1.0,
+        board_texture=wet,
+    )
+    disadvantage_plan = module._postflop_bet_size_fractions(
+        to_call=False, donk_lead=False, range_advantage=False,
+        range_disadvantage=True, nut_advantage=-0.10, expected_callers=1.0,
+        board_texture=wet,
+    )
+    assert min(dry_plan) < min(wet_plan)
+    assert 2.00 in wet_plan
+    assert max(disadvantage_plan) <= 0.50
+
+
+def test_completed_draws_are_identified_from_public_board_only():
+    turn_flush = module._postflop_board_texture(["As", "Ks", "4s", "2d"])
+    river_straight = module._postflop_board_texture(["9c", "8d", "7h", "6s", "5c"])
+    flop_monotone = module._postflop_board_texture(["As", "Ks", "4s"])
+    assert turn_flush["completed_flush"] is True
+    assert river_straight["completed_straight"] is True
+    assert flop_monotone["completed_flush"] is False
+    assert flop_monotone["monotone"] is True
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
