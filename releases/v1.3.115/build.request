@@ -1,0 +1,7 @@
+Build Pigeon Poker Stable v1.3.115.
+source_version=1.3.114
+hotfix=preflop_75_node_chart_stack_drift_dispatch
+preflop_policy=unchanged_75_nodes_12675_rows_frequencies_and_raise_sizes
+preflop_fix=do_not_tablewide_fail_closed_on_non_100bb_stack_variation
+keep_guardrail=six_dealt_players_and_exact_position_action_raise_history
+tests=full_application_wallet_updater_and_poker_regression
