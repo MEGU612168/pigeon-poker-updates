@@ -2121,6 +2121,10 @@ def _postflop_aggression_gates(
     # a value hand. Require current made-hand equity to support thin value.
     if category < 1 and current_equity < effective_value_threshold:
         value_gate = False
+    elif category == 1 and current_equity < 0.42:
+        # A pair plus a strong draw is still primarily a draw if its made hand
+        # loses too often to the opponent's call-conditioned range.
+        value_gate = False
 
     if int(to_call) > 0:
         raise_floor = 0.60 + 0.045 * max(0.0, callers - 1.0)
@@ -2471,12 +2475,14 @@ def _choose_range_aware_action_impl(
                 required_call, street, spr=spr,
                 made_category=hero_hand_category,
             )
+            minimum_made_equity = (
+                value_threshold if hero_hand_category == 0
+                else 0.42 if hero_hand_category == 1
+                else 0.30
+            )
             value_gate = (
                 candidate_called_realized_equity >= value_threshold
-                and (
-                    hero_hand_category >= 1
-                    or candidate_called_current_equity >= value_threshold
-                )
+                and candidate_called_current_equity >= minimum_made_equity
             )
             blocker_bluff_pressure = max(
                 0.0,
