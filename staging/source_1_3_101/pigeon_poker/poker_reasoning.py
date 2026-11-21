@@ -1044,14 +1044,21 @@ def _preflop_range_advantage_profile(
     if hero_profile is None:
         return neutral
 
+    active_opponents = [
+        player for player in list(getattr(hand, "players", ()) or ())
+        if str(getattr(player, "player_id", ""))
+        and str(getattr(player, "player_id", "")) != str(hero_id)
+        and bool(getattr(player, "eligible", False))
+    ]
     opponent_profiles = []
-    for player in list(getattr(hand, "players", ()) or ()):
+    for player in active_opponents:
         pid = str(getattr(player, "player_id", ""))
-        if not pid or pid == str(hero_id) or not bool(getattr(player, "eligible", False)):
-            continue
         profile = _range_board_strength_profile(rows.get(pid, {}), board)
-        if profile is not None:
-            opponent_profiles.append(profile)
+        if profile is None:
+            # A partial chart sample can misstate a multiway range edge.
+            # Use the board-texture fallback unless every live opponent is covered.
+            return neutral
+        opponent_profiles.append(profile)
     if not opponent_profiles:
         return neutral
 
