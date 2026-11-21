@@ -10483,6 +10483,8 @@ class PigeonPokerApp(tk.Tk):
                 if pid.casefold() in {"hero", "you"} or name.casefold() in {"hero", "you"}:
                     id_by_name["YOU"] = pid
                     id_by_name["HERO"] = pid
+                    id_by_name["you"] = pid
+                    id_by_name["hero"] = pid
                 player_by_id[pid] = SimpleNamespace(
                     player_id=pid, name=name,
                     position=str(item.get("position") or ""),
@@ -10529,11 +10531,12 @@ class PigeonPokerApp(tk.Tk):
             # player count differs from six. Add a non-seated marker to force it
             # to use these stored positions rather than infer a button seat.
             helper_players = list(player_by_id.values())
-            helper_players.append(SimpleNamespace(
-                player_id="__position_hint__", name="Position metadata",
-                position="UNKNOWN", hole_cards=(), stack=100000,
-                street_contribution=0, eligible=False,
-            ))
+            if len(helper_players) == 6:
+                helper_players.append(SimpleNamespace(
+                    player_id="__position_hint__", name="Position metadata",
+                    position="UNKNOWN", hole_cards=(), stack=100000,
+                    street_contribution=0, eligible=False,
+                ))
             rate = str(row.get("table_rate", ""))
             bb_cents = {
                 "NL2": 2, "NL5": 5, "NL10": 10, "NL25": 25,
