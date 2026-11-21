@@ -32,7 +32,8 @@ from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOErr
                           PokerRuleError, build_gto_plus_spot_table, HandHistoryStore,
                           is_gto_plus_supported_postflop_hand, CPUPoolStore, GGCareLedger, CashierLedger, bind_first_matching_tree)
 from pigeon_poker.preflop_screenshot_ranges import (
-    choose_preflop_action, preflop_chart_options, estimate_preflop_opponent_ranges
+    choose_preflop_action, preflop_chart_options, preflop_situation_size,
+    estimate_preflop_opponent_ranges
 )
 from pigeon_poker.poker_reasoning import choose_range_aware_action
 from pigeon_poker.cpu_learning import CPULearningStore
@@ -2228,8 +2229,7 @@ class PigeonPokerApp(tk.Tk):
         if minimum <= 0 or minimum > maximum:
             minimum = maximum
         try:
-            chart_controls = preflop_chart_options(table, hand, actor_id)
-            suggested = chart_controls.get("raise_amount") if chart_controls else None
+            suggested = preflop_situation_size(table, hand, actor_id)
             if suggested is not None:
                 suggested = int(suggested)
                 if minimum <= suggested <= maximum:
@@ -2257,9 +2257,11 @@ class PigeonPokerApp(tk.Tk):
             legal = hand.legal_actions("hero")
             if not ({"bet", "raise"} & set(legal.get("actions", ()))):
                 return
-            chart_controls = preflop_chart_options(table, hand, "hero")
-            target = chart_controls.get("raise_amount") if chart_controls else None
+            target = preflop_situation_size(table, hand, "hero")
             if target is None:
+                record["status"].set(
+                    "NO MATCHING 75-NODE SIZE • AMOUNT UNCHANGED"
+                )
                 return
             target = int(target)
             minimum = int(legal.get("min_target", 0) or 0)
@@ -2268,6 +2270,9 @@ class PigeonPokerApp(tk.Tk):
                 return
             record["bet_min"], record["bet_max"] = minimum, maximum
             self._set_table_bet_target(table_id, target)
+            record["status"].set(
+                "CHART SIZE APPLIED • POSITION + RAISE HISTORY ONLY"
+            )
         except (AttributeError, KeyError, TypeError, ValueError, RuntimeError, OverflowError):
             return
 
@@ -3764,6 +3769,12 @@ class PigeonPokerApp(tk.Tk):
         size_actions.pack(fill="x", padx=5, pady=(0, 2))
         size_actions.configure(height=48)
         size_actions.pack_propagate(False)
+        # Dedicated row keeps the situation-size control visible even when the
+        # slider, amount entry and pot presets consume the full width.
+        situation_actions = tk.Frame(action_outer, bg=COLORS["panel"])
+        situation_actions.pack(fill="x", padx=5, pady=(0, 2))
+        situation_actions.configure(height=30)
+        situation_actions.pack_propagate(False)
         utility_actions = tk.Frame(action_outer, bg=COLORS["panel"])
         utility_actions.pack(fill="x", padx=6, pady=(1, 4))
         quick_leave_button = self._compact_action_button(
@@ -3837,7 +3848,8 @@ class PigeonPokerApp(tk.Tk):
             "timer": timer_var, "timer_label": timer_label,
             "detail": detail_var, "event": event_var,
             "wallet": wallet_var, "canvas": canvas, "event_label": event_label,
-            "actions": actions, "size_actions": size_actions, "utility_actions": utility_actions,
+            "actions": actions, "size_actions": size_actions,
+            "situation_actions": situation_actions, "utility_actions": utility_actions,
             "fold_button": fold_button,
             "timebank_actions": timebank_actions,
             "quick_leave_button": quick_leave_button, "sitout_button": sitout_button,
@@ -3853,7 +3865,7 @@ class PigeonPokerApp(tk.Tk):
             "postflop_auto_fold_check": postflop_auto_fold_check,
             "bet_target": bet_target_var, "bet_target_cents": bet_target_cents_var,
             "bet_slider": bet_slider_var, "bet_action_button": None,
-            "chart_size_button": None,
+            "situation_size_button": None,
             "bet_min": 0, "bet_max": 0, "bet_verb": "bet", "bet_bb": 1,
             "bet_unit_label": None, "syncing_bet": False,
             "pot_animation": None, "pot_animation_key": None, "pot_animation_job": None,
@@ -6208,6 +6220,7 @@ class PigeonPokerApp(tk.Tk):
             self._redraw_floating_table(slot.table_id)
             actions_frame = record["actions"]
             sizes_frame = record["size_actions"]
+            situation_frame = record["situation_actions"]
 
             # Only reconstruct controls when the legal-action topology changes.
             # CPU thinking banners, event text and timer ticks must not destroy
@@ -6260,14 +6273,14 @@ class PigeonPokerApp(tk.Tk):
             )
             rebuild_actions = record.get("action_signature") != action_signature
             if rebuild_actions:
-                for frame in (actions_frame, sizes_frame):
+                for frame in (actions_frame, sizes_frame, situation_frame):
                     for child in frame.winfo_children():
                         if frame is actions_frame and child is record.get("fold_button"):
                             child.pack_forget()
                             continue
                         child.destroy()
                 record["bet_action_button"] = None
-                record["chart_size_button"] = None
+                record["situation_size_button"] = None
                 record["action_signature"] = action_signature
             else:
                 # Keep existing action controls and focused widgets alive.
@@ -6480,24 +6493,23 @@ class PigeonPokerApp(tk.Tk):
                     tk.Label(sizes_frame, text=unit_text, bg=COLORS["panel"],
                              fg=COLORS["muted"], font=("Segoe UI", 7)).pack(side="left", padx=(0, 7))
 
-                    # This control exists only on a chart-covered preflop raise
-                    # decision. It re-reads the live hand when clicked; it never
-                    # submits or locks the action/amount.
-                    record["chart_size_button"] = None
+                    # Always expose the preflop situation-size control when a
+                    # raise is legal. It is not gated by the hero's hand class;
+                    # the click resolves the size from position + action history.
+                    record["situation_size_button"] = None
                     if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):
-                        try:
-                            live_chart = preflop_chart_options(table, hand, "hero")
-                            live_chart_target = live_chart.get("raise_amount") if live_chart else None
-                            live_chart_target = int(live_chart_target) if live_chart_target is not None else None
-                        except (AttributeError, KeyError, TypeError, ValueError, RuntimeError, OverflowError):
-                            live_chart_target = None
-                        if live_chart_target is not None and minimum <= live_chart_target <= maximum:
-                            chart_button = self._compact_action_button(
-                                sizes_frame, "CHART SIZE",
-                                lambda tid=slot.table_id: self._apply_preflop_chart_size(tid),
-                                "normal")
-                            chart_button.pack(side="left", padx=(3, 3))
-                            record["chart_size_button"] = chart_button
+                        chart_button = self._compact_action_button(
+                            situation_frame, "CHART SIZE",
+                            lambda tid=slot.table_id: self._apply_preflop_chart_size(tid),
+                            "normal")
+                        chart_button.pack(side="left", padx=(2, 6))
+                        tk.Label(
+                            situation_frame,
+                            text="SIZE = POSITION + PREFLOP RAISE HISTORY (NOT YOUR HAND)",
+                            bg=COLORS["panel"], fg=COLORS["muted"],
+                            font=("Segoe UI", 7, "bold"),
+                        ).pack(side="left", padx=2)
+                        record["situation_size_button"] = chart_button
 
                     for pct in self.bet_pot_percentages:
                         self._compact_action_button(
