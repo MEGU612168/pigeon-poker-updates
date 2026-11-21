@@ -130,7 +130,7 @@ class CPULearningStore:
             if isinstance(event, dict) and event.get("type") == "action"
         ]
         preflop_raises = 0
-        preflop_aggressors: set[str] = set()
+        last_preflop_aggressor: str | None = None
         first_flop_action_by_player: set[str] = set()
         cbet_active = False
         cbet_aggressor: str | None = None
@@ -140,8 +140,9 @@ class CPULearningStore:
             actor = name_to_id.get(actor, actor)
             if actor not in wanted:
                 if str(event.get("street", "preflop")).lower().replace("-", "") == "preflop":
-                    if _action_name(event) in {"raise"}:
+                    if _action_name(event) == "raise":
                         preflop_raises += 1
+                        last_preflop_aggressor = actor
                 continue
 
             values = deltas[actor]
@@ -162,7 +163,7 @@ class CPULearningStore:
                     elif preflop_raises >= 2 and to_call > 0:
                         values["four_bet_opportunities"] += 1
                         values["four_bets"] += 1
-                    preflop_aggressors.add(actor)
+                    last_preflop_aggressor = actor
                     preflop_raises += 1
                 elif to_call > 0 and preflop_raises == 1:
                     values["three_bet_opportunities"] += 1
@@ -181,14 +182,14 @@ class CPULearningStore:
                 values["faced_bets"] += 1
                 if action == "fold":
                     values["folds_facing_bet"] += 1
-            if cbet_active and actor != cbet_aggressor and to_call > 0:
+            if street == "flop" and cbet_active and actor != cbet_aggressor and to_call > 0:
                 values["fold_to_cbet_opportunities"] += 1
                 if action == "fold":
                     values["folds_to_cbet"] += 1
 
             if street == "flop" and actor not in first_flop_action_by_player:
                 first_flop_action_by_player.add(actor)
-                if actor in preflop_aggressors:
+                if actor == last_preflop_aggressor:
                     values["cbet_opportunities"] += 1
                     if action in {"bet", "raise"} and to_call == 0:
                         values["cbets"] += 1
