@@ -25,12 +25,27 @@ def test_pokercraft_has_sortable_session_and_hand_headers():
     hands = source_of("_sort_pokercraft_hands")
     assert "TIME (JST)" in build
     assert "BLINDS" in build and "DURATION" in build and "WIN / LOSS" in build
+    assert '"Hole Cards"' in build and '"Position"' in build and '"Opponents"' in build
     assert "_sort_pokercraft_sessions" in build
     assert "_sort_pokercraft_hands" in build
     for body in (sessions, hands):
         assert "self.poker_" in body and "sort_reverse" in body
         assert "not bool(" in body
         assert "False" in body  # first click is ascending
+
+
+def test_hole_cards_tab_aggregates_suited_offsuit_and_pair_classes():
+    build = source_of("_build_pokercraft_page")
+    parser = source_of("_pokercraft_hand_class")
+    refresh = source_of("_refresh_pokercraft")
+    aggregate = source_of("_refresh_pokercraft_hole_cards")
+    assert '"Hole Cards"' in build
+    assert "poker_hole_cards_tree" in build
+    assert "_refresh_pokercraft_hole_cards(filtered)" in refresh
+    assert "re.findall" in parser and "rank_order" in parser
+    assert '("s" if suit_a == suit_b else "o")' in parser
+    assert "return rank_a * 2" in parser
+    assert "winrate" in aggregate and "avgpot" in source_of("_render_pokercraft_hole_cards")
 
 
 def test_all_pokercraft_timestamps_use_japan_time():
