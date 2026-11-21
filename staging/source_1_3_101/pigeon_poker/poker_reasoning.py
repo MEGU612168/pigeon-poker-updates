@@ -113,8 +113,88 @@ def _preflop_strength(hand_class: str) -> float:
     return max(0.0, min(0.96, score))
 
 
+def _position_for_player(table: Any, hand: Any, player_id: str) -> str | None:
+    """Resolve a six-max seat position from the dealer and public seat order."""
+    players = list(getattr(hand, "players", ()) or ())
+    if len(players) != 6:
+        return None
+    dealer = getattr(table, "dealer_index", None)
+    if dealer is None:
+        dealer = getattr(hand, "dealer_index", None)
+    if dealer is None:
+        return None
+    try:
+        dealer = int(dealer) % 6
+    except (TypeError, ValueError, OverflowError):
+        return None
+    seat_by_id = getattr(hand, "seat_by_id", {}) or {}
+    target = str(player_id)
+    for index, player in enumerate(players):
+        if str(getattr(player, "player_id", "")) != target:
+            continue
+        try:
+            seat = int(seat_by_id[target]) % 6 if isinstance(seat_by_id, dict) and target in seat_by_id else index
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return ("BTN", "SB", "BB", "UTG", "HJ", "CO")[(seat - dealer) % 6]
+    return None
+
+
+def _fallback_position_adjustment(
+    position: str | None,
+    action: str,
+    prior_raises: int,
+    raiser_position: str | None,
+) -> float:
+    """Position-specific adjustment to the fallback preflop range-strength cutoff.
+
+    A higher cutoff means a tighter range. These are deliberately modest
+    priors, used only when the exact 75-node action history is unavailable.
+    """
+    pos = str(position or "").upper()
+    if action in {"raise", "allin"}:
+        if int(prior_raises) <= 0:
+            # First-in ranges: early seats are tighter; BTN/SB can open wider.
+            adjustment = {
+                "UTG": 0.105, "HJ": 0.065, "CO": 0.025,
+                "BTN": -0.075, "SB": -0.025, "BB": 0.065,
+            }.get(pos, 0.0)
+        else:
+            # 3-bet/4-bet ranges: blinds pay an out-of-position premium;
+            # late-position reraises can retain more suited/connected hands.
+            adjustment = {
+                "UTG": 0.060, "HJ": 0.040, "CO": -0.015,
+                "BTN": -0.045, "SB": 0.055, "BB": 0.025,
+            }.get(pos, 0.0)
+    elif action == "call":
+        # BB receives the best price, SB is usually the most awkward defend.
+        adjustment = {
+            "UTG": 0.075, "HJ": 0.040, "CO": 0.005,
+            "BTN": -0.045, "SB": 0.045, "BB": -0.105,
+        }.get(pos, 0.0)
+    elif action == "unacted":
+        adjustment = {
+            "UTG": 0.045, "HJ": 0.025, "CO": 0.000,
+            "BTN": -0.045, "SB": 0.020, "BB": -0.070,
+        }.get(pos, 0.0)
+    else:
+        adjustment = 0.0
+
+    # Account for relative postflop position when facing an existing raise.
+    # Blinds are always treated as out of position despite acting late preflop.
+    order = {"UTG": 0, "HJ": 1, "CO": 2, "BTN": 3}
+    raiser = str(raiser_position or "").upper()
+    if int(prior_raises) > 0 and pos in order and raiser in order:
+        if order[pos] > order[raiser]:
+            adjustment -= 0.025
+        elif order[pos] < order[raiser]:
+            adjustment += 0.025
+    return max(-0.16, min(0.18, adjustment))
+
+
 def _fallback_preflop_range(hand: Any, player_id: str,
-                            blockers: set[str]) -> tuple[list[tuple[tuple[str, str], float]], str, float]:
+                            blockers: set[str],
+                            table: Any = None) -> tuple[list[tuple[tuple[str, str], float]], str, float]:
     events = _player_events(hand, player_id, street="preflop")
     voluntary = [event for event in events if _event_action(event) != "fold"]
     all_preflop = [
@@ -139,9 +219,38 @@ def _fallback_preflop_range(hand: Any, player_id: str,
              if str(event.get("player_id") or event.get("player") or "") in actor_names),
             default=len(all_preflop),
         )
+    prior_history = all_preflop[:max(0, latest_pos)]
     prior_raises = sum(
-        1 for event in all_preflop[:max(0, latest_pos)]
+        1 for event in prior_history
         if _event_action(event) in {"raise", "allin"}
+    )
+    position = _position_for_player(table, hand, player_id)
+    previous_raise_event = next(
+        (event for event in reversed(prior_history)
+         if _event_action(event) in {"raise", "allin"}),
+        None,
+    )
+    previous_raiser = None
+    if previous_raise_event is not None:
+        previous_raiser_id = str(
+            previous_raise_event.get("player_id")
+            or previous_raise_event.get("player") or ""
+        )
+        previous_raiser = next(
+            (str(getattr(player, "player_id", ""))
+             for player in list(getattr(hand, "players", ()) or ())
+             if previous_raiser_id in {
+                 str(getattr(player, "player_id", "")),
+                 str(getattr(player, "name", "")),
+             }),
+            None,
+        )
+    raiser_position = (
+        _position_for_player(table, hand, previous_raiser)
+        if previous_raiser else None
+    )
+    position_adjustment = _fallback_position_adjustment(
+        position, action, prior_raises, raiser_position
     )
     big_blind = max(1, int(getattr(hand, "big_blind", 1) or 1))
     raise_size_anchors = (2.3, 7.5, 17.0, 28.0)
@@ -177,7 +286,7 @@ def _fallback_preflop_range(hand: Any, player_id: str,
         cutoff += min(0.08, max(0.0, price_ratio - 0.20) * 0.10)
     else:
         return _uniform_combos(blockers), "unsupported-action-uniform", 0.10
-    cutoff = max(0.05, min(0.97, cutoff))
+    cutoff = max(0.05, min(0.97, cutoff + position_adjustment))
 
     classes: list[str] = []
     for high_index in range(len(RANKS) - 1, 0, -1):
@@ -465,7 +574,7 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
             # Keep hero cards out until after the action likelihood updates so
             # removed value/bluff combinations can be measured explicitly.
             raw_options, source, confidence = _fallback_preflop_range(
-                hand, pid, public_blockers
+                hand, pid, public_blockers, table=table
             )
 
         # Rebuild the board as it existed at each action. This prevents later
@@ -561,6 +670,17 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
                 anchor = anchors[min(3, max(0, raises_seen - 1))]
                 size_factor = max(0.55, min(1.0, anchor / max(1.0, target_bb)))
                 participation *= size_factor
+            # Conditional entry is seat-dependent too: BTN closes the action
+            # more often, BB receives a discount, and SB is constrained OOP.
+            position = (
+                str(row.get("position", "")).upper()
+                if isinstance(row, dict) and row.get("position")
+                else _position_for_player(table, hand, pid)
+            )
+            participation *= {
+                "UTG": 0.86, "HJ": 0.93, "CO": 1.00,
+                "BTN": 1.10, "SB": 0.88, "BB": 1.16,
+            }.get(position, 1.0)
         learned_stats = row.get("learned_behavior", {}) if isinstance(row, dict) else {}
         learned_stats_tuple = tuple(sorted(
             (str(key), float(value)) for key, value in learned_stats.items()
