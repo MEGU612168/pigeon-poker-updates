@@ -727,15 +727,19 @@ def test_flop_response_uses_opponent_fold_to_cbet_history():
 
 def test_preflop_board_role_detects_caller_favored_connected_flop() -> None:
     players = [
-        FakePlayer("hero", ("As", "Kh")),
         FakePlayer("villain", ("2c", "3d")),
+        FakePlayer("SB", ("4c", "5d")),
+        FakePlayer("hero", ("As", "Kh")),
+        FakePlayer("UTG", ("6c", "7d")),
+        FakePlayer("HJ", ("8c", "9d")),
+        FakePlayer("CO", ("Tc", "Jd")),
     ]
     hand = FakeHand(
         players, board=("8s", "7d", "6c"), pot=500,
         street="flop", to_call=0, actions=("check", "bet"),
     )
     hand.dealer_index = 0
-    hand.seat_by_id = {"villain": 0, "hero": 2}
+    hand.seat_by_id = {"villain": 0, "SB": 1, "hero": 2, "UTG": 3, "HJ": 4, "CO": 5}
     hand.events = [
         {"type": "action", "street": "preflop", "player": "villain", "action": "raise",
          "target": 250, "paid": 250, "pot_before": 75, "to_call_before": 0},
@@ -754,14 +758,18 @@ def test_preflop_board_role_detects_caller_favored_connected_flop() -> None:
 def test_preflop_aggressor_is_flagged_range_disadvantaged_on_low_connected_flop() -> None:
     players = [
         FakePlayer("hero", ("As", "Kh")),
+        FakePlayer("SB", ("4c", "5d")),
         FakePlayer("villain", ("2c", "3d")),
+        FakePlayer("UTG", ("6c", "7d")),
+        FakePlayer("HJ", ("8c", "9d")),
+        FakePlayer("CO", ("Tc", "Jd")),
     ]
     hand = FakeHand(
         players, board=("8s", "7d", "6c"), pot=500,
         street="flop", to_call=0, actions=("check", "bet"),
     )
     hand.dealer_index = 0
-    hand.seat_by_id = {"hero": 0, "villain": 2}
+    hand.seat_by_id = {"hero": 0, "SB": 1, "villain": 2, "UTG": 3, "HJ": 4, "CO": 5}
     hand.events = [
         {"type": "action", "street": "preflop", "player": "hero", "action": "raise",
          "target": 250, "paid": 250, "pot_before": 75, "to_call_before": 0},
@@ -778,15 +786,19 @@ def test_preflop_aggressor_is_flagged_range_disadvantaged_on_low_connected_flop(
 
 def test_ace_high_dry_flop_favors_preflop_aggressor_proxy() -> None:
     players = [
-        FakePlayer("hero", ("2c", "3d")),
         FakePlayer("villain", ("As", "Ah")),
+        FakePlayer("SB", ("4c", "5d")),
+        FakePlayer("hero", ("2c", "3d")),
+        FakePlayer("UTG", ("6c", "7d")),
+        FakePlayer("HJ", ("8c", "9d")),
+        FakePlayer("CO", ("Tc", "Jd")),
     ]
     hand = FakeHand(
         players, board=("As", "7d", "3c"), pot=500,
         street="flop", to_call=0, actions=("check", "bet"),
     )
     hand.dealer_index = 0
-    hand.seat_by_id = {"hero": 2, "villain": 0}
+    hand.seat_by_id = {"villain": 0, "SB": 1, "hero": 2, "UTG": 3, "HJ": 4, "CO": 5}
     hand.events = [
         {"type": "action", "street": "preflop", "player": "villain", "action": "raise",
          "target": 250, "paid": 250, "pot_before": 75, "to_call_before": 0},
