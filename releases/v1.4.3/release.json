@@ -7,9 +7,9 @@
   "source_version": "1.3.101",
   "source_directory": "staging/source_1_3_101",
   "release_notes": "UTG初回オープンの推定レンジを廃止し、2026-11-21に提供されたGTO WizardのUTG未オープン局面スクリーンショットから読み取った169ハンドクラスのレンジへ置換。Raise 2.0 BB（100 BB effective）、Raise 17.6%（233.26コンボ）、Fold 82.4%、All-in 0%。UTGの旧推定分岐自体を削除し、01_UTG_OPENを画像由来の正式ノードとして登録。ハンド別頻度、2.0 BBサイズ、集計コンボ数、GTO SIZEの履歴ベース参照をテストする。その他の既存チャートノード、ユーザーの自由なアクション、旧実装ファイルの起動時クリーンアップ、ウォレット・履歴・設定・CPU学習データ保護は維持。",
-  "published_at": "2026-11-21T13:21:19Z",
-  "payload_sha256": "9de4193576756c8abe30bd1f5136eaffc78f3d57dd8e09ae6bfe619406a7bdc5",
-  "payload_size": 263481,
+  "published_at": "2026-11-21T13:22:46Z",
+  "payload_sha256": "3d92db99a14141d0685395b7309737995b058e19be3e2cb85094239599d4fd80",
+  "payload_size": 263489,
   "files": [
     "PigeonPoker.pyw",
     "VERSION.txt",

@@ -246,7 +246,7 @@ def _data() -> dict[str, Any]:
         "nodes_by_id": nodes_by_id,
         "rows": rows,
         "method": (
-            "27 screenshot-derived core nodes; hand-class matrix calibrated to "
+            "28 screenshot-derived nodes with hand-class frequencies transcribed from their source charts; "
             "the screenshot's aggregate action frequencies. Missing branches use "
             "position/action/size/stack/hand-class rule inference."
         ),
