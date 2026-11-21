@@ -330,10 +330,14 @@ def _node_for_situation_size(table: Any, hand: Any, actor_id: str) -> str | None
 
 
 def _node_for_actor(table: Any, hand: Any, actor_id: str) -> str | None:
-    # BOT action/range policy remains restricted to the chart's documented
-    # six-handed 100-BB starting-stack condition.
-    if not _supports_100bb_effective_stack(hand):
-        return None
+    """Resolve the fixed 75-node BOT action chart from the observed 6-max line.
+
+    Do not invalidate the entire table's preflop policy because one seat's
+    stack changed after winning or losing chips. The chart action rows,
+    frequencies and raise sizes remain the sole strategy source; the normal
+    legal-action filter still removes actions that cannot be made at the
+    current stack. Exact chart-history matching remains mandatory.
+    """
     return _node_for_situation_size(table, hand, actor_id)
 
 
