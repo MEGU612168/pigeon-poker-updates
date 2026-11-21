@@ -47,7 +47,10 @@ def test_preflop_chart_is_only_used_to_seed_an_editable_default() -> None:
     helper = text_of("_preflop_initial_raise_target")
     assert 'if hand.street == "preflop"' in refresh
     assert "self._preflop_initial_raise_target(" in refresh
-    assert 'chart_controls.get("raise_amount")' in helper
+    assert "preflop_situation_size(table, hand, actor_id)" in helper
+    assert "preflop_chart_options" not in helper
+    assert 'situation_frame, "CHART SIZE"' in refresh
+    assert "SIZE = POSITION + PREFLOP RAISE HISTORY (NOT YOUR HAND)" in refresh
     assert 'record["bet_target"].set(' in refresh
     assert 'record["bet_slider"].set(target)' in refresh
     assert 'record["bet_target_cents"].set(target)' in refresh
