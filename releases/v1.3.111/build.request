@@ -1,5 +1,5 @@
 {
   "version": "1.3.111",
-  "reason": "Retry release validation after correcting the shared action UI regression test. Human-only CHART SIZE uses position plus complete preflop action/raise-size history and is hand-class independent. It selects normal raise size only; all-in is separate. A regression test enforces that BOT decisions remain hand-class-specific and continue using the fixed 75-node action-frequency chart, with no call to the human sizing helper. The BOT-vs-human regression test is explicitly included in the release test runner.",
+  "reason": "Retry release validation after correcting the shared action UI regression test. Human-only CHART SIZE uses position plus complete preflop action/raise-size history and is hand-class independent. It selects normal raise size only; all-in is separate. A regression test enforces that BOT decisions remain hand-class-specific and continue using the fixed 75-node action-frequency chart, with no call to the human sizing helper. The BOT-vs-human regression test is explicitly included in the release test runner. The BOT policy regression test inspects the dedicated chart decision implementation and its wrapper separately.",
   "source_version": "1.3.110"
 }
