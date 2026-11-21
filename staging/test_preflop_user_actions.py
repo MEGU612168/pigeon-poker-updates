@@ -81,14 +81,19 @@ def test_uncovered_preflop_history_never_uses_generic_range_policy() -> None:
 
 def test_chart_size_button_is_preflop_only_and_user_editable() -> None:
     refresh = source_of("_refresh_table_windows")
+    initial_size = source_of("_preflop_initial_raise_target")
     apply_size = source_of("_apply_preflop_chart_size")
     action = source_of("_cash_human_action")
 
     assert 'if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):' in refresh
-    assert 'sizes_frame, "CHART SIZE"' in refresh
-    assert 'record["chart_size_button"] = chart_button' in refresh
+    assert 'situation_frame, "CHART SIZE"' in refresh
+    assert 'record["situation_size_button"] = chart_button' in refresh
+    assert "situation_actions = tk.Frame(action_outer" in SOURCE_TEXT
+    assert "situation_actions" in refresh
     assert "self._apply_preflop_chart_size(tid)" in refresh
-    assert "preflop_chart_options(table, hand, \"hero\")" in apply_size
+    assert "preflop_situation_size(table, hand, actor_id)" in initial_size
+    assert "preflop_situation_size(table, hand, \"hero\")" in apply_size
+    assert "preflop_chart_options" not in apply_size
     assert 'hand.next_to_act != "hero"' in apply_size
     assert "self._set_table_bet_target(table_id, target)" in apply_size
     assert "self.cash_table.act(\"hero\", action, amount)" in action
