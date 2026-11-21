@@ -189,7 +189,7 @@ class CPULearningStore:
 
             if street == "flop" and actor not in first_flop_action_by_player:
                 first_flop_action_by_player.add(actor)
-                if actor == last_preflop_aggressor:
+                if actor == last_preflop_aggressor and to_call == 0:
                     values["cbet_opportunities"] += 1
                     if action in {"bet", "raise"} and to_call == 0:
                         values["cbets"] += 1
