@@ -147,6 +147,31 @@ def test_pokercraft_refreshes_live_without_blocking_table_play():
     assert 'self.after(80, self._refresh_pokercraft)' in hand_end
 
 
+def test_main_and_table_windows_use_native_monitor_work_area_bounds():
+    helper = source_of("_fit_toplevel_to_monitor_work_area")
+    init = TEXT[TEXT.find("class PigeonPokerApp"):TEXT.find("def _create_table_window")]
+    table = source_of("_create_table_window")
+    assert "MonitorFromWindow" in helper and "GetMonitorInfoW" in helper
+    assert "GetAncestor" in helper and "SetWindowPos" in helper
+    assert "rcWork" in helper and "NOACTIVATE" in helper
+    assert "root_client_size = _fit_toplevel_to_monitor_work_area(self)" in init
+    assert "min(1180, root_client_size[0])" in init
+    assert "table_client_size = _fit_toplevel_to_monitor_work_area(" in table
+    assert "winfo_screenheight()" not in table
+
+
+def test_paid_range_window_is_clamped_and_renderer_retries_safely():
+    view = source_of("_open_preflop_range_view")
+    assert "_fit_toplevel_to_monitor_work_area(" in view
+    assert "def safe_frequency(item):" in view
+    assert "math.isfinite(value)" in view
+    assert "def safe_draw(_event=None):" in view
+    assert "RANGE DISPLAY ERROR" in view
+    assert "win.after_idle(safe_draw)" in view
+    assert "win.after(120, safe_draw)" in view
+    assert "win.after(360, safe_draw)" in view
+
+
 def run_tests():
     tests = [
         test_pokercraft_has_sortable_session_and_hand_headers,
@@ -160,6 +185,8 @@ def run_tests():
         test_historical_range_uses_only_events_before_hero_first_action,
         test_pokercraft_refreshes_live_without_blocking_table_play,
         test_live_preflop_range_is_an_overlay_and_pauses_the_action_clock,
+        test_main_and_table_windows_use_native_monitor_work_area_bounds,
+        test_paid_range_window_is_clamped_and_renderer_retries_safely,
     ]
     for test in tests:
         test()
