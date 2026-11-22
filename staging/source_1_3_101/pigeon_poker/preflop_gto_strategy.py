@@ -408,11 +408,21 @@ def _resolve_spot(
     calls = [r for r in records if r["action"] == "call"]
     bb = _big_blind(hand, table)
     eff = _effective_stack_bb(hand, player_id, positions, bb)
+    actor_player = next(
+        (p for p in list(getattr(hand, "players", ()) or ())
+         if str(getattr(p, "player_id", "")) == str(player_id)),
+        None,
+    )
+    try:
+        actor_stack_bb = max(0.0, float(getattr(actor_player, "stack", 0) or 0) / max(1, bb))
+    except (TypeError, ValueError, OverflowError):
+        actor_stack_bb = None
     spot = {
         "actor_id": str(player_id), "actor_position": actor_pos,
         "positions": positions, "records": records, "raises": raises,
         "calls": calls, "raise_count": len(raises), "call_count": len(calls),
-        "effective_stack_bb": eff, "node_id": None, "kind": "uncovered",
+        "effective_stack_bb": eff, "actor_stack_bb": actor_stack_bb,
+        "node_id": None, "kind": "uncovered",
         "opener_position": None, "opener_id": None,
         "open_size_bb": 0.0, "last_raise_bb": 0.0,
         "threebettor_position": None, "threebettor_id": None,
@@ -833,6 +843,27 @@ def _inferred_hand_actions(spot: dict[str, Any],
 
 
 def _actions_for_hand(spot: dict[str, Any], hand_class: str) -> tuple[list[dict[str, Any]], bool]:
+    """Use all 174 independent screenshot scenarios before extrapolating.
+
+    An exact history match reads the hand's measured action frequencies and
+    source raise sizes. For a hand class absent from that exact matrix, or an
+    unseen action history, use a weighted nearest-scenario inference. The
+    legacy 28-node dictionary remains a final safety fallback only.
+    """
+    try:
+        from .range_image_catalog import range_strategy_for_hand
+        source_model = range_strategy_for_hand(spot, hand_class)
+    except Exception:
+        source_model = None
+    if isinstance(source_model, dict):
+        actions = list(source_model.get("actions", []) or [])
+        if actions:
+            # Preserve source traceability for diagnostics and test assertions.
+            spot["_range_174_source_ids"] = list(source_model.get("source_ids", []) or [])
+            spot["_range_174_confidence"] = float(source_model.get("confidence", 0.0) or 0.0)
+            spot["_range_174_match_mode"] = str(source_model.get("match_mode", ""))
+            return actions, bool(source_model.get("inferred", False))
+
     node_id = spot.get("node_id")
     if node_id:
         node = _data()["nodes_by_id"].get(node_id)
@@ -841,8 +872,6 @@ def _actions_for_hand(spot: dict[str, Any], hand_class: str) -> tuple[list[dict[
             if items:
                 return items, bool(node.get("inferred", False))
             if node.get("active_range"):
-                # This hand is outside the previous-action range. Keep the CPU
-                # from pretending the screenshot has evidence for an impossible combo.
                 return _inferred_hand_actions(spot, hand_class), True
     return _inferred_hand_actions(spot, hand_class), True
 
@@ -1013,6 +1042,31 @@ def preflop_gto_situation_size(
 ) -> int | None:
     spot = _resolve_spot(table, hand, player_id)
     bb = _big_blind(hand, table)
+    # The 174-scenario matrix is the primary source for the suggested raise
+    # size, including unseen situations inferred from neighbouring scenarios.
+    try:
+        from .range_image_catalog import range_action_options_for_situation
+        scenario_options = range_action_options_for_situation(spot)
+        raise_options = [
+            item for item in scenario_options
+            if str(item.get("action", "")).startswith("raise")
+            and item.get("amount_bb") is not None
+        ]
+        if raise_options:
+            selected = max(
+                raise_options,
+                key=lambda item: (float(item.get("frequency", 0.0)),
+                                  -float(item.get("amount_bb", 0.0))),
+            )
+            target = int(round(float(selected["amount_bb"]) * bb))
+            legal = hand.legal_actions(player_id)
+            min_target = int(legal.get("min_target", 0) or 0)
+            max_target = int(legal.get("max_target", 0) or 0)
+            if min_target <= target <= max_target:
+                return target
+    except Exception:
+        pass
+
     node_id = spot.get("node_id")
     if node_id:
         node = _data()["nodes_by_id"].get(node_id)
@@ -1367,7 +1421,9 @@ def coverage_summary() -> dict[str, Any]:
         "inferred_nodes": data["node_count"] - data["source_images"],
         "source_screenshots": data["source_images"],
         "archive_screenshots": data["archive_screenshots"],
-        "missing_patterns": "inferred by position, action history, size, stack and hand strength",
+        "registered_scenarios": 174,
+        "scenario_policy": "all 174 source IDs are independent; equal matrices or histories are never removed",
+        "missing_patterns": "weighted nearest-scenario inference from the 174 hand-frequency matrices, action histories, raise sizes and effective stacks",
         "open_sizes_bb": dict(OPEN_SIZE_BB),
         "fixed_2_5bb_opening": False,
     }
