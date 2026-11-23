@@ -23,21 +23,24 @@ def test_cleanup_removes_only_retired_preflop_code_and_cache_files() -> None:
             "preflop_range_policy.py",
             "preflop_range_data.py",
             "preflop_range_data_legacy.py",
+            "preflop_gto_strategy.py",
             "preflop-screenshot-module.part-000",
         )
         for name in legacy_names:
             (package / name).write_text("# retired\n", encoding="utf-8")
         (cache / "preflop_screenshot_ranges.cpython-312.pyc").write_bytes(b"old-cache")
-        (package / "preflop_gto_strategy.py").write_text("VALUE = 1\n", encoding="utf-8")
+        (cache / "preflop_gto_strategy.cpython-312.pyc").write_bytes(b"old-policy-cache")
+        (package / "preflop_policy.py").write_text("VALUE = 1\n", encoding="utf-8")
         (package / "poker_reasoning.py").write_text("VALUE = 2\n", encoding="utf-8")
         (package / "strategy.sqlite3").write_bytes(b"USER STRATEGY DATA")
         (root / "pigeon_config.json").write_text('{"keep": true}\n', encoding="utf-8")
 
         removed = cleanup_retired_preflop_modules(root)
-        assert len(removed) == len(legacy_names) + 1
+        assert len(removed) == len(legacy_names) + 2
         assert all(not (package / name).exists() for name in legacy_names)
         assert not (cache / "preflop_screenshot_ranges.cpython-312.pyc").exists()
-        assert (package / "preflop_gto_strategy.py").is_file()
+        assert not (cache / "preflop_gto_strategy.cpython-312.pyc").exists()
+        assert (package / "preflop_policy.py").is_file()
         assert (package / "poker_reasoning.py").is_file()
         assert (package / "strategy.sqlite3").read_bytes() == b"USER STRATEGY DATA"
         assert (root / "pigeon_config.json").is_file()
