@@ -133,7 +133,7 @@ def test_live_range_charges_shared_wallet_once_per_hand_not_stack():
     assert "range_paid_hand_key" in source_of("_cash_state_snapshot")
 
 
-def test_historical_range_uses_only_events_before_hero_first_action_and_exact_174_match_and_exact_174_match():
+def test_historical_range_uses_only_events_before_hero_first_action_and_exact_174_match():
     helper = source_of("_historical_preflop_range_chart")
     opener = source_of("_open_pokercraft_history_range")
     assert "normalized_events[:hero_decision_index]" in helper
