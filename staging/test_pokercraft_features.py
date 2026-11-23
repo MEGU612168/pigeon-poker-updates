@@ -106,9 +106,9 @@ def test_live_range_button_requires_exact_node_and_current_hero_turn():
     resolver = source_of("_range_chart_for_table")
     updater = source_of("_update_range_icon_state")
     opener = source_of("_open_realtime_preflop_range")
-    assert "preflop_range_image_for_situation" in resolver
-    assert "finished" in resolver
-    assert "next_to_act" in resolver and '"hero"' in resolver
+    assert "preflop_range_image_for_situation" not in resolver
+    assert "return None" in resolver
+    assert "never display a guessed or mismatched source image" in resolver
     assert "chart is None" in opener and "return" in opener
     assert "state=" in updater and "enabled" in updater
     assert "_range_chart_for_table" in updater
@@ -133,10 +133,9 @@ def test_live_range_charges_shared_wallet_once_per_hand_not_stack():
 def test_historical_range_uses_only_events_before_hero_first_action():
     helper = source_of("_historical_preflop_range_chart")
     opener = source_of("_open_pokercraft_history_range")
-    assert "hero_decision_index" in helper
-    assert "normalized_events[:hero_decision_index]" in helper
-    assert "preflop_gto_range_for_situation" in helper
+    assert "Historical range lookup is disabled with the retired policy." in helper
     assert "return None" in helper
+    assert "preflop_gto_range_for_situation" not in helper
     assert "Historical review • FREE" in opener
 
 
