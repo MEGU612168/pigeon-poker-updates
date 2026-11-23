@@ -7,6 +7,7 @@ on:
       - "staging/source_1_3_101/pigeon_poker/preflop_cleanup.py"
       - "staging/test_preflop_legacy_cleanup.py"
       - "staging/test_preflop_policy_removed.py"
+      - "staging/test_postflop_controls.py"
       - ".github/workflows/verify-preflop-user-actions.yml"
 
 permissions:
