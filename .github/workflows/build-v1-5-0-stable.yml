@@ -21,21 +21,17 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Verify all new desktop features and preflop policy
+      - name: Verify desktop features and legacy preflop retirement
         shell: bash
         run: |
           set -euo pipefail
           python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
-          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py
           python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_cleanup.py
           python staging/test_pokercraft_features.py
-          python staging/test_preflop_gto_policy.py
-          python staging/test_preflop_gto_integrity.py
-          python staging/test_preflop_user_actions.py
           python staging/test_postflop_controls.py
           python staging/test_poker_reasoning.py
           python staging/test_cpu_learning.py
-          python staging/test_preflop_legacy_cleanup.py
+          python staging/test_preflop_legacy_cleanup.py staging/test_preflop_policy_removed.py
 
       - name: Assemble and validate the full update package
         shell: bash
@@ -118,8 +114,8 @@ jobs:
           extracted_set = set(extracted)
           if not {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}.issubset(extracted_set):
               raise SystemExit("Shipped updater did not extract every required root file")
-          if "pigeon_poker/preflop_gto_strategy.py" not in extracted_set:
-              raise SystemExit("New screenshot-trained preflop strategy is missing from the update")
+          if "pigeon_poker/preflop_gto_strategy.py" in extracted_set:
+              raise SystemExit("Retired legacy preflop policy must not be bundled")
           if "pigeon_poker/preflop_cleanup.py" not in extracted_set:
               raise SystemExit("Retired preflop cleanup module is missing from the update")
           if "pigeon_poker/preflop_cleanup.py" not in extracted_set:
@@ -127,8 +123,10 @@ jobs:
           if ("pigeon_poker/preflop_screenshot_" + "ranges.py") in extracted_set:
               raise SystemExit("Retired preflop implementation must not be bundled")
           app_source = (source_dir / "PigeonPoker.pyw").read_text(encoding="utf-8")
-          if "from pigeon_poker.preflop_gto_strategy import" not in app_source:
-              raise SystemExit("Application does not route to the new preflop policy")
+          if "preflop_gto_strategy" in app_source or "choose_preflop_action" in app_source:
+              raise SystemExit("Application still references the retired preflop policy")
+          if "def _choose_preflop_legal_fallback(" not in app_source:
+              raise SystemExit("Temporary legal-action safety fallback is missing")
           required_feature_hooks = (
               "def _build_pokercraft_page(",
               "def _tick_pokercraft_live_refresh(",
@@ -142,9 +140,6 @@ jobs:
           missing_hooks = [hook for hook in required_feature_hooks if hook not in app_source]
           if missing_hooks:
               raise SystemExit("Desktop feature hooks missing from packaged app: " + ", ".join(missing_hooks))
-          strategy_source = (source_dir / "pigeon_poker" / "preflop_gto_strategy.py").read_text(encoding="utf-8")
-          if "def preflop_gto_range_for_situation(" not in strategy_source:
-              raise SystemExit("Exact-only preflop range API is missing from package")
           if "cleanup_retired_preflop_modules()" not in app_source:
               raise SystemExit("Application does not clean up retired preflop source files")
           if ("preflop_screenshot_" + "ranges") in app_source:
@@ -174,7 +169,7 @@ jobs:
           meta["files"] = sorted(extracted_set)
           meta["updater_actual_extract_validation"] = "passed"
           meta["updater_required_root_files"] = "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt"
-          meta["preflop_strategy_bundle_validation"] = "passed"
+          meta["legacy_preflop_retirement_validation"] = "passed"
           (meta_path).write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
           print(json.dumps({
               "version": version,
@@ -182,7 +177,8 @@ jobs:
               "payload_sha256": digest,
               "file_count": len(extracted_set),
               "required_root_files": sorted(required | {"VERSION.txt"}),
-              "preflop_strategy": "included",
+              "legacy_preflop_strategy": "removed",
+              "preflop_cpu_runtime": "temporary legal-action safety fallback pending 174-scenario replacement",
               "utg_open": "exact screenshot-derived 169-hand matrix",
               "utg_raise_size_bb": 2.0,
               "utg_raise_frequency_pct": 17.6,
@@ -197,7 +193,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stable.json releases/v1.5.0/release.json releases/v1.5.0/payload-updater.zip.b64 staging/source_1_3_101/PigeonPoker.pyw staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py staging/source_1_3_101/pigeon_poker/preflop_cleanup.py staging/test_pokercraft_features.py staging/test_preflop_gto_integrity.py staging/test_preflop_gto_policy.py staging/test_preflop_user_actions.py staging/test_postflop_controls.py staging/test_poker_reasoning.py staging/test_cpu_learning.py staging/test_preflop_legacy_cleanup.py
-          git rm --ignore-unmatch releases/v1.5.0/payload.ready
+          git add stable.json releases/v1.5.0/release.json releases/v1.5.0/payload-updater.zip.b64 staging/source_1_3_101/PigeonPoker.pyw staging/source_1_3_101/pigeon_poker/preflop_cleanup.py staging/test_pokercraft_features.py staging/test_postflop_controls.py staging/test_poker_reasoning.py staging/test_cpu_learning.py staging/test_preflop_legacy_cleanup.py
+          git rm --ignore-unmatch releases/v1.5.0/payload.ready staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py staging/test_preflop_gto_integrity.py staging/test_preflop_gto_policy.py staging/test_preflop_user_actions.py
           git commit -m "Publish verified Pigeon Poker v1.5.0 update"
           git push
