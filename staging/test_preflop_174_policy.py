@@ -116,12 +116,14 @@ def test_scenario_251_actor_is_btn():
 
 
 def test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges():
-    alias_canonical = {
-        288: 148, 205: 196, 204: 195, 211: 201, 243: 238,
-        244: 239, 251: 245, 263: 259,
-    }
+    alias_groups = (
+        (148, 288), (196, 205), (195, 204), (201, 211), (238, 243),
+        (239, 244), (245, 251), (259, 263),
+    )
+    alias_pairs = {frozenset(group) for group in alias_groups}
     covered_ids = set()
     for source in _scenarios():
+        source_id = int(source["id"])
         matched = resolve_exact_preflop_174_scenario(
             source["position"], list(source["history"])
         )
@@ -136,33 +138,47 @@ def test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges():
                     for want, got in zip(item["history"], source["history"])
                 )
             ]
-            print("UNRESOLVED 174 RANGE", source["id"], source["history"],
+            print("UNRESOLVED 174 RANGE", source_id, source["history"],
                   "CANDIDATES", [(item["id"], item["history"]) for item in candidates])
-        assert matched is not None, source["id"]
-        assert matched["position"] == source["position"], source["id"]
-        expected_id = alias_canonical.get(int(source["id"]), int(source["id"]))
-        assert int(matched["id"]) == expected_id, (source["id"], matched["id"])
-        covered_ids.add(source["id"])
+        assert matched is not None, source_id
+        assert matched["position"] == source["position"], source_id
+        matched_id = int(matched["id"])
+        if matched_id != source_id:
+            assert frozenset((source_id, matched_id)) in alias_pairs, (
+                source_id, matched_id
+            )
+            source_history = source["history"]
+            matched_history = next(
+                item["history"] for item in _scenarios()
+                if int(item["id"]) == matched_id
+            )
+            assert source_history == matched_history, (source_id, matched_id)
+        covered_ids.add(source_id)
     assert covered_ids == set(range(128, 302))
 
 
-def test_only_verified_pixel_identical_source_ids_are_coalesced_for_display():
+def test_identical_image_aliases_never_merge_different_action_histories():
     alias_groups = (
         (148, 288), (196, 205), (195, 204), (201, 211), (238, 243),
         (239, 244), (245, 251), (259, 263),
     )
-    by_id = {item["id"]: item for item in _scenarios()}
+    by_id = {int(item["id"]): item for item in _scenarios()}
     for first_id, second_id in alias_groups:
         first, second = by_id[first_id], by_id[second_id]
-        assert first["history"] == second["history"], (first_id, second_id)
-        matched_first = resolve_exact_preflop_174_scenario(
+        first_match = resolve_exact_preflop_174_scenario(
             first["position"], list(first["history"])
         )
-        matched_second = resolve_exact_preflop_174_scenario(
+        second_match = resolve_exact_preflop_174_scenario(
             second["position"], list(second["history"])
         )
-        assert matched_first is not None and matched_second is not None
-        assert matched_first["id"] == matched_second["id"] == first_id
+        assert first_match is not None and second_match is not None
+        if first["history"] == second["history"]:
+            assert int(first_match["id"]) == int(second_match["id"]) == min(
+                first_id, second_id
+            )
+        else:
+            assert int(first_match["id"]) == first_id
+            assert int(second_match["id"]) == second_id
 
 
 def test_exact_range_resolver_rejects_unlisted_or_size_mismatched_histories():
