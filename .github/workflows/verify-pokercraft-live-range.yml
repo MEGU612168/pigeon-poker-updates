@@ -1,4 +1,4 @@
-name: Verify PokerCraft, live hand flow, and paid exact range review
+name: Verify PokerCraft, live hand flow, and legacy preflop retirement
 
 on:
   push:
@@ -6,10 +6,9 @@ on:
       - feature/pokercraft-live-range-tools
     paths:
       - "staging/source_1_3_101/PigeonPoker.pyw"
-      - "staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py"
-      - "staging/test_preflop_gto_policy.py"
-      - "staging/test_preflop_gto_integrity.py"
-      - "staging/test_preflop_user_actions.py"
+      - "staging/source_1_3_101/pigeon_poker/preflop_cleanup.py"
+      - "staging/test_preflop_legacy_cleanup.py"
+      - "staging/test_preflop_policy_removed.py"
       - "staging/test_pokercraft_features.py"
       - ".github/workflows/verify-pokercraft-live-range.yml"
   pull_request:
@@ -37,16 +36,15 @@ jobs:
       - name: Compile Pigeon Poker
         run: |
           python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
-          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_cleanup.py
       - name: Verify PokerCraft, live-flow and range controls
         run: python staging/test_pokercraft_features.py
-      - name: Verify complete screenshot-derived preflop strategy
+      - name: Verify legacy preflop strategy retirement
         run: |
-          python staging/test_preflop_gto_policy.py
-          python staging/test_preflop_gto_integrity.py
-      - name: Verify user action, postflop, and CPU compatibility
+          python staging/test_preflop_legacy_cleanup.py
+          python staging/test_preflop_policy_removed.py
+      - name: Verify postflop and CPU compatibility
         run: |
-          python staging/test_preflop_user_actions.py
           python staging/test_postflop_controls.py
           python staging/test_poker_reasoning.py
           python staging/test_cpu_learning.py
