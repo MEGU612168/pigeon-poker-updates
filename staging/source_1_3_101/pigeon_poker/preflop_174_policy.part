@@ -294,4 +294,113 @@ def _choose_scenario(actor_position: str, actual_history: list[dict[str, Any]], 
              and all(_event_matches(want, got) for want, got in zip(s["history"], actual_history))]
     if exact:
         # Keep source images as independent records; only select among identical matched histories.
-        if l
+        if len(exact) == 1:
+            return exact[0], False, 0.0
+        picker = getattr(rng, "choice", None)
+        selected = picker(exact) if callable(picker) else exact[0]
+        return selected, False, 0.0
+    ranked = [(_history_distance(s["history"], actual_history), s) for s in candidates]
+    if not ranked:
+        raise RuntimeError(f"No 174-scenario reference exists for actor position {actor_position}")
+    ranked.sort(key=lambda item: item[0])
+    best_score = ranked[0][0]
+    near = [s for score, s in ranked if abs(score - best_score) <= 1e-9]
+    picker = getattr(rng, "choice", None)
+    selected = picker(near) if callable(picker) else near[0]
+    return selected, True, best_score
+
+
+def _legal_actions(legal: dict[str, Any]) -> set[str]:
+    return {_normalise_action(value) for value in legal.get("actions", ())}
+
+
+def _legal_choices(hand: Any, player_id: str, distribution: dict[tuple[str, float | None], float], bb: int) -> list[dict[str, Any]]:
+    legal = hand.legal_actions(player_id)
+    legal_actions = _legal_actions(legal)
+    to_call = max(0, int(legal.get("to_call", 0) or 0))
+    can_raise = bool(legal.get("raise_allowed", True)) and "raise" in legal_actions
+    min_target = int(legal.get("min_target", 0) or 0)
+    max_target = int(legal.get("max_target", 0) or 0)
+    output = []
+    for (action, size_bb), frequency in distribution.items():
+        if frequency <= 0:
+            continue
+        if action == "raise":
+            if not can_raise or size_bb is None:
+                continue
+            target = int(round(float(size_bb) * bb))
+            if target < max(1, min_target) or (max_target > 0 and target > max_target):
+                continue
+            output.append({"action": "raise", "amount": target, "frequency": frequency, "size_bb": float(size_bb)})
+        elif action == "allin":
+            if "allin" in legal_actions:
+                output.append({"action": "all_in", "amount": None, "frequency": frequency, "size_bb": size_bb})
+            elif can_raise and max_target > 0:
+                output.append({"action": "raise", "amount": max_target, "frequency": frequency, "size_bb": max_target / max(1, bb)})
+        elif action == "call":
+            if to_call > 0 and "call" in legal_actions:
+                output.append({"action": "call", "amount": None, "frequency": frequency, "size_bb": None})
+            elif to_call == 0 and "check" in legal_actions:
+                output.append({"action": "check", "amount": None, "frequency": frequency, "size_bb": None})
+        elif action == "check" and to_call == 0 and "check" in legal_actions:
+            output.append({"action": "check", "amount": None, "frequency": frequency, "size_bb": None})
+        elif action == "fold" and "fold" in legal_actions:
+            output.append({"action": "fold", "amount": None, "frequency": frequency, "size_bb": None})
+    return output
+
+
+def _safe_legal_fallback(player_id: str, legal: dict[str, Any], hand_class: str, scenario_id: int) -> SimpleNamespace:
+    available = _legal_actions(legal)
+    to_call = max(0, int(legal.get("to_call", 0) or 0))
+    if "check" in available and to_call == 0:
+        action = "check"
+    elif "fold" in available and to_call > 0:
+        action = "fold"
+    elif "call" in available:
+        action = "call"
+    elif "fold" in available:
+        action = "fold"
+    elif "check" in available:
+        action = "check"
+    elif "raise" in available and int(legal.get("min_target", 0) or 0) > 0:
+        action, amount = "raise", int(legal["min_target"])
+        return SimpleNamespace(player_id=str(player_id), action=action, amount=amount,
+            source="preflop-174-legal-guardrail", node_id=f"174_IMAGE_{scenario_id}",
+            hand_class=hand_class, action_frequency=1.0, inferred=True,
+            size_source="legal-guardrail", note="The measured action branches were not legal in the current hand; used a legal-action guardrail.")
+    else:
+        raise RuntimeError("No legal preflop action is available")
+    return SimpleNamespace(player_id=str(player_id), action=action, amount=None,
+        source="preflop-174-legal-guardrail", node_id=f"174_IMAGE_{scenario_id}",
+        hand_class=hand_class, action_frequency=1.0, inferred=True,
+        size_source="legal-guardrail", note="The measured action branches were not legal in the current hand; used a legal-action guardrail.")
+
+
+def choose_preflop_174_action(table: Any, hand: Any, player_id: str, cpu: Any) -> SimpleNamespace:
+    """Select a legal preflop action from all 174 source scenarios.
+
+    Every CPU uses this same chart-derived preflop policy. CPU level/archetype is not
+    consulted. Postflop behaviour remains in poker_reasoning.py and is not changed here.
+    """
+    legal = hand.legal_actions(player_id)
+    if not legal.get("actions"):
+        raise ValueError("No legal preflop action is available")
+    positions = _position_map(table, hand)
+    actor_position = positions.get(str(player_id))
+    if actor_position not in POSITIONS:
+        raise RuntimeError(f"Cannot resolve six-max actor position for {player_id}")
+    actual_history = _actual_history(table, hand, player_id, positions)
+    rng = getattr(cpu, "rng", None) or random.Random()
+    scenario, scenario_inferred, distance = _choose_scenario(actor_position, actual_history, rng)
+    player = hand.player(player_id)
+    hand_class = _hand_class(getattr(player, "hole_cards", ()))
+    if hand_class is None:
+        raise RuntimeError("CPU hole cards could not be mapped to a 169-class hand")
+    distribution, hand_inferred, hand_method = _scenario_distribution(scenario, hand_class)
+    bb = _big_blind(hand, table)
+    choices = _legal_choices(hand, player_id, distribution, bb)
+    if not choices:
+        return _safe_legal_fallback(player_id, legal, hand_class, int(scenario["id"]))
+    total = sum(item["frequency"] for item in choices)
+    if total <= 0:
+        return _safe_legal_fallback(player_id, legal, hand_class, int(scenario["id"]
