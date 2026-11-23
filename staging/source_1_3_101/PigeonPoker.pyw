@@ -35,14 +35,9 @@ from pigeon_poker.sound_design import write_sound_wav, SOUND_ASSETS, SOUND_VARIA
 from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOError,
                           PokerRuleError, build_gto_plus_spot_table, HandHistoryStore,
                           is_gto_plus_supported_postflop_hand, CPUPoolStore, GGCareLedger, CashierLedger, bind_first_matching_tree)
-from pigeon_poker.preflop_gto_strategy import (
-    choose_preflop_action, preflop_gto_situation_size,
-    estimate_preflop_opponent_ranges, preflop_range_image_for_situation
-)
 from pigeon_poker.range_image_catalog import create_range_photo, RangeImageCatalogError
 from pigeon_poker.poker_reasoning import choose_range_aware_action
 from pigeon_poker.cpu_learning import CPULearningStore
-from pigeon_gto_plus.live_range_builder import build_live_hu_solver_setup
 from pigeon_poker.multitable import MultiTableRegistry, next_big_blind_index_after_rotation
 from pigeon_poker.betting_ui import (DEFAULT_POT_PRESETS, normalize_pot_presets, format_chip_amount,
                                       parse_chip_amount, pot_sized_target, bet_button_label)
@@ -111,6 +106,75 @@ COLORS = {
     "gold": "#e6bd63", "red": "#d95757", "blue": "#3988d8", "felt": "#0c6849",
     "felt2": "#084d38", "seat": "#14243a", "white": "#ffffff",
 }
+
+
+def _choose_preflop_legal_fallback(table, hand, player_id: str, cpu):
+    """Temporary legal-action safety net while the 174-scenario policy replaces legacy data.
+
+    All CPUs use the same baseline. No legacy chart, frequency matrix,
+    inferred branch, learned preflop profile, or solver data is consulted.
+    """
+    legal = hand.legal_actions(player_id)
+    raw_actions = [str(value).strip().lower().replace("-", "_") for value in legal.get("actions", ())]
+    if not raw_actions:
+        raise ValueError("No legal preflop action is available")
+    player = hand.player(player_id)
+    cards = [str(card) for card in list(getattr(player, "hole_cards", ()) or ())]
+    ranks = "23456789TJQKA"
+    hand_class = "?"
+    premium = False
+    if len(cards) == 2 and all(card and card[0] in ranks for card in cards):
+        first, second = cards[0][0], cards[1][0]
+        if first == second:
+            hand_class = first * 2
+            premium = ranks.index(first) >= ranks.index("T")
+        else:
+            high, low = sorted((first, second), key=ranks.index, reverse=True)
+            suited = len(cards[0]) > 1 and len(cards[1]) > 1 and cards[0][1] == cards[1][1]
+            hand_class = high + low + ("s" if suited else "o")
+            premium = (
+                (high, low) == ("A", "K")
+                or ((high, low) in {("A", "Q"), ("K", "Q")} and suited)
+            )
+
+    actions = set(raw_actions)
+    to_call = max(0, int(legal.get("to_call", 0) or 0))
+    big_blind = max(1, int(getattr(hand, "big_blind", 1) or 1))
+    amount = None
+    if "check" in actions and to_call == 0:
+        action = "check"
+    elif premium and ("raise" in actions or "bet" in actions):
+        action = "raise" if "raise" in actions else "bet"
+        amount = int(legal.get("min_target", 0) or 0) or None
+    elif "call" in actions and (premium or to_call <= max(1, big_blind // 2)):
+        action = "call"
+    elif "fold" in actions:
+        action = "fold"
+    elif "call" in actions:
+        action = "call"
+    elif "check" in actions:
+        action = "check"
+    elif "raise" in actions or "bet" in actions:
+        action = "raise" if "raise" in actions else "bet"
+        amount = int(legal.get("min_target", 0) or 0) or None
+    else:
+        action = raw_actions[0]
+        if action in {"all_in", "allin"} and not premium and "fold" in actions:
+            action = "fold"
+
+    return SimpleNamespace(
+        player_id=str(player_id),
+        action=action,
+        amount=amount,
+        source="preflop-legacy-removed-safe-fallback",
+        node_id="174_POLICY_PENDING",
+        hand_class=hand_class,
+        action_frequency=1.0,
+        inferred=True,
+        size_source="legal-safe-fallback",
+        equity_estimate=0.0,
+        note="Temporary legal-action fallback; legacy preflop strategy removed pending the 174-scenario policy.",
+    )
 
 
 def load_config() -> dict[str, Any]:
@@ -2337,102 +2401,6 @@ class PigeonPokerApp(tk.Tk):
         """Refresh the standalone table windows; the lobby never hosts action controls."""
         self._refresh_table_windows()
 
-    def _preflop_gto_initial_raise_target(self, table, hand, actor_id: str,
-                                      legal: dict[str, Any]) -> int | None:
-        """Return an editable default raise-to size for this exact preflop node."""
-        minimum = int(legal.get("min_target", 0) or 0)
-        maximum = int(legal.get("max_target", 0) or 0)
-        if maximum <= 0:
-            return None
-        if minimum <= 0 or minimum > maximum:
-            minimum = maximum
-        try:
-            suggested = preflop_gto_situation_size(table, hand, actor_id)
-            if suggested is not None:
-                suggested = int(suggested)
-                if minimum <= suggested <= maximum:
-                    return suggested
-        except (AttributeError, KeyError, TypeError, ValueError, RuntimeError, OverflowError):
-            pass
-        # Unsupported branches are still fully playable; use only an initial
-        # legal minimum suggestion. The user can edit it freely before submit.
-        return minimum
-
-    def _apply_preflop_gto_size(self, table_id: str):
-        """Apply a position/history-only GTO size suggestion and always report the outcome."""
-        record = self.table_windows.get(table_id)
-        if record is None:
-            return
-
-        def report(message: str):
-            try:
-                record["status"].set(str(message))
-            except Exception:
-                pass
-
-        slot = self.multi_tables.get(table_id)
-        if slot is None:
-            report("GTO SIZE UNAVAILABLE • TABLE NOT FOUND")
-            return
-        table = slot.state.get("cash_table")
-        hand = table.hand if table is not None else None
-        if hand is None or hand.finished:
-            report("GTO SIZE UNAVAILABLE • NO LIVE HAND")
-            return
-        if str(hand.street).lower() != "preflop":
-            report("GTO SIZE IS PRE-FLOP ONLY")
-            return
-        if bool(slot.state.get("cash_busy", False)):
-            report("GTO SIZE UNAVAILABLE • TABLE BUSY")
-            return
-        if hand.next_to_act != "hero":
-            report("GTO SIZE UNAVAILABLE • WAIT FOR YOUR TURN")
-            return
-        if bool(slot.state.get("cash_gto_spot_mode", False)):
-            report("GTO SIZE UNAVAILABLE • GTO+ SPOT")
-            return
-
-        try:
-            legal = hand.legal_actions("hero")
-            legal_names = {
-                str(value).lower().replace("_", "-")
-                for value in legal.get("actions", ())
-            }
-            if not ({"bet", "raise"} & legal_names):
-                report("GTO SIZE UNAVAILABLE • NO LEGAL BET/RAISE")
-                return
-
-            target = preflop_gto_situation_size(table, hand, "hero")
-            if target is None:
-                report("NO MATCHING GTO SIZE • POSITION / ACTION HISTORY NOT COVERED")
-                return
-
-            target = int(target)
-            minimum = int(legal.get("min_target", 0) or 0)
-            maximum = int(legal.get("max_target", 0) or 0)
-            if minimum <= 0 or maximum < minimum:
-                report("GTO SIZE UNAVAILABLE • INVALID LEGAL RANGE")
-                return
-            if not minimum <= target <= maximum:
-                bb = max(1, int(getattr(table, "big_blind", 1)))
-                wanted = format_chip_amount(
-                    target, bb, self.chip_display_unit, include_unit=True
-                )
-                report(f"GTO SIZE NOT LEGAL • {wanted} OUTSIDE CURRENT STACK")
-                return
-
-            record["bet_min"], record["bet_max"] = minimum, maximum
-            self._set_table_bet_target(table_id, target)
-            bb = max(1, int(getattr(table, "big_blind", 1)))
-            shown = format_chip_amount(
-                target, bb, self.chip_display_unit, include_unit=True
-            )
-            report(f"GTO SIZE APPLIED • {shown} • POSITION + ACTION HISTORY")
-        except Exception as exc:
-            # The old handler swallowed every exception, making a dead button
-            # indistinguishable from a policy miss. Surface the actual failure.
-            report(f"GTO SIZE ERROR • {type(exc).__name__}: {str(exc)[:72]}")
-
     def _cash_human_action(self, action: str, amount: int | None = None):
         if self.cash_table is None or self.cash_table.hand is None or self.cash_busy:
             return
@@ -2596,23 +2564,11 @@ class PigeonPokerApp(tk.Tk):
     def _queue_live_gto_miss(self, hand, table, player_id: str, rake_pct: float,
                              table_id: str | None, reason: str) -> tuple[str, str]:
         scenario = self._make_live_gto_scenario(hand, table, player_id, rake_pct, table_id)
-        try:
-            from pigeon_poker.preflop_gto_strategy import _data as load_preflop_policy_data
-            actual_rake_pct = float(getattr(table, "rake_bps", round(rake_pct * 100))) / 100.0
-            actual_rake_cap_bb = (
-                max(0.0, float(getattr(table, "rake_cap", 0)) / float(hand.big_blind))
-                if int(getattr(hand, "big_blind", 0) or 0) > 0 else None
-            )
-            solver_setup = build_live_hu_solver_setup(
-                hand, load_preflop_policy_data(), rake_pct=actual_rake_pct,
-                rake_cap_bb=actual_rake_cap_bb)
-        except Exception as setup_exc:
-            solver_setup = {
-                "supported": False,
-                "schema": "pigeon-gto-plus-auto-solve-v1",
-                "reason": f"{type(setup_exc).__name__}: {setup_exc}",
-            }
-        scenario["solver_setup"] = solver_setup
+        scenario["solver_setup"] = {
+            "supported": False,
+            "schema": "pigeon-gto-plus-auto-solve-v1",
+            "reason": "Legacy preflop strategy data has been retired; the 174-scenario replacement is pending.",
+        }
         key, path = self.integration.bridge.create_live_scenario_request(scenario, reason)
         return key, str(path)
 
@@ -2862,17 +2818,13 @@ class PigeonPokerApp(tk.Tk):
                     # move almost immediately; postflop keeps natural thinking time.
                     fallback_decision = None
                     if hand.street == "preflop":
-                        # Every preflop turn uses the screenshot-trained policy's exact nodes, explicit
-                        # position/history/stack inference, or its safe legal-action
-                        # fallback. Never route a custom human line into the postflop
-                        # range policy.
-                        fallback_decision = choose_preflop_action(table, hand, pid, cpu, None)
+                        # The legacy preflop policy has been removed. Use a clearly
+                        # temporary legal-action safety net until all 174 source
+                        # scenarios are installed as the authoritative CPU policy.
+                        fallback_decision = _choose_preflop_legal_fallback(table, hand, pid, cpu)
                     elif not (session is not None and session.hand_token == id(hand) and session.context is not None):
                         # The same opponent-range engine handles postflop decisions.
-                        fallback_decision = choose_range_aware_action(
-                            table, hand, pid, cpu,
-                            range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(**kwargs, opponent_profiles=profiles, opponent_learning=opponent_learning),
-                        )
+                        fallback_decision = choose_range_aware_action(table, hand, pid, cpu)
                     if hand.street == "preflop":
                         if fallback_decision is not None and fallback_decision.action == "fold":
                             think_seconds = timing_rng.uniform(0.07, 0.16)
@@ -2903,10 +2855,7 @@ class PigeonPokerApp(tk.Tk):
                     event_action = ""
                     event_amount = None
                     gto_used = False
-                    screenshot_policy_used = False
-                    inferred_preflop_policy_used = False
-                    preflop_legal_fallback_used = False
-                    preflop_gto_policy_used = False
+                    preflop_policy_used = False
                     range_policy_used = False
 
                     if session is not None and session.hand_token == id(hand) and session.context is not None:
@@ -2972,16 +2921,10 @@ class PigeonPokerApp(tk.Tk):
                     if not gto_used:
                         decision = fallback_decision
                         if decision is None:
-                            # If a preflop helper unexpectedly returns no decision,
-                            # retry the screenshot-trained GTO policy rather than
-                            # asking the postflop policy to invent a preflop line.
                             if hand.street == "preflop":
-                                decision = choose_preflop_action(table, hand, pid, cpu, None)
+                                decision = _choose_preflop_legal_fallback(table, hand, pid, cpu)
                             else:
-                                decision = choose_range_aware_action(
-                                    table, hand, pid, cpu,
-                                    range_estimator=lambda **kwargs: estimate_preflop_opponent_ranges(**kwargs, opponent_profiles=profiles, opponent_learning=opponent_learning),
-                                )
+                                decision = choose_range_aware_action(table, hand, pid, cpu)
                         if decision is None:
                             raise RuntimeError("No safe decision was available for this CPU turn.")
                         if cancel_event.is_set():
@@ -2995,40 +2938,17 @@ class PigeonPokerApp(tk.Tk):
                         event_action = str(decision.action)
                         event_amount = decision.amount
                         decision_source = str(getattr(decision, "source", ""))
-                        screenshot_policy_used = decision_source == "new-screenshot-gto"
-                        inferred_preflop_policy_used = decision_source == "gto-rule-inference"
-                        preflop_legal_fallback_used = decision_source == "gto-inferred-legal-fallback"
-                        preflop_gto_policy_used = (
-                            screenshot_policy_used or inferred_preflop_policy_used
-                            or preflop_legal_fallback_used
-                        )
+                        preflop_policy_used = decision_source == "preflop-legacy-removed-safe-fallback"
                         range_policy_used = decision_source in {
                             "range-aware-policy", "range-aware-guardrail"
                         }
-                        if screenshot_policy_used:
+                        if preflop_policy_used:
                             line = (
                                 f"{actor_name}: {decision.action.upper()}"
                                 + (f" ${decision.amount/100:.2f}" if decision.amount is not None else "")
-                                + f" [screenshot GTO {decision.node_id}/{decision.hand_class} • {decision.action_frequency*100:.1f}%]"
+                                + " [TEMPORARY SAFE FALLBACK • 174-SCENARIO POLICY PENDING]"
                             )
-                            source_status = f"Screenshot-trained GTO node • {decision.node_id}"
-                        elif inferred_preflop_policy_used:
-                            line = (
-                                f"{actor_name}: {decision.action.upper()}"
-                                + (f" ${decision.amount/100:.2f}" if decision.amount is not None else "")
-                                + f" [GTO inference {decision.node_id}/{decision.hand_class} • {decision.action_frequency*100:.1f}%]"
-                            )
-                            source_status = (
-                                f"GTO position/history/stack inference • {decision.node_id}"
-                            )
-                        elif preflop_legal_fallback_used:
-                            line = (
-                                f"{actor_name}: {decision.action.upper()}"
-                                + " [GTO legal-action fallback]"
-                            )
-                            source_status = (
-                                "No weighted GTO action was legal; a safe legal action was selected."
-                            )
+                            source_status = "Legacy preflop policy removed; legal-action safety fallback only."
                         elif range_policy_used:
                             equity_pct = 100.0 * float(decision.equity_estimate or 0.0)
                             line = (
@@ -3053,7 +2973,7 @@ class PigeonPokerApp(tk.Tk):
                                 "action_history": [e for e in hand.events if e.get("type") == "action"]})
                             self.store.record_cpu_decision(
                                 fallback_key,
-                                "preflop_screenshot_gto" if preflop_gto_policy_used else (
+                                "preflop_legacy_removed_fallback" if preflop_policy_used else (
                                     "range_aware_guardrail" if getattr(decision, "source", "") == "range-aware-guardrail"
                                 else "range_aware_policy" if range_policy_used else "fallback_unsupported"
                                 ),
@@ -3075,9 +2995,7 @@ class PigeonPokerApp(tk.Tk):
                         "line": action_label, "action": event_action, "amount": event_amount,
                         "gto_used": gto_used,
                         "strategy_source": (
-                            "preflop-screenshot-gto" if screenshot_policy_used else
-                            "preflop-gto-inference" if inferred_preflop_policy_used else
-                            "preflop-gto-legal-fallback" if preflop_legal_fallback_used else
+                            "preflop-legacy-removed-fallback" if preflop_policy_used else
                             "range-aware-guardrail" if getattr(fallback_decision, "source", "") == "range-aware-guardrail" else
                             "range-aware-policy" if range_policy_used else
                             ("gtoplus" if gto_used else "local-fallback")
@@ -3926,10 +3844,10 @@ class PigeonPokerApp(tk.Tk):
             return None
         if str(getattr(hand, "next_to_act", "") or "") != "hero":
             return None
-        try:
-            return preflop_range_image_for_situation(slot.state.get("cash_table"), hand, "hero")
-        except Exception:
-            return None
+        # The previous range resolver depended on the retired preflop policy.
+        # The 174-scenario catalogue will replace this lookup together with the
+        # new CPU policy; never display a guessed or mismatched source image.
+        return None
 
     def _refresh_live_range_icons(self):
         for table_id, record in list(getattr(self, "table_windows", {}).items()):
@@ -7117,16 +7035,10 @@ class PigeonPokerApp(tk.Tk):
                     minimum = min(minimum, maximum)  # short all-in is a valid target too
                     record["bet_min"], record["bet_max"] = minimum, maximum
                     record["bet_verb"], record["bet_bb"] = verb, bb
-                    # GTO size is only a suggested initial value for
-                    # the preflop amount field. The entry, slider and presets
-                    # remain editable; submit passes the user's chosen size as-is.
+                    # Legacy preflop sizing has been retired. Start at the
+                    # legal minimum; the amount field, slider and presets remain
+                    # editable until the 174-scenario sizing policy is installed.
                     target = minimum
-                    if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):
-                        suggested = self._preflop_gto_initial_raise_target(
-                            table, hand, "hero", legal
-                        )
-                        if suggested is not None and minimum <= suggested <= maximum:
-                            target = int(suggested)
                     record["bet_target_cents"].set(target)
                     record["bet_slider"].set(target)
                     record["bet_target"].set(
@@ -7158,24 +7070,6 @@ class PigeonPokerApp(tk.Tk):
                     unit_text = "BB" if self.chip_display_unit == "BB" else "USD"
                     tk.Label(sizes_frame, text=unit_text, bg=COLORS["panel"],
                              fg=COLORS["muted"], font=("Segoe UI", 7)).pack(side="left", padx=(0, 7))
-
-                    # Always expose the preflop situation-size control when a
-                    # raise is legal. It is not gated by the hero's hand class;
-                    # the click resolves the size from position + action history.
-                    record["gto_size_button"] = None
-                    if hand.street == "preflop" and not bool(state.get("cash_gto_spot_mode", False)):
-                        gto_size_button = self._compact_action_button(
-                            situation_frame, "GTO SIZE",
-                            lambda tid=slot.table_id: self._apply_preflop_gto_size(tid),
-                            "normal")
-                        gto_size_button.pack(side="left", padx=(2, 6))
-                        tk.Label(
-                            situation_frame,
-                            text="SIZE = POSITION + PREFLOP RAISE HISTORY (NOT YOUR HAND)",
-                            bg=COLORS["panel"], fg=COLORS["muted"],
-                            font=("Segoe UI", 7, "bold"),
-                        ).pack(side="left", padx=2)
-                        record["gto_size_button"] = gto_size_button
 
                     for pct in self.bet_pot_percentages:
                         self._compact_action_button(
@@ -10833,9 +10727,9 @@ class PigeonPokerApp(tk.Tk):
                 players=helper_players, events=prior, big_blind=int(bb_cents),
                 dealer_index=0, street="preflop",
             )
-            chart = preflop_range_image_for_situation(
-                SimpleNamespace(dealer_index=0), hand, hero_id, prior_events=prior)
-            return chart
+            # Historical range lookup is disabled with the retired policy.
+            # It will be restored against the complete 174-scenario index.
+            return None
         except Exception:
             return None
 
