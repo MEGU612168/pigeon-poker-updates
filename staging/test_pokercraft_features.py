@@ -200,7 +200,7 @@ def test_range_window_is_resizable_until_native_work_area_fit_finishes():
     view = source_of("_open_preflop_range_view")
     assert view.index("win.resizable(True, True)") < view.index("_fit_toplevel_to_monitor_work_area(")
     assert view.index("_fit_toplevel_to_monitor_work_area(") < view.index("win.resizable(False, False)")
-    assert "win.minsize(360, 320)" in view
+    assert "win.minsize(360, 240)" in view
 
 
 def run_tests():
