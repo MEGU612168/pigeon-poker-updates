@@ -234,7 +234,7 @@ def resolve_exact_preflop_174_scenario(
             if expected_position != actual_position or expected_action != actual_action:
                 matched = False
                 break
-            if expected_action == "raise":
+            if expected_action in {"raise", "allin"}:
                 expected_size = expected.get("size_bb")
                 actual_size = actual.get("size_bb")
                 if expected_size is not None:
