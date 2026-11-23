@@ -10,7 +10,7 @@ sys.path.insert(0, str(SOURCE))
 
 from pigeon_poker.preflop_174_policy import (
     _HAND_INDEX, _actual_history, _choose_scenario, _position_map,
-    _scenario_distribution, _scenarios, choose_preflop_174_action,
+    _scenario_distribution, _scenarios, _event_matches, choose_preflop_174_action,
     preflop_174_catalog_summary, resolve_exact_preflop_174_scenario,
 )
 
@@ -121,6 +121,25 @@ def test_exact_range_resolver_maps_all_174_source_histories_one_to_one():
         matched = resolve_exact_preflop_174_scenario(
             source["position"], list(source["history"])
         )
+        if matched is None:
+            signature_candidates = [
+                item for item in _scenarios()
+                if item["position"] == source["position"]
+                and len(item["history"]) == len(source["history"])
+                and all(
+                    str(want.get("position", "")).upper() == str(got.get("position", "")).upper()
+                    and str(want.get("action", "")).lower() == str(got.get("action", "")).lower()
+                    for want, got in zip(item["history"], source["history"])
+                )
+            ]
+            print(
+                "UNRESOLVED RANGE SOURCE",
+                source["id"],
+                "history=",
+                source["history"],
+                "candidates=",
+                [(item["id"], item["history"]) for item in signature_candidates],
+            )
         assert matched is not None, source["id"]
         assert matched["id"] == source["id"], (source["id"], matched["id"])
         assert matched["id"] not in matched_ids
