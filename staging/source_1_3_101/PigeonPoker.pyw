@@ -3840,9 +3840,16 @@ class PigeonPokerApp(tk.Tk):
         )
         paid = bool(current_key and slot.state.get("range_paid_hand_key") == current_key)
         if paid:
-            # The same paid chart remains available through this hand even
-            # after HERO acts or the board advances; reopening never charges again.
+            # Older saved states are not trusted blindly: only a paid image ID
+            # belonging to this exact 174-source catalogue remains reopenable.
             chart = slot.state.get("range_paid_chart")
+            try:
+                paid_source_id = int((chart or {}).get("source_id", 0) or 0)
+            except (AttributeError, TypeError, ValueError, OverflowError):
+                paid_source_id = 0
+            if paid_source_id not in range(128, 302):
+                paid = False
+                chart = None
             record["range_chart_cache"] = chart
             record["range_chart_cache_key"] = signature
         else:
