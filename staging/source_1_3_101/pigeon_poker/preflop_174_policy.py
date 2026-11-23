@@ -160,7 +160,7 @@ def _event_matches(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
     return True
 
 
-def _event_cost(expected: dict[str, Any], actuat[str, Any], actual: dict[str, Any]) -> float:
+def _event_cost(expected: dict[str, Any], actual: dict[str, Any]) -> float:
     ep, ap = str(expected.get("position", "")).upper(), actual["position"]
     ea, aa = _normalise_action(expected.get("action")), actual["action"]
     if ep == ap and ea == aa:
