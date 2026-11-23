@@ -215,7 +215,7 @@ if __name__ == "__main__":
         test_scenario_251_actor_is_btn,
         test_unclassified_cell_is_inferred_not_folded,
         test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges,
-        test_only_verified_pixel_identical_source_ids_are_coalesced_for_display,
+        test_identical_image_aliases_never_merge_different_action_histories,
         test_exact_range_resolver_rejects_unlisted_or_size_mismatched_histories,
         test_preflop_policy_is_cpu_level_independent,
     ]
