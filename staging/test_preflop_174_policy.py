@@ -125,6 +125,19 @@ def test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges():
         matched = resolve_exact_preflop_174_scenario(
             source["position"], list(source["history"])
         )
+        if matched is None:
+            candidates = [
+                item for item in _scenarios()
+                if item["position"] == source["position"]
+                and len(item["history"]) == len(source["history"])
+                and all(
+                    str(want.get("position", "")).upper() == str(got.get("position", "")).upper()
+                    and str(want.get("action", "")).lower() == str(got.get("action", "")).lower()
+                    for want, got in zip(item["history"], source["history"])
+                )
+            ]
+            print("UNRESOLVED 174 RANGE", source["id"], source["history"],
+                  "CANDIDATES", [(item["id"], item["history"]) for item in candidates])
         assert matched is not None, source["id"]
         assert matched["position"] == source["position"], source["id"]
         assert matched["id"] == alias_canonical.get(source["id"], source["id"]), (
