@@ -59,6 +59,15 @@ jobs:
           meta = json.loads(meta_path.read_text(encoding="utf-8"))
           if meta.get("schema_version") != 1 or meta.get("product") != "pigeon-poker" or meta.get("channel") != "stable":
               raise SystemExit("Invalid release metadata")
+          stable_manifest_path = root / "stable.json"
+          if stable_manifest_path.is_file():
+              stable_manifest = json.loads(stable_manifest_path.read_text(encoding="utf-8"))
+              if bool(stable_manifest.get("updates_paused", False)):
+                  raise SystemExit("Stable distribution is explicitly paused; refusing to publish an interim preflop build.")
+          if str(meta.get("distribution_status", "")).lower() == "withdrawn":
+              raise SystemExit("This release is withdrawn and must not be distributed.")
+          if meta.get("preflop_174_policy_verified") is not True:
+              raise SystemExit("The complete 174-scenario preflop policy has not been verified; stable publication is blocked.")
           version = str(meta.get("version", "")).strip()
           if version != "1.5.0" or release_dir.name != "v" + version:
               raise SystemExit("Unexpected release version")
