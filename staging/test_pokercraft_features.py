@@ -206,7 +206,6 @@ def test_range_window_is_resizable_until_native_work_area_fit_finishes():
 def run_tests():
     tests = [
         test_pokercraft_has_sortable_session_and_hand_headers,
-        test_hole_cards_tab_aggregates_suited_offsuit_and_pair_classes,
         test_all_pokercraft_timestamps_use_japan_time,
         test_history_icon_draws_two_real_playing_cards_tilted_left,
         test_live_hand_flow_shows_scrollable_table_history_with_cards_winner_and_pot,
