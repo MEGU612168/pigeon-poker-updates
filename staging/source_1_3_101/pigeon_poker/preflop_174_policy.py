@@ -231,9 +231,33 @@ def resolve_exact_preflop_174_scenario(
         if matched:
             matches.append(scenario)
 
-    # If incomplete source size metadata makes more than one node plausible,
-    # do not guess which paid image belongs to the current hand.
-    return matches[0] if len(matches) == 1 else None
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        return None
+
+    def freeze(value: Any) -> Any:
+        if isinstance(value, dict):
+            return tuple(sorted((str(key), freeze(item)) for key, item in value.items()))
+        if isinstance(value, (list, tuple)):
+            return tuple(freeze(item) for item in value)
+        return value
+
+    # Some source IDs intentionally represent the same displayed matrix and
+    # same extracted policy under different source contexts. Coalesce those
+    # aliases only when every hand cell, action size and frequency is identical.
+    signatures = {
+        freeze((
+            item.get("action_options"),
+            item.get("hands"),
+            item.get("overall"),
+        ))
+        for item in matches
+    }
+    if len(signatures) == 1:
+        return min(matches, key=lambda item: int(item.get("id", 0)))
+    # Different strategies matching the same complete history are ambiguous.
+    return None
 
 
 def _event_cost(expected: dict[str, Any], actual: dict[str, Any]) -> float:
