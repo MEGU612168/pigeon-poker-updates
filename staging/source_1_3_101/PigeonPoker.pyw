@@ -10692,9 +10692,26 @@ class PigeonPokerApp(tk.Tk):
                 players=helper_players, events=prior, big_blind=int(bb_cents),
                 dealer_index=0, street="preflop",
             )
-            # Historical range lookup is disabled with the retired policy.
-            # It will be restored against the complete 174-scenario index.
-            return None
+            # Historical range is enabled only when HERO's complete prior
+            # action history uniquely identifies one of the 174 source charts.
+            position_table = SimpleNamespace(dealer_index=0, big_blind=int(bb_cents))
+            positions = _preflop_174_position_map(position_table, hand)
+            actor_position = positions.get(hero_id)
+            history = _preflop_174_actual_history(
+                position_table, hand, hero_id, positions
+            )
+            scenario = resolve_exact_preflop_174_scenario(actor_position, history)
+            if scenario is None:
+                return None
+            source_id = int(scenario["id"])
+            if source_id not in range(128, 302):
+                return None
+            return {
+                "source_id": source_id,
+                "scenario_id": source_id,
+                "actor_position": str(actor_position),
+                "match_mode": "exact-174",
+            }
         except Exception:
             return None
 
