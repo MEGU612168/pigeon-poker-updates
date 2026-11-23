@@ -10,7 +10,7 @@ sys.path.insert(0, str(SOURCE))
 
 from pigeon_poker.preflop_174_policy import (
     _HAND_INDEX, _actual_history, _choose_scenario, _position_map,
-    _scenario_distribution, _scenarios, _event_matches, choose_preflop_174_action,
+    _scenario_distribution, _scenarios, choose_preflop_174_action,
     preflop_174_catalog_summary, resolve_exact_preflop_174_scenario,
 )
 
@@ -115,36 +115,35 @@ def test_scenario_251_actor_is_btn():
     assert scenario["id"] == 251 and not inferred and distance == 0.0
 
 
-def test_exact_range_resolver_maps_all_174_source_histories_one_to_one():
-    matched_ids = set()
+def test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges():
+    covered_ids = set()
     for source in _scenarios():
         matched = resolve_exact_preflop_174_scenario(
             source["position"], list(source["history"])
         )
-        if matched is None:
-            signature_candidates = [
-                item for item in _scenarios()
-                if item["position"] == source["position"]
-                and len(item["history"]) == len(source["history"])
-                and all(
-                    str(want.get("position", "")).upper() == str(got.get("position", "")).upper()
-                    and str(want.get("action", "")).lower() == str(got.get("action", "")).lower()
-                    for want, got in zip(item["history"], source["history"])
-                )
-            ]
-            print(
-                "UNRESOLVED RANGE SOURCE",
-                source["id"],
-                "history=",
-                source["history"],
-                "candidates=",
-                [(item["id"], item["history"]) for item in signature_candidates],
-            )
         assert matched is not None, source["id"]
-        assert matched["id"] == source["id"], (source["id"], matched["id"])
-        assert matched["id"] not in matched_ids
-        matched_ids.add(matched["id"])
-    assert matched_ids == set(range(128, 302))
+        assert matched["position"] == source["position"], source["id"]
+        if matched["id"] != source["id"]:
+            # Aliased source IDs may share a result only when the entire
+            # hand matrix, action-size set and aggregate frequencies are equal.
+            assert matched["hands"] == source["hands"], (source["id"], matched["id"])
+            assert matched["action_options"] == source["action_options"]
+            assert matched["overall"] == source["overall"]
+        covered_ids.add(source["id"])
+    assert covered_ids == set(range(128, 302))
+
+
+def test_duplicate_source_contexts_are_coalesced_only_when_policy_is_identical():
+    first = next(item for item in _scenarios() if item["id"] == 148)
+    second = next(item for item in _scenarios() if item["id"] == 288)
+    assert first["history"] == second["history"]
+    assert first["hands"] == second["hands"]
+    assert first["action_options"] == second["action_options"]
+    assert first["overall"] == second["overall"]
+    matched_first = resolve_exact_preflop_174_scenario(first["position"], list(first["history"]))
+    matched_second = resolve_exact_preflop_174_scenario(second["position"], list(second["history"]))
+    assert matched_first is not None and matched_second is not None
+    assert matched_first["id"] == matched_second["id"] == 148
 
 
 def test_exact_range_resolver_rejects_unlisted_or_size_mismatched_histories():
@@ -180,7 +179,8 @@ if __name__ == "__main__":
         test_same_actor_multiple_actions_are_preserved,
         test_scenario_251_actor_is_btn,
         test_unclassified_cell_is_inferred_not_folded,
-        test_exact_range_resolver_maps_all_174_source_histories_one_to_one,
+        test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges,
+        test_duplicate_source_contexts_are_coalesced_only_when_policy_is_identical,
         test_exact_range_resolver_rejects_unlisted_or_size_mismatched_histories,
         test_preflop_policy_is_cpu_level_independent,
     ]
