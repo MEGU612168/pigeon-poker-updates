@@ -7,6 +7,7 @@ _LEGACY_PREFIXES = (
     "preflop_screenshot_ranges",
     "preflop_range_policy",
     "preflop_range_data",
+    "preflop_gto_strategy",
     "preflop-screenshot-module.part-",
 )
 
@@ -14,8 +15,8 @@ _LEGACY_PREFIXES = (
 def cleanup_retired_preflop_modules(app_root: Path | None = None) -> tuple[str, ...]:
     """Remove only retired preflop source fragments from the app's package folder.
 
-    User databases, saved hands, wallet files, configuration and the replacement
-    preflop_gto_strategy module are intentionally outside this cleanup scope.
+    User databases, saved hands, wallet files, configuration and replacement
+    policy files are outside this cleanup scope.
     The operation is idempotent and confined to pigeon_poker/ and its __pycache__.
     """
     root = Path(app_root).resolve() if app_root is not None else Path(__file__).resolve().parent.parent
