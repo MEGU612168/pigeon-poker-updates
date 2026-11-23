@@ -58,6 +58,37 @@ def _scenarios() -> tuple[dict[str, Any], ...]:
             dict(event) for event in source_239.get("history", [])
         ]
 
+    # Full-screen source screenshot #252:
+    # CO raise 2.3 -> BTN raise 7.5 -> SB fold -> BB raise 20 ->
+    # CO all-in to 100 -> BTN fold; BB is now to act.
+    # The previous transcription omitted SB fold and the BTN fold response.
+    source_252 = by_id.get(252)
+    if source_252 is not None:
+        source_252["history"] = [
+            {"position": "CO", "action": "raise", "size_bb": 2.3},
+            {"position": "BTN", "action": "raise", "size_bb": 7.5},
+            {"position": "SB", "action": "fold", "size_bb": None},
+            {"position": "BB", "action": "raise", "size_bb": 20.0},
+            {"position": "CO", "action": "allin", "size_bb": 100.0},
+            {"position": "BTN", "action": "fold", "size_bb": None},
+        ]
+
+    # Full-screen source screenshot #253 is a DIFFERENT node:
+    # CO raise 2.3 -> BTN raise 7.5 -> SB fold -> BB raise 20 ->
+    # CO fold -> BTN all-in to 100; BB is now to act.
+    # Do not collapse it with #252: their action histories and range
+    # matrices differ.
+    source_253 = by_id.get(253)
+    if source_253 is not None:
+        source_253["history"] = [
+            {"position": "CO", "action": "raise", "size_bb": 2.3},
+            {"position": "BTN", "action": "raise", "size_bb": 7.5},
+            {"position": "SB", "action": "fold", "size_bb": None},
+            {"position": "BB", "action": "raise", "size_bb": 20.0},
+            {"position": "CO", "action": "fold", "size_bb": None},
+            {"position": "BTN", "action": "allin", "size_bb": 100.0},
+        ]
+
     return tuple(scenarios)
 
 
