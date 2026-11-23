@@ -27,12 +27,15 @@ jobs:
           set -euo pipefail
           python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
           python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_cleanup.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_174_policy.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py
           python staging/test_pokercraft_features.py
           python staging/test_postflop_controls.py
           python staging/test_poker_reasoning.py
           python staging/test_cpu_learning.py
           python staging/test_preflop_legacy_cleanup.py
           python staging/test_preflop_policy_removed.py
+          python staging/test_preflop_174_policy.py
 
       - name: Assemble and validate the full update package
         shell: bash
@@ -126,6 +129,10 @@ jobs:
               raise SystemExit("Shipped updater did not extract every required root file")
           if "pigeon_poker/preflop_gto_strategy.py" in extracted_set:
               raise SystemExit("Retired legacy preflop policy must not be bundled")
+          if "pigeon_poker/preflop_174_policy.py" not in extracted_set:
+              raise SystemExit("The 174-scenario CPU policy is missing from the package")
+          if "pigeon_poker/preflop_174_policy_data.py" not in extracted_set:
+              raise SystemExit("The embedded 174-scenario source dataset is missing from the package")
           if "pigeon_poker/preflop_cleanup.py" not in extracted_set:
               raise SystemExit("Retired preflop cleanup module is missing from the update")
           if ("pigeon_poker/preflop_screenshot_" + "ranges.py") in extracted_set:
@@ -133,8 +140,12 @@ jobs:
           app_source = (source_dir / "PigeonPoker.pyw").read_text(encoding="utf-8")
           if "preflop_gto_strategy" in app_source or "choose_preflop_action" in app_source:
               raise SystemExit("Application still references the retired preflop policy")
-          if "def _choose_preflop_legal_fallback(" not in app_source:
-              raise SystemExit("Temporary legal-action safety fallback is missing")
+          if "_choose_preflop_legal_fallback" in app_source:
+              raise SystemExit("Temporary generic preflop fallback must not remain in the application")
+          if "from pigeon_poker.preflop_174_policy import choose_preflop_174_action" not in app_source:
+              raise SystemExit("Application does not import the 174-scenario CPU policy")
+          if app_source.count("choose_preflop_174_action(table, hand, pid, cpu)") < 2:
+              raise SystemExit("Application does not route both preflop CPU decision paths through the 174-scenario policy")
           required_feature_hooks = (
               "def _build_pokercraft_page(",
               "def _tick_pokercraft_live_refresh(",
@@ -186,7 +197,7 @@ jobs:
               "file_count": len(extracted_set),
               "required_root_files": sorted(required | {"VERSION.txt"}),
               "legacy_preflop_strategy": "removed",
-              "preflop_cpu_runtime": "temporary legal-action safety fallback pending 174-scenario replacement",
+              "preflop_cpu_runtime": "174-scenario source-backed policy",
               "retired_preflop_module": "not bundled",
               "updater_extract_validation": "passed",
           }, ensure_ascii=False))
@@ -198,7 +209,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stable.json releases/v1.5.0/release.json releases/v1.5.0/payload-updater.zip.b64 staging/source_1_3_101/PigeonPoker.pyw staging/source_1_3_101/pigeon_poker/preflop_cleanup.py staging/test_pokercraft_features.py staging/test_postflop_controls.py staging/test_poker_reasoning.py staging/test_cpu_learning.py staging/test_preflop_legacy_cleanup.py staging/test_preflop_policy_removed.py
+          git add stable.json releases/v1.5.0/release.json releases/v1.5.0/payload-updater.zip.b64 staging/source_1_3_101/PigeonPoker.pyw staging/source_1_3_101/pigeon_poker/preflop_cleanup.py staging/source_1_3_101/pigeon_poker/preflop_174_policy.py staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py staging/test_pokercraft_features.py staging/test_postflop_controls.py staging/test_poker_reasoning.py staging/test_cpu_learning.py staging/test_preflop_legacy_cleanup.py staging/test_preflop_policy_removed.py staging/test_preflop_174_policy.py
           git rm --ignore-unmatch releases/v1.5.0/payload.ready staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py staging/test_preflop_gto_integrity.py staging/test_preflop_gto_policy.py staging/test_preflop_user_actions.py
           git commit -m "Publish verified Pigeon Poker v1.5.0 update"
           git push

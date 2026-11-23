@@ -99,7 +99,7 @@ def test_range_icon_stays_clickable_and_explains_unavailable_nodes():
     opener = source_of("_open_realtime_preflop_range")
     assert 'canvas.configure(state="normal", cursor="hand2")' in updater
     assert "この状況に一致する元画像レンジはありません。" in opener
-    assert "レンジ料金は発生していません。" in opener
+    assert "レンジ料金も発生していません。" in opener
 
 
 def test_live_range_button_requires_exact_node_and_current_hero_turn():
@@ -200,7 +200,7 @@ def test_range_window_is_resizable_until_native_work_area_fit_finishes():
     view = source_of("_open_preflop_range_view")
     assert view.index("win.resizable(True, True)") < view.index("_fit_toplevel_to_monitor_work_area(")
     assert view.index("_fit_toplevel_to_monitor_work_area(") < view.index("win.resizable(False, False)")
-    assert "win.minsize(360, 320)" in view
+    assert "win.minsize(360, 240)" in view
 
 
 def run_tests():
@@ -209,17 +209,17 @@ def run_tests():
         test_all_pokercraft_timestamps_use_japan_time,
         test_history_icon_draws_two_real_playing_cards_tilted_left,
         test_live_hand_flow_shows_scrollable_table_history_with_cards_winner_and_pot,
-        test_range_view_is_only_a_169_cell_proportional_matrix,
+        test_range_view_displays_one_source_bitmap_without_canvas_redrawing,
         test_range_icon_stays_clickable_and_explains_unavailable_nodes,
         test_live_range_button_requires_exact_node_and_current_hero_turn,
         test_live_range_charges_shared_wallet_once_per_hand_not_stack,
         test_historical_range_uses_only_events_before_hero_first_action,
         test_pokercraft_refreshes_live_without_blocking_table_play,
-        test_live_preflop_range_is_an_overlay_and_pauses_the_action_clock,
         test_main_and_table_windows_use_native_monitor_work_area_bounds,
-        test_paid_range_window_is_clamped_and_renderer_retries_safely,
+        test_paid_range_window_is_left_aligned_and_loads_original_bitmap,
         test_format_table_chips_signature_matches_every_call_site,
         test_range_window_is_resizable_until_native_work_area_fit_finishes,
+        test_live_preflop_range_is_a_bitmap_overlay_and_pauses_the_action_clock,
     ]
     for test in tests:
         test()
