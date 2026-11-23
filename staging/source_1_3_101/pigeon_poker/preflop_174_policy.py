@@ -22,17 +22,33 @@ def _scenarios() -> tuple[dict[str, Any], ...]:
 
 def _normalise_action(value: Any) -> str:
     action = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
-    if action in {"allin", "all_in", "shove", "jam"} or "all_in" in action:
-        return "allin"
-    if "fold" in action or action == "muck":
-        return "fold"
-    if "raise" in action or action in {"bet", "open", "3bet", "4bet", "squeeze"}:
-        return "raise"
-    if "check" in action:
-        return "check"
-    if "call" in action or action in {"limp", "complete"}:
+    if action in {"call", "called", "all_in_call", "allin_call", "call_all_in", "limp", "complete"}:
         return "call"
+    if action in {"allin", "all_in", "shove", "jam"}:
+        return "allin"
+    if action in {"fold", "folded", "muck"}:
+        return "fold"
+    if action in {"raise", "bet", "raise_to", "bet_to", "open", "3bet", "4bet", "squeeze"}:
+        return "raise"
+    if action == "check":
+        return "check"
     return action
+
+
+def _event_action(event: dict[str, Any]) -> str:
+    raw = str(event.get("action", "")).strip().lower().replace("-", "_").replace(" ", "_")
+    # A short all-in call remains a call for the action-history match.
+    if raw in {"call", "called", "all_in_call", "allin_call", "call_all_in"}:
+        return "call"
+    if event.get("is_all_in") or event.get("all_in") or event.get("jam"):
+        return "allin"
+    if raw in {"allin", "all_in", "jam", "shove"}:
+        return "allin"
+    if raw in {"raise", "bet", "raise_to", "bet_to"}:
+        return "raise"
+    if raw in {"fold", "folded"}:
+        return "fold"
+    return _normalise_action(raw)
 
 
 def _position_map(table: Any, hand: Any) -> dict[str, str]:
@@ -122,7 +138,7 @@ def _actual_history(table: Any, hand: Any, player_id: str, positions: dict[str, 
             continue
         if event.get("type") not in {None, "action"} and not event.get("action"):
             continue
-        action = _normalise_action(event.get("action") or event.get("decision"))
+        action = _event_action(event) if event.get("action") else _normalise_action(event.get("decision"))
         if action not in {"fold", "call", "check", "raise", "allin"}:
             continue
         raw_pid = str(event.get("player_id") or event.get("player") or "")
