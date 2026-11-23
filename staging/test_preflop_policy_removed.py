@@ -18,7 +18,15 @@ def test_legacy_preflop_strategy_is_not_shipped() -> None:
 def test_application_routes_preflop_cpu_actions_to_the_174_policy() -> None:
     source = APP.read_text(encoding="utf-8")
     ast.parse(source, filename=str(APP))
-    assert "from pigeon_poker.preflop_174_policy import choose_preflop_174_action" in source
+    imports_174_policy = [
+        node for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "pigeon_poker.preflop_174_policy"
+    ]
+    assert any(
+        "choose_preflop_174_action" in {item.name for item in node.names}
+        for node in imports_174_policy
+    )
     assert source.count("choose_preflop_174_action(table, hand, pid, cpu)") >= 2
     assert "_choose_preflop_legal_fallback" not in source
     assert "174_POLICY_PENDING" not in source
