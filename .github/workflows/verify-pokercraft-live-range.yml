@@ -3,6 +3,7 @@ name: Verify PokerCraft, live hand flow, and legacy preflop retirement
 on:
   push:
     branches:
+      - main
       - feature/pokercraft-live-range-tools
     paths:
       - "staging/source_1_3_101/PigeonPoker.pyw"
