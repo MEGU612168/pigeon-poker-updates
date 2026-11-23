@@ -10,12 +10,13 @@ from .preflop_174_policy_data import load_preflop_174_data
 
 POSITIONS = ("UTG", "HJ", "CO", "BTN", "SB", "BB")
 
-# These source-ID pairs were SHA-256 checked against the original 174-image
-# archive and contain byte-identical cropped range images. They are aliases
-# only for choosing which identical bitmap to display; the BOT's 174 strategy
-# rows remain separate and untouched.
+# These source-ID pairs were checked against the original 174-image archive
+# and contain visually identical range matrices (some differ only by a
+# one-pixel capture artifact). They are aliases only for selecting the
+# bitmap to display; the BOT's 174 strategy rows remain separate.
 _RANGE_IMAGE_ALIAS_GROUPS = (
     (148, 288),
+    (196, 205),
     (195, 204),
     (201, 211),
     (238, 243),
