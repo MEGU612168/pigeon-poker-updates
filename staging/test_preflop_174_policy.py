@@ -106,6 +106,21 @@ def test_same_actor_multiple_actions_are_preserved():
     assert scenario["id"] == 180 and not inferred and distance == 0.0
 
 
+def test_scenario_244_fullscreen_header_correction_matches_source_239():
+    source = {int(item["id"]): item for item in _scenarios()}
+    scenario_239 = source[239]
+    scenario_244 = source[244]
+    assert scenario_244["position"] == "BTN"
+    assert scenario_244["history"] == scenario_239["history"]
+    assert scenario_244["history"][-1]["position"] == "CO"
+    assert scenario_244["history"][-1]["action"] == "fold"
+    assert not any(
+        str(item.get("action", "")).lower() == "allin"
+        and str(item.get("position", "")).upper() == "CO"
+        for item in scenario_244["history"]
+    )
+
+
 def test_scenario_251_actor_is_btn():
     events = [event("co", "raise", 230), event("btn", "raise", 750),
               event("sb", "fold"), event("bb", "raise", 2000), event("co", "allin", 10000)]
@@ -213,6 +228,7 @@ if __name__ == "__main__":
         test_bb_vs_btn_open_matches_source_146_and_uses_13bb,
         test_same_actor_multiple_actions_are_preserved,
         test_scenario_251_actor_is_btn,
+        test_scenario_244_fullscreen_header_correction_matches_source_239,
         test_unclassified_cell_is_inferred_not_folded,
         test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges,
         test_identical_image_aliases_never_merge_different_action_histories,
