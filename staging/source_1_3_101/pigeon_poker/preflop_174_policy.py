@@ -9,6 +9,29 @@ from typing import Any
 from .preflop_174_policy_data import load_preflop_174_data
 
 POSITIONS = ("UTG", "HJ", "CO", "BTN", "SB", "BB")
+
+# These source-ID pairs were SHA-256 checked against the original 174-image
+# archive and contain byte-identical cropped range images. They are aliases
+# only for choosing which identical bitmap to display; the BOT's 174 strategy
+# rows remain separate and untouched.
+_RANGE_IMAGE_ALIAS_GROUPS = (
+    (148, 288),
+    (195, 204),
+    (201, 211),
+    (238, 243),
+    (239, 244),
+    (245, 251),
+    (259, 263),
+)
+
+
+def _range_image_canonical_id(source_id: int) -> int:
+    for group in _RANGE_IMAGE_ALIAS_GROUPS:
+        if source_id in group:
+            return min(group)
+    return source_id
+
+
 POSITION_BY_SEAT_FROM_BUTTON = ("BTN", "SB", "BB", "UTG", "HJ", "CO")
 RANKS = "AKQJT98765432"
 _HAND_ORDER = tuple(load_preflop_174_data()["hand_order"])
@@ -236,28 +259,20 @@ def resolve_exact_preflop_174_scenario(
     if not matches:
         return None
 
-    def freeze(value: Any) -> Any:
-        if isinstance(value, dict):
-            return tuple(sorted((str(key), freeze(item)) for key, item in value.items()))
-        if isinstance(value, (list, tuple)):
-            return tuple(freeze(item) for item in value)
-        return value
-
-    # Some source IDs intentionally represent the same displayed matrix and
-    # same extracted policy under different source contexts. Coalesce those
-    # aliases only when every hand cell, action size and frequency is identical.
-    signatures = {
-        freeze((
-            item.get("action_options"),
-            item.get("hands"),
-            item.get("overall"),
-        ))
+    # If the complete action history yields multiple records, coalesce only
+    # IDs whose ORIGINAL range PNGs were verified byte-identical. This affects
+    # only the bitmap selector; no strategy rows or frequencies are merged.
+    canonical = {
+        _range_image_canonical_id(int(item.get("id", -1)))
         for item in matches
     }
-    if len(signatures) == 1:
-        return min(matches, key=lambda item: int(item.get("id", 0)))
-    # Different strategies matching the same complete history are ambiguous.
-    return None
+    if len(canonical) != 1:
+        return None
+    canonical_id = next(iter(canonical))
+    return next(
+        (item for item in matches if int(item.get("id", -1)) == canonical_id),
+        None,
+    )
 
 
 def _event_cost(expected: dict[str, Any], actual: dict[str, Any]) -> float:
