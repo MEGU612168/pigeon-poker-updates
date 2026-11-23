@@ -121,6 +121,36 @@ def test_scenario_244_fullscreen_header_correction_matches_source_239():
     )
 
 
+def test_scenarios_252_and_253_preserve_distinct_fullscreen_action_histories():
+    by_id = {int(item["id"]): item for item in _scenarios()}
+    history_252 = by_id[252]["history"]
+    history_253 = by_id[253]["history"]
+    assert by_id[252]["position"] == "BB"
+    assert by_id[253]["position"] == "BB"
+    assert [(e["position"], e["action"], e.get("size_bb")) for e in history_252] == [
+        ("CO", "raise", 2.3),
+        ("BTN", "raise", 7.5),
+        ("SB", "fold", None),
+        ("BB", "raise", 20.0),
+        ("CO", "allin", 100.0),
+        ("BTN", "fold", None),
+    ]
+    assert [(e["position"], e["action"], e.get("size_bb")) for e in history_253] == [
+        ("CO", "raise", 2.3),
+        ("BTN", "raise", 7.5),
+        ("SB", "fold", None),
+        ("BB", "raise", 20.0),
+        ("CO", "fold", None),
+        ("BTN", "allin", 100.0),
+    ]
+    assert history_252 != history_253
+    assert by_id[252]["hands"] != by_id[253]["hands"]
+    resolved_252 = resolve_exact_preflop_174_scenario("BB", list(history_252))
+    resolved_253 = resolve_exact_preflop_174_scenario("BB", list(history_253))
+    assert resolved_252 is not None and int(resolved_252["id"]) == 252
+    assert resolved_253 is not None and int(resolved_253["id"]) == 253
+
+
 def test_scenario_251_actor_is_btn():
     events = [event("co", "raise", 230), event("btn", "raise", 750),
               event("sb", "fold"), event("bb", "raise", 2000), event("co", "allin", 10000)]
@@ -228,6 +258,7 @@ if __name__ == "__main__":
         test_bb_vs_btn_open_matches_source_146_and_uses_13bb,
         test_same_actor_multiple_actions_are_preserved,
         test_scenario_251_actor_is_btn,
+        test_scenarios_252_and_253_preserve_distinct_fullscreen_action_histories,
         test_scenario_244_fullscreen_header_correction_matches_source_239,
         test_unclassified_cell_is_inferred_not_folded,
         test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges,
