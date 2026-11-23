@@ -133,7 +133,7 @@ def test_live_range_charges_shared_wallet_once_per_hand_not_stack():
     assert "range_paid_hand_key" in source_of("_cash_state_snapshot")
 
 
-def test_historical_range_uses_only_events_before_hero_first_action_and_exact_174_match():
+def test_historical_range_uses_only_events_before_hero_first_action_and_exact_174_match_and_exact_174_match():
     helper = source_of("_historical_preflop_range_chart")
     opener = source_of("_open_pokercraft_history_range")
     assert "normalized_events[:hero_decision_index]" in helper
@@ -214,10 +214,10 @@ def run_tests():
         test_history_icon_draws_two_real_playing_cards_tilted_left,
         test_live_hand_flow_shows_scrollable_table_history_with_cards_winner_and_pot,
         test_range_view_displays_one_source_bitmap_without_canvas_redrawing,
-        test_range_icon_stays_clickable_and_explains_unavailable_nodes,
-        test_live_range_button_requires_exact_node_and_current_hero_turn,
+        test_range_icon_is_disabled_and_unbound_without_a_paid_exact_match,
+        test_live_range_button_requires_a_unique_exact_174_match_and_hero_turn,
         test_live_range_charges_shared_wallet_once_per_hand_not_stack,
-        test_historical_range_uses_only_events_before_hero_first_action,
+        test_historical_range_uses_only_events_before_hero_first_action_and_exact_174_match,
         test_pokercraft_refreshes_live_without_blocking_table_play,
         test_main_and_table_windows_use_native_monitor_work_area_bounds,
         test_paid_range_window_is_left_aligned_and_loads_original_bitmap,
