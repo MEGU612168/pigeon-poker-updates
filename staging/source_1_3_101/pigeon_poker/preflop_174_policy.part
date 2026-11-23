@@ -1,0 +1,162 @@
+from __future__ import annotations
+
+import math
+import random
+from functools import lru_cache
+from types import SimpleNamespace
+from typing import Any
+
+from .preflop_174_policy_data import load_preflop_174_data
+
+POSITIONS = ("UTG", "HJ", "CO", "BTN", "SB", "BB")
+POSITION_BY_SEAT_FROM_BUTTON = ("BTN", "SB", "BB", "UTG", "HJ", "CO")
+RANKS = "AKQJT98765432"
+_HAND_ORDER = tuple(load_preflop_174_data()["hand_order"])
+_HAND_INDEX = {value: index for index, value in enumerate(_HAND_ORDER)}
+
+
+@lru_cache(maxsize=1)
+def _scenarios() -> tuple[dict[str, Any], ...]:
+    return tuple(load_preflop_174_data()["scenarios"])
+
+
+def _normalise_action(value: Any) -> str:
+    action = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if action in {"allin", "all_in", "shove", "jam"} or "all_in" in action:
+        return "allin"
+    if "fold" in action or action == "muck":
+        return "fold"
+    if "raise" in action or action in {"bet", "open", "3bet", "4bet", "squeeze"}:
+        return "raise"
+    if "check" in action:
+        return "check"
+    if "call" in action or action in {"limp", "complete"}:
+        return "call"
+    return action
+
+
+def _position_map(table: Any, hand: Any) -> dict[str, str]:
+    players = list(getattr(hand, "players", ()) or ())
+    if len(players) == 6:
+        dealer = getattr(table, "dealer_index", None)
+        if dealer is None:
+            dealer = getattr(hand, "dealer_index", None)
+        try:
+            dealer = int(dealer) % 6
+        except (TypeError, ValueError, OverflowError):
+            dealer = None
+        if dealer is not None:
+            seat_by_id = getattr(hand, "seat_by_id", {}) or {}
+            result: dict[str, str] = {}
+            for index, player in enumerate(players):
+                pid = str(getattr(player, "player_id", ""))
+                if not pid:
+                    continue
+                try:
+                    seat = int(seat_by_id[pid]) % 6 if isinstance(seat_by_id, dict) and pid in seat_by_id else index
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                result[pid] = POSITION_BY_SEAT_FROM_BUTTON[(seat - dealer) % 6]
+            if len(result) == 6:
+                return result
+    result = {}
+    for player in players:
+        pid = str(getattr(player, "player_id", ""))
+        position = str(getattr(player, "position", "")).upper()
+        if pid and position in POSITIONS:
+            result[pid] = position
+    return result
+
+
+def _big_blind(hand: Any, table: Any = None) -> int:
+    for obj in (hand, table):
+        if obj is None:
+            continue
+        for name in ("big_blind", "big_blind_amount", "bb_amount"):
+            try:
+                value = int(getattr(obj, name, 0) or 0)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if value > 0:
+                return value
+    return 100
+
+
+def _event_target_bb(event: dict[str, Any], bb: int) -> float | None:
+    for key in ("target", "raise_to", "to_amount", "total_contribution", "target_amount"):
+        value = event.get(key)
+        if value is None:
+            continue
+        try:
+            amount = float(value) / max(1, bb)
+            if math.isfinite(amount):
+                return max(0.0, amount)
+        except (TypeError, ValueError, OverflowError):
+            pass
+    for key in ("amount", "paid"):
+        value = event.get(key)
+        if value is None:
+            continue
+        try:
+            amount = float(value) / max(1, bb)
+            if math.isfinite(amount):
+                return max(0.0, amount)
+        except (TypeError, ValueError, OverflowError):
+            pass
+    return None
+
+
+def _actual_history(table: Any, hand: Any, player_id: str, positions: dict[str, str]) -> list[dict[str, Any]]:
+    players = list(getattr(hand, "players", ()) or ())
+    id_by_name = {
+        str(getattr(player, "name", "")): str(getattr(player, "player_id", ""))
+        for player in players if str(getattr(player, "name", ""))
+    }
+    bb = _big_blind(hand, table)
+    output: list[dict[str, Any]] = []
+    for event in list(getattr(hand, "events", ()) or ()):
+        if not isinstance(event, dict):
+            continue
+        street = str(event.get("street", "preflop")).lower().replace("-", "")
+        if street not in {"preflop", "pre"}:
+            continue
+        if event.get("type") not in {None, "action"} and not event.get("action"):
+            continue
+        action = _normalise_action(event.get("action") or event.get("decision"))
+        if action not in {"fold", "call", "check", "raise", "allin"}:
+            continue
+        raw_pid = str(event.get("player_id") or event.get("player") or "")
+        pid = raw_pid if raw_pid in positions else id_by_name.get(raw_pid, raw_pid)
+        position = positions.get(pid) or str(event.get("position", "")).upper()
+        if position not in POSITIONS:
+            continue
+        amount_bb = _event_target_bb(event, bb) if action in {"raise", "allin"} else None
+        output.append({"position": position, "action": action, "size_bb": amount_bb})
+
+
+def _size_matches(expected: Any, actual: Any) -> bool:
+    if expected is None:
+        return True
+    if actual is None:
+        return False
+    try:
+        e, a = float(expected), float(actual)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    if not math.isfinite(e) or not math.isfinite(a):
+        return False
+    return abs(e - a) <= max(0.12, abs(e) * 0.04)
+
+
+def _event_matches(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
+    if str(expected.get("position", "")).upper() != actual["position"]:
+        return False
+    action = _normalise_action(expected.get("action"))
+    if action != actual["action"]:
+        return False
+    if action in {"raise", "allin"}:
+        return _size_matches(expected.get("size_bb"), actual.get("size_bb"))
+    return True
+
+
+def _event_cost(expected: dict[str, Any], actua
