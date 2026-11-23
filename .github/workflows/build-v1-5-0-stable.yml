@@ -32,6 +32,7 @@ jobs:
           python staging/test_poker_reasoning.py
           python staging/test_cpu_learning.py
           python staging/test_preflop_legacy_cleanup.py staging/test_preflop_policy_removed.py
+          python staging/test_preflop_policy_removed.py
 
       - name: Assemble and validate the full update package
         shell: bash
