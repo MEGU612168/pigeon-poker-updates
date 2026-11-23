@@ -1,10 +1,12 @@
-name: Verify Pigeon Poker unrestricted preflop user actions
+name: Verify Pigeon Poker legal actions and retired preflop policy
 
 on:
   push:
     paths:
       - "staging/source_1_3_101/PigeonPoker.pyw"
-      - "staging/test_preflop_user_actions.py"
+      - "staging/source_1_3_101/pigeon_poker/preflop_cleanup.py"
+      - "staging/test_preflop_legacy_cleanup.py"
+      - "staging/test_preflop_policy_removed.py"
       - ".github/workflows/verify-preflop-user-actions.yml"
 
 permissions:
@@ -18,13 +20,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Compile application
-        run: python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
-      - name: Test unrestricted hero actions and preflop-only sizing
-        run: python staging/test_preflop_user_actions.py
+      - name: Compile application and cleanup module
+        run: |
+          python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_cleanup.py
+      - name: Verify retired preflop data is removed
+        run: |
+          python staging/test_preflop_legacy_cleanup.py
+          python staging/test_preflop_policy_removed.py
       - name: Run postflop action UI regression
         run: python staging/test_postflop_controls.py
       - name: Run effect volume settings regression
         run: python staging/test_sound_volume_settings.py
-      - name: Verify new screenshot-trained GTO policy
-        run: python staging/test_preflop_gto_policy.py
