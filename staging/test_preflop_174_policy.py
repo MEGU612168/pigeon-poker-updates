@@ -117,7 +117,7 @@ def test_scenario_251_actor_is_btn():
 
 def test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges():
     alias_canonical = {
-        288: 148, 204: 195, 211: 201, 243: 238,
+        288: 148, 205: 196, 204: 195, 211: 201, 243: 238,
         244: 239, 251: 245, 263: 259,
     }
     covered_ids = set()
@@ -149,7 +149,7 @@ def test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges():
 
 def test_only_verified_pixel_identical_source_ids_are_coalesced_for_display():
     alias_groups = (
-        (148, 288), (195, 204), (201, 211), (238, 243),
+        (148, 288), (196, 205), (195, 204), (201, 211), (238, 243),
         (239, 244), (245, 251), (259, 263),
     )
     by_id = {item["id"]: item for item in _scenarios()}
