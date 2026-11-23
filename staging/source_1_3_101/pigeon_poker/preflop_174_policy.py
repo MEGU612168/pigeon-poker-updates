@@ -41,7 +41,24 @@ _HAND_INDEX = {value: index for index, value in enumerate(_HAND_ORDER)}
 
 @lru_cache(maxsize=1)
 def _scenarios() -> tuple[dict[str, Any], ...]:
-    return tuple(load_preflop_174_data()["scenarios"])
+    # Copy the source scenario records so verified header corrections can be
+    # applied without mutating the compressed source payload.
+    scenarios = [dict(item) for item in load_preflop_174_data()["scenarios"]]
+    by_id = {int(item["id"]): item for item in scenarios}
+
+    # Full-screen source screenshot #244 was rechecked: its header shows
+    # CO folds after SB's 21BB raise; it does NOT show a CO all-in.
+    # #244's cropped range matrix is byte-identical to #239, whose action
+    # history correctly records CO fold. Fix both BOT matching and paid-range
+    # resolution at the source-record layer, retaining both source IDs.
+    source_239 = by_id.get(239)
+    source_244 = by_id.get(244)
+    if source_239 is not None and source_244 is not None:
+        source_244["history"] = [
+            dict(event) for event in source_239.get("history", [])
+        ]
+
+    return tuple(scenarios)
 
 
 def _normalise_action(value: Any) -> str:
