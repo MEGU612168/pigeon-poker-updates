@@ -140,9 +140,8 @@ def test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges():
                   "CANDIDATES", [(item["id"], item["history"]) for item in candidates])
         assert matched is not None, source["id"]
         assert matched["position"] == source["position"], source["id"]
-        assert matched["id"] == alias_canonical.get(source["id"], source["id"]), (
-            source["id"], matched["id"]
-        )
+        expected_id = alias_canonical.get(int(source["id"]), int(source["id"]))
+        assert int(matched["id"]) == expected_id, (source["id"], matched["id"])
         covered_ids.add(source["id"])
     assert covered_ids == set(range(128, 302))
 
