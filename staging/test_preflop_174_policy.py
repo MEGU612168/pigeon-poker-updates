@@ -116,6 +116,10 @@ def test_scenario_251_actor_is_btn():
 
 
 def test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges():
+    alias_canonical = {
+        288: 148, 204: 195, 211: 201, 243: 238,
+        244: 239, 251: 245, 263: 259,
+    }
     covered_ids = set()
     for source in _scenarios():
         matched = resolve_exact_preflop_174_scenario(
@@ -123,27 +127,30 @@ def test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges():
         )
         assert matched is not None, source["id"]
         assert matched["position"] == source["position"], source["id"]
-        if matched["id"] != source["id"]:
-            # Aliased source IDs may share a result only when the entire
-            # hand matrix, action-size set and aggregate frequencies are equal.
-            assert matched["hands"] == source["hands"], (source["id"], matched["id"])
-            assert matched["action_options"] == source["action_options"]
-            assert matched["overall"] == source["overall"]
+        assert matched["id"] == alias_canonical.get(source["id"], source["id"]), (
+            source["id"], matched["id"]
+        )
         covered_ids.add(source["id"])
     assert covered_ids == set(range(128, 302))
 
 
-def test_duplicate_source_contexts_are_coalesced_only_when_policy_is_identical():
-    first = next(item for item in _scenarios() if item["id"] == 148)
-    second = next(item for item in _scenarios() if item["id"] == 288)
-    assert first["history"] == second["history"]
-    assert first["hands"] == second["hands"]
-    assert first["action_options"] == second["action_options"]
-    assert first["overall"] == second["overall"]
-    matched_first = resolve_exact_preflop_174_scenario(first["position"], list(first["history"]))
-    matched_second = resolve_exact_preflop_174_scenario(second["position"], list(second["history"]))
-    assert matched_first is not None and matched_second is not None
-    assert matched_first["id"] == matched_second["id"] == 148
+def test_only_verified_pixel_identical_source_ids_are_coalesced_for_display():
+    alias_groups = (
+        (148, 288), (195, 204), (201, 211), (238, 243),
+        (239, 244), (245, 251), (259, 263),
+    )
+    by_id = {item["id"]: item for item in _scenarios()}
+    for first_id, second_id in alias_groups:
+        first, second = by_id[first_id], by_id[second_id]
+        assert first["history"] == second["history"], (first_id, second_id)
+        matched_first = resolve_exact_preflop_174_scenario(
+            first["position"], list(first["history"])
+        )
+        matched_second = resolve_exact_preflop_174_scenario(
+            second["position"], list(second["history"])
+        )
+        assert matched_first is not None and matched_second is not None
+        assert matched_first["id"] == matched_second["id"] == first_id
 
 
 def test_exact_range_resolver_rejects_unlisted_or_size_mismatched_histories():
