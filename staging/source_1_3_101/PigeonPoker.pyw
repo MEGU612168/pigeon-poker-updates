@@ -37,6 +37,7 @@ from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOErr
                           is_gto_plus_supported_postflop_hand, CPUPoolStore, GGCareLedger, CashierLedger, bind_first_matching_tree)
 from pigeon_poker.range_image_catalog import create_range_photo, RangeImageCatalogError
 from pigeon_poker.poker_reasoning import choose_range_aware_action
+from pigeon_poker.preflop_174_policy import choose_preflop_174_action
 from pigeon_poker.cpu_learning import CPULearningStore
 from pigeon_poker.multitable import MultiTableRegistry, next_big_blind_index_after_rotation
 from pigeon_poker.betting_ui import (DEFAULT_POT_PRESETS, normalize_pot_presets, format_chip_amount,
@@ -106,75 +107,6 @@ COLORS = {
     "gold": "#e6bd63", "red": "#d95757", "blue": "#3988d8", "felt": "#0c6849",
     "felt2": "#084d38", "seat": "#14243a", "white": "#ffffff",
 }
-
-
-def _choose_preflop_legal_fallback(table, hand, player_id: str, cpu):
-    """Temporary legal-action safety net while the 174-scenario policy replaces legacy data.
-
-    All CPUs use the same baseline. No legacy chart, frequency matrix,
-    inferred branch, learned preflop profile, or solver data is consulted.
-    """
-    legal = hand.legal_actions(player_id)
-    raw_actions = [str(value).strip().lower().replace("-", "_") for value in legal.get("actions", ())]
-    if not raw_actions:
-        raise ValueError("No legal preflop action is available")
-    player = hand.player(player_id)
-    cards = [str(card) for card in list(getattr(player, "hole_cards", ()) or ())]
-    ranks = "23456789TJQKA"
-    hand_class = "?"
-    premium = False
-    if len(cards) == 2 and all(card and card[0] in ranks for card in cards):
-        first, second = cards[0][0], cards[1][0]
-        if first == second:
-            hand_class = first * 2
-            premium = ranks.index(first) >= ranks.index("T")
-        else:
-            high, low = sorted((first, second), key=ranks.index, reverse=True)
-            suited = len(cards[0]) > 1 and len(cards[1]) > 1 and cards[0][1] == cards[1][1]
-            hand_class = high + low + ("s" if suited else "o")
-            premium = (
-                (high, low) == ("A", "K")
-                or ((high, low) in {("A", "Q"), ("K", "Q")} and suited)
-            )
-
-    actions = set(raw_actions)
-    to_call = max(0, int(legal.get("to_call", 0) or 0))
-    big_blind = max(1, int(getattr(hand, "big_blind", 1) or 1))
-    amount = None
-    if "check" in actions and to_call == 0:
-        action = "check"
-    elif premium and ("raise" in actions or "bet" in actions):
-        action = "raise" if "raise" in actions else "bet"
-        amount = int(legal.get("min_target", 0) or 0) or None
-    elif "call" in actions and (premium or to_call <= max(1, big_blind // 2)):
-        action = "call"
-    elif "fold" in actions:
-        action = "fold"
-    elif "call" in actions:
-        action = "call"
-    elif "check" in actions:
-        action = "check"
-    elif "raise" in actions or "bet" in actions:
-        action = "raise" if "raise" in actions else "bet"
-        amount = int(legal.get("min_target", 0) or 0) or None
-    else:
-        action = raw_actions[0]
-        if action in {"all_in", "allin"} and not premium and "fold" in actions:
-            action = "fold"
-
-    return SimpleNamespace(
-        player_id=str(player_id),
-        action=action,
-        amount=amount,
-        source="preflop-legacy-removed-safe-fallback",
-        node_id="174_POLICY_PENDING",
-        hand_class=hand_class,
-        action_frequency=1.0,
-        inferred=True,
-        size_source="legal-safe-fallback",
-        equity_estimate=0.0,
-        note="Temporary legal-action fallback; legacy preflop strategy removed pending the 174-scenario policy.",
-    )
 
 
 def load_config() -> dict[str, Any]:
@@ -2818,10 +2750,8 @@ class PigeonPokerApp(tk.Tk):
                     # move almost immediately; postflop keeps natural thinking time.
                     fallback_decision = None
                     if hand.street == "preflop":
-                        # The legacy preflop policy has been removed. Use a clearly
-                        # temporary legal-action safety net until all 174 source
-                        # scenarios are installed as the authoritative CPU policy.
-                        fallback_decision = _choose_preflop_legal_fallback(table, hand, pid, cpu)
+                        # All CPUs use the same 174-scenario preflop policy.
+                        fallback_decision = choose_preflop_174_action(table, hand, pid, cpu)
                     elif not (session is not None and session.hand_token == id(hand) and session.context is not None):
                         # The same opponent-range engine handles postflop decisions.
                         fallback_decision = choose_range_aware_action(table, hand, pid, cpu)
@@ -2922,7 +2852,7 @@ class PigeonPokerApp(tk.Tk):
                         decision = fallback_decision
                         if decision is None:
                             if hand.street == "preflop":
-                                decision = _choose_preflop_legal_fallback(table, hand, pid, cpu)
+                                decision = choose_preflop_174_action(table, hand, pid, cpu)
                             else:
                                 decision = choose_range_aware_action(table, hand, pid, cpu)
                         if decision is None:
@@ -2938,17 +2868,25 @@ class PigeonPokerApp(tk.Tk):
                         event_action = str(decision.action)
                         event_amount = decision.amount
                         decision_source = str(getattr(decision, "source", ""))
-                        preflop_policy_used = decision_source == "preflop-legacy-removed-safe-fallback"
+                        preflop_policy_used = decision_source in {
+                            "preflop-174-scenario-policy", "preflop-174-legal-guardrail"
+                        }
                         range_policy_used = decision_source in {
                             "range-aware-policy", "range-aware-guardrail"
                         }
                         if preflop_policy_used:
+                            source_image_no = getattr(decision, "source_image_no", None)
+                            inferred_mark = " • inferred" if getattr(decision, "inferred", False) else ""
+                            policy_label = (
+                                f" [174-SCENARIO #{source_image_no}{inferred_mark}]"
+                                if source_image_no is not None else " [174-SCENARIO • legal guardrail]"
+                            )
                             line = (
                                 f"{actor_name}: {decision.action.upper()}"
                                 + (f" ${decision.amount/100:.2f}" if decision.amount is not None else "")
-                                + " [TEMPORARY SAFE FALLBACK • 174-SCENARIO POLICY PENDING]"
+                                + policy_label
                             )
-                            source_status = "Legacy preflop policy removed; legal-action safety fallback only."
+                            source_status = str(getattr(decision, "note", "174-scenario preflop policy"))
                         elif range_policy_used:
                             equity_pct = 100.0 * float(decision.equity_estimate or 0.0)
                             line = (
@@ -2973,7 +2911,7 @@ class PigeonPokerApp(tk.Tk):
                                 "action_history": [e for e in hand.events if e.get("type") == "action"]})
                             self.store.record_cpu_decision(
                                 fallback_key,
-                                "preflop_legacy_removed_fallback" if preflop_policy_used else (
+                                "preflop_174_scenario_policy" if preflop_policy_used else (
                                     "range_aware_guardrail" if getattr(decision, "source", "") == "range-aware-guardrail"
                                 else "range_aware_policy" if range_policy_used else "fallback_unsupported"
                                 ),
@@ -2995,7 +2933,7 @@ class PigeonPokerApp(tk.Tk):
                         "line": action_label, "action": event_action, "amount": event_amount,
                         "gto_used": gto_used,
                         "strategy_source": (
-                            "preflop-legacy-removed-fallback" if preflop_policy_used else
+                            ("preflop-174-scenario-policy" if getattr(fallback_decision, "source", "") == "preflop-174-scenario-policy" else "preflop-174-legal-guardrail") if preflop_policy_used else
                             "range-aware-guardrail" if getattr(fallback_decision, "source", "") == "range-aware-guardrail" else
                             "range-aware-policy" if range_policy_used else
                             ("gtoplus" if gto_used else "local-fallback")
