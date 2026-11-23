@@ -99,7 +99,7 @@ def test_range_icon_stays_clickable_and_explains_unavailable_nodes():
     opener = source_of("_open_realtime_preflop_range")
     assert 'canvas.configure(state="normal", cursor="hand2")' in updater
     assert "この状況に一致する元画像レンジはありません。" in opener
-    assert "レンジ料金は発生していません。" in opener
+    assert "レンジ料金も発生していません。" in opener
 
 
 def test_live_range_button_requires_exact_node_and_current_hero_turn():
