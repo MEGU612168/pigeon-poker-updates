@@ -3839,25 +3839,13 @@ class PigeonPokerApp(tk.Tk):
             current_key,
         )
         paid = bool(current_key and slot.state.get("range_paid_hand_key") == current_key)
-        if paid:
-            # Older saved states are not trusted blindly: only a paid image ID
-            # belonging to this exact 174-source catalogue remains reopenable.
-            chart = slot.state.get("range_paid_chart")
-            try:
-                paid_source_id = int((chart or {}).get("source_id", 0) or 0)
-            except (AttributeError, TypeError, ValueError, OverflowError):
-                paid_source_id = 0
-            if paid_source_id not in range(128, 302):
-                paid = False
-                chart = None
+        # A prior payment is only a fee waiver for this hand. It must never
+        # keep an old scenario image clickable after the action history changes.
+        if record.get("range_chart_cache_key") != signature:
+            chart = self._range_chart_for_table(slot, hand)
             record["range_chart_cache"] = chart
             record["range_chart_cache_key"] = signature
-        else:
-            if record.get("range_chart_cache_key") != signature:
-                chart = self._range_chart_for_table(slot, hand)
-                record["range_chart_cache"] = chart
-                record["range_chart_cache_key"] = signature
-            chart = record.get("range_chart_cache")
+        chart = record.get("range_chart_cache")
         # Use the already synchronized wallet cache during high-frequency table
         # refreshes. The click handler re-checks/debits SQLite atomically.
         balance = max(0, int(getattr(self, "cash_balance_cents", 0)))
@@ -3926,7 +3914,9 @@ class PigeonPokerApp(tk.Tk):
         hand = table.hand if table is not None else None
         hand_key = str(slot.state.get("cash_current_hand_key") or f"{table_id}:{id(hand)}")
         paid = str(slot.state.get("range_paid_hand_key") or "") == hand_key
-        chart = slot.state.get("range_paid_chart") if paid else self._range_chart_for_table(slot, hand)
+        # Resolve the CURRENT history every time. A paid chart from an earlier
+        # action is never reused for a different or unsupported situation.
+        chart = self._range_chart_for_table(slot, hand)
         if chart is None or int(chart.get("source_id", 0) or 0) not in range(128, 302):
             # Unmatched situations are intentionally inert: no modal, no charge,
             # and no nearest-scenario substitution.
