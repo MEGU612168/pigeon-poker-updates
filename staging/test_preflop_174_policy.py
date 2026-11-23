@@ -11,7 +11,7 @@ sys.path.insert(0, str(SOURCE))
 from pigeon_poker.preflop_174_policy import (
     _HAND_INDEX, _actual_history, _choose_scenario, _position_map,
     _scenario_distribution, _scenarios, choose_preflop_174_action,
-    preflop_174_catalog_summary,
+    preflop_174_catalog_summary, resolve_exact_preflop_174_scenario,
 )
 
 
@@ -115,6 +115,32 @@ def test_scenario_251_actor_is_btn():
     assert scenario["id"] == 251 and not inferred and distance == 0.0
 
 
+def test_exact_range_resolver_maps_all_174_source_histories_one_to_one():
+    matched_ids = set()
+    for source in _scenarios():
+        matched = resolve_exact_preflop_174_scenario(
+            source["position"], list(source["history"])
+        )
+        assert matched is not None, source["id"]
+        assert matched["id"] == source["id"], (source["id"], matched["id"])
+        assert matched["id"] not in matched_ids
+        matched_ids.add(matched["id"])
+    assert matched_ids == set(range(128, 302))
+
+
+def test_exact_range_resolver_rejects_unlisted_or_size_mismatched_histories():
+    source = next(item for item in _scenarios() if item["id"] == 146)
+    wrong = [dict(item) for item in source["history"]]
+    raise_event = next(item for item in wrong if item["action"] == "raise")
+    raise_event["size_bb"] = float(raise_event["size_bb"]) + 0.5
+    assert resolve_exact_preflop_174_scenario(source["position"], wrong) is None
+
+    extra_action = [dict(item) for item in source["history"]]
+    extra_action.append({"position": "UTG", "action": "fold", "size_bb": None})
+    assert resolve_exact_preflop_174_scenario(source["position"], extra_action) is None
+    assert resolve_exact_preflop_174_scenario("UNKNOWN", list(source["history"])) is None
+
+
 def test_unclassified_cell_is_inferred_not_folded():
     scenario = next(item for item in _scenarios() if item["id"] == 153)
     distribution, inferred, method = _scenario_distribution(scenario, "K4s")
@@ -135,6 +161,8 @@ if __name__ == "__main__":
         test_same_actor_multiple_actions_are_preserved,
         test_scenario_251_actor_is_btn,
         test_unclassified_cell_is_inferred_not_folded,
+        test_exact_range_resolver_maps_all_174_source_histories_one_to_one,
+        test_exact_range_resolver_rejects_unlisted_or_size_mismatched_histories,
         test_preflop_policy_is_cpu_level_independent,
     ]
     for test in tests:
