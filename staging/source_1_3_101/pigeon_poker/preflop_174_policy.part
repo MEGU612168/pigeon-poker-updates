@@ -159,4 +159,139 @@ def _event_matches(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
     return True
 
 
-def _event_cost(expected: dict[str, Any], actua
+def _event_cost(expected: dict[str, Any], actuat[str, Any], actual: dict[str, Any]) -> float:
+    ep, ap = str(expected.get("position", "")).upper(), actual["position"]
+    ea, aa = _normalise_action(expected.get("action")), actual["action"]
+    if ep == ap and ea == aa:
+        if ea in {"raise", "allin"}:
+            es, ass = expected.get("size_bb"), actual.get("size_bb")
+            if es is None or ass is None:
+                return 0.25
+            try:
+                return min(2.5, abs(float(es) - float(ass)) / max(1.0, abs(float(es)) * 0.12))
+            except (TypeError, ValueError, OverflowError):
+                return 0.8
+        return 0.0
+    if ea == aa:
+        return 1.5 if ep != ap else 1.2
+    return 2.2 if ep == ap else 2.8
+
+
+def _history_distance(expected: list[dict[str, Any]], actual: list[dict[str, Any]]) -> float:
+    # Ordered edit distance: folds, calls, re-raises and repeated decisions all matter.
+    prev = [float(i) for i in range(len(actual) + 1)]
+    for i, want in enumerate(expected, 1):
+        cur = [float(i)]
+        for j, got in enumerate(actual, 1):
+            cur.append(min(
+                prev[j] + 1.15,
+                cur[j - 1] + 1.15,
+                prev[j - 1] + _event_cost(want, got),
+            ))
+        prev = cur
+    return prev[-1] / max(1, len(expected), len(actual))
+
+
+def _hand_class(cards: Any) -> str | None:
+    try:
+        items = [str(card).strip() for card in list(cards or ())]
+    except Exception:
+        return None
+    if len(items) != 2:
+        return None
+    suits = {"♠": "s", "♥": "h", "♦": "d", "♣": "c"}
+    parsed = []
+    for card in items:
+        rank = card[:-1].upper() if len(card) >= 2 else ""
+        suit = card[-1:] if card else ""
+        if rank == "10":
+            rank = "T"
+        if rank not in RANKS:
+            return None
+        parsed.append((rank, suits.get(suit, suit.lower())))
+    r1, s1 = parsed[0]
+    r2, s2 = parsed[1]
+    if r1 == r2:
+        result = r1 + r2
+    else:
+        i1, i2 = RANKS.index(r1), RANKS.index(r2)
+        high, low = (r1, r2) if i1 < i2 else (r2, r1)
+        result = high + low + ("s" if s1 == s2 else "o")
+    return result if result in _HAND_INDEX else None
+
+
+def _hand_distance(a: str, b: str) -> float:
+    def feats(value: str) -> tuple[int, int, int, int]:
+        if len(value) == 2:
+            idx = RANKS.index(value[0])
+            return idx, idx, 1, 0
+        high, low = value[:2]
+        return RANKS.index(high), RANKS.index(low), 0, int(value.endswith("s"))
+    ah, al, ap, ass = feats(a)
+    bh, bl, bp, bss = feats(b)
+    return abs(ah - bh) * 0.9 + abs(al - bl) * 1.1 + (1.15 if ap != bp else 0.0) + (0.65 if not ap and not bp and ass != bss else 0.0)
+
+
+def _decode_hand_actions(scenario: dict[str, Any], hand_index: int) -> dict[tuple[str, float | None], float]:
+    row = scenario["hands"][hand_index]
+    options = scenario["action_options"]
+    output: dict[tuple[str, float | None], float] = {}
+    for option_index, frequency in row:
+        action, size = options[int(option_index)]
+        key = (str(action), None if size is None else float(size))
+        output[key] = output.get(key, 0.0) + float(frequency)
+    return output
+
+
+def _normalise_distribution(values: dict[tuple[str, float | None], float]) -> dict[tuple[str, float | None], float]:
+    total = sum(max(0.0, float(x)) for x in values.values())
+    if total <= 0:
+        return {}
+    return {k: max(0.0, float(v)) / total for k, v in values.items() if v > 0}
+
+
+def _infer_hand_distribution(scenario: dict[str, Any], hand_class: str) -> tuple[dict[tuple[str, float | None], float], str]:
+    # Missing/grey cells in the source screenshots are never silently treated as folds.
+    # Extrapolate only from measured hand classes in the same scenario, by rank/suitedness.
+    candidates = []
+    for index, row in enumerate(scenario["hands"]):
+        if not row:
+            continue
+        other = _HAND_ORDER[index]
+        distance = _hand_distance(hand_class, other)
+        candidates.append((distance, index))
+    if not candidates:
+        return {}, "no-measured-hand-neighbour"
+    candidates.sort(key=lambda item: item[0])
+    nearest = candidates[:12]
+    aggregate: dict[tuple[str, float | None], float] = {}
+    for distance, index in nearest:
+        weight = 1.0 / ((0.45 + distance) ** 2)
+        for key, frequency in _decode_hand_actions(scenario, index).items():
+            aggregate[key] = aggregate.get(key, 0.0) + weight * frequency
+    return _normalise_distribution(aggregate), "same-scenario-hand-neighbours"
+
+
+def _scenario_distribution(scenario: dict[str, Any], hand_class: str) -> tuple[dict[tuple[str, float | None], float], bool, str]:
+    index = _HAND_INDEX[hand_class]
+    if scenario["hands"][index]:
+        return _normalise_distribution(_decode_hand_actions(scenario, index)), False, "measured-image-cell"
+    distribution, method = _infer_hand_distribution(scenario, hand_class)
+    if distribution:
+        return distribution, True, method
+    # Every source scenario has at least one measured hand, but keep a transparent
+    # last safety branch in case a future source archive is damaged.
+    aggregate: dict[tuple[str, float | None], float] = {}
+    for action, size, frequency in scenario.get("overall", []):
+        key = (str(action), None if size is None else float(size))
+        aggregate[key] = aggregate.get(key, 0.0) + float(frequency)
+    return _normalise_distribution(aggregate), True, "scenario-overall-frequency-fallback"
+
+
+def _choose_scenario(actor_position: str, actual_history: list[dict[str, Any]], rng: Any) -> tuple[dict[str, Any], bool, float]:
+    candidates = [s for s in _scenarios() if s["position"] == actor_position]
+    exact = [s for s in candidates if len(s["history"]) == len(actual_history)
+             and all(_event_matches(want, got) for want, got in zip(s["history"], actual_history))]
+    if exact:
+        # Keep source images as independent records; only select among identical matched histories.
+        if l
