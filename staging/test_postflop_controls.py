@@ -42,19 +42,16 @@ def test_postflop_fold_check_call_bet_raise_controls_are_rebuilt() -> None:
     assert "self._set_table_pot_preset" in source
 
 
-def test_preflop_chart_is_only_used_to_seed_an_editable_default() -> None:
+def test_legacy_preflop_size_helper_is_removed_and_manual_bet_entry_remains() -> None:
     refresh = text_of("_refresh_table_windows")
-    helper = text_of("_preflop_gto_initial_raise_target")
-    assert 'if hand.street == "preflop"' in refresh
-    assert "self._preflop_gto_initial_raise_target(" in refresh
-    assert "preflop_gto_situation_size(table, hand, actor_id)" in helper
-    assert "preflop_gto_action_options" not in helper
-    assert 'situation_frame, "GTO SIZE"' in refresh
-    assert "SIZE = POSITION + PREFLOP RAISE HISTORY (NOT YOUR HAND)" in refresh
+    assert "_preflop_gto_initial_raise_target" not in SOURCE_TEXT
+    assert "_apply_preflop_gto_size" not in SOURCE_TEXT
+    assert "preflop_gto_situation_size" not in SOURCE_TEXT
+    assert "GTO SIZE" not in SOURCE_TEXT
+    assert 'target = minimum' in refresh
     assert 'record["bet_target"].set(' in refresh
     assert 'record["bet_slider"].set(target)' in refresh
     assert 'record["bet_target_cents"].set(target)' in refresh
-    # All amount-editing widgets remain part of the same common UI.
     assert "ttk.Entry(sizes_frame" in refresh
     assert "command=lambda value, tid=slot.table_id: self._on_table_bet_slider" in refresh
 
@@ -71,7 +68,7 @@ if __name__ == "__main__":
     tests = [
         test_every_street_reaches_one_shared_hero_action_renderer,
         test_postflop_fold_check_call_bet_raise_controls_are_rebuilt,
-        test_preflop_chart_is_only_used_to_seed_an_editable_default,
+        test_legacy_preflop_size_helper_is_removed_and_manual_bet_entry_remains,
         test_submitted_hero_action_and_amount_are_not_rewritten,
     ]
     for test in tests:
