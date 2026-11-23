@@ -176,6 +176,66 @@ def _event_matches(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
     return True
 
 
+def resolve_exact_preflop_174_scenario(
+    actor_position: str, actual_history: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    """Return a uniquely matching source scenario; never use nearest-node inference.
+
+    Action order and acting positions must match across the complete history.
+    Recorded raise sizes are checked tightly. A source row with a missing size
+    can match only when the complete position/action sequence identifies one
+    and only one of the 174 source scenarios.
+    """
+    actor = str(actor_position or "").upper()
+    if actor not in POSITIONS or not isinstance(actual_history, list):
+        return None
+
+    matches: list[dict[str, Any]] = []
+    for scenario in _scenarios():
+        if str(scenario.get("position", "")).upper() != actor:
+            continue
+        expected_history = scenario.get("history")
+        if not isinstance(expected_history, list) or len(expected_history) != len(actual_history):
+            continue
+
+        matched = True
+        for expected, actual in zip(expected_history, actual_history):
+            if not isinstance(expected, dict) or not isinstance(actual, dict):
+                matched = False
+                break
+            expected_position = str(expected.get("position", "")).upper()
+            actual_position = str(actual.get("position", "")).upper()
+            expected_action = _normalise_action(expected.get("action"))
+            actual_action = _normalise_action(actual.get("action"))
+            if expected_position != actual_position or expected_action != actual_action:
+                matched = False
+                break
+            if expected_action == "raise":
+                expected_size = expected.get("size_bb")
+                actual_size = actual.get("size_bb")
+                if expected_size is not None:
+                    if actual_size is None:
+                        matched = False
+                        break
+                    try:
+                        e, a = float(expected_size), float(actual_size)
+                    except (TypeError, ValueError, OverflowError):
+                        matched = False
+                        break
+                    if not math.isfinite(e) or not math.isfinite(a):
+                        matched = False
+                        break
+                    if abs(e - a) > max(0.03, abs(e) * 0.01):
+                        matched = False
+                        break
+        if matched:
+            matches.append(scenario)
+
+    # If incomplete source size metadata makes more than one node plausible,
+    # do not guess which paid image belongs to the current hand.
+    return matches[0] if len(matches) == 1 else None
+
+
 def _event_cost(expected: dict[str, Any], actual: dict[str, Any]) -> float:
     ep, ap = str(expected.get("position", "")).upper(), actual["position"]
     ea, aa = _normalise_action(expected.get("action")), actual["action"]
