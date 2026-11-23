@@ -94,23 +94,26 @@ def test_range_view_displays_one_source_bitmap_without_canvas_redrawing():
     assert "top_left_of_anchor=True" in view
 
 
-def test_range_icon_stays_clickable_and_explains_unavailable_nodes():
+def test_range_icon_is_disabled_and_unbound_without_a_paid_exact_match():
     updater = source_of("_update_range_icon_state")
     opener = source_of("_open_realtime_preflop_range")
+    assert 'canvas.configure(state="disabled", cursor="arrow")' in updater
+    assert 'canvas.unbind("<Button-1>")' in updater
     assert 'canvas.configure(state="normal", cursor="hand2")' in updater
-    assert "この状況に一致する元画像レンジはありません。" in opener
-    assert "レンジ料金も発生していません。" in opener
+    assert "chart is None" in opener and "return" in opener
+    assert "推測画像" not in opener
 
 
-def test_live_range_button_requires_exact_node_and_current_hero_turn():
+def test_live_range_button_requires_a_unique_exact_174_match_and_hero_turn():
     resolver = source_of("_range_chart_for_table")
     updater = source_of("_update_range_icon_state")
     opener = source_of("_open_realtime_preflop_range")
-    assert "preflop_range_image_for_situation" not in resolver
-    assert "return None" in resolver
-    assert "never display a guessed or mismatched source image" in resolver
+    assert "resolve_exact_preflop_174_scenario" in resolver
+    assert "_preflop_174_actual_history" in resolver
+    assert '"match_mode": "exact-174"' in resolver
+    assert "source_id not in range(128, 302)" in resolver
     assert "chart is None" in opener and "return" in opener
-    assert "state=" in updater and "enabled" in updater
+    assert "canvas.unbind" in updater and "enabled" in updater
     assert "_range_chart_for_table" in updater
 
 
@@ -130,11 +133,12 @@ def test_live_range_charges_shared_wallet_once_per_hand_not_stack():
     assert "range_paid_hand_key" in source_of("_cash_state_snapshot")
 
 
-def test_historical_range_uses_only_events_before_hero_first_action():
+def test_historical_range_uses_only_events_before_hero_first_action_and_exact_174_match():
     helper = source_of("_historical_preflop_range_chart")
     opener = source_of("_open_pokercraft_history_range")
-    assert "Historical range lookup is disabled with the retired policy." in helper
-    assert "return None" in helper
+    assert "normalized_events[:hero_decision_index]" in helper
+    assert "resolve_exact_preflop_174_scenario" in helper
+    assert '"match_mode": "exact-174"' in helper
     assert "preflop_gto_range_for_situation" not in helper
     assert "Historical review • FREE" in opener
 
