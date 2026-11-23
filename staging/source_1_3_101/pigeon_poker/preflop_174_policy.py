@@ -9,6 +9,30 @@ from typing import Any
 from .preflop_174_policy_data import load_preflop_174_data
 
 POSITIONS = ("UTG", "HJ", "CO", "BTN", "SB", "BB")
+
+# These source-ID pairs were checked against the original 174-image archive
+# and contain visually identical range matrices (some differ only by a
+# one-pixel capture artifact). They are aliases only for selecting the
+# bitmap to display; the BOT's 174 strategy rows remain separate.
+_RANGE_IMAGE_ALIAS_GROUPS = (
+    (148, 288),
+    (196, 205),
+    (195, 204),
+    (201, 211),
+    (238, 243),
+    (239, 244),
+    (245, 251),
+    (259, 263),
+)
+
+
+def _range_image_canonical_id(source_id: int) -> int:
+    for group in _RANGE_IMAGE_ALIAS_GROUPS:
+        if source_id in group:
+            return min(group)
+    return source_id
+
+
 POSITION_BY_SEAT_FROM_BUTTON = ("BTN", "SB", "BB", "UTG", "HJ", "CO")
 RANKS = "AKQJT98765432"
 _HAND_ORDER = tuple(load_preflop_174_data()["hand_order"])
@@ -17,7 +41,55 @@ _HAND_INDEX = {value: index for index, value in enumerate(_HAND_ORDER)}
 
 @lru_cache(maxsize=1)
 def _scenarios() -> tuple[dict[str, Any], ...]:
-    return tuple(load_preflop_174_data()["scenarios"])
+    # Copy the source scenario records so verified header corrections can be
+    # applied without mutating the compressed source payload.
+    scenarios = [dict(item) for item in load_preflop_174_data()["scenarios"]]
+    by_id = {int(item["id"]): item for item in scenarios}
+
+    # Full-screen source screenshot #244 was rechecked: its header shows
+    # CO folds after SB's 21BB raise; it does NOT show a CO all-in.
+    # #244's cropped range matrix is byte-identical to #239, whose action
+    # history correctly records CO fold. Fix both BOT matching and paid-range
+    # resolution at the source-record layer, retaining both source IDs.
+    source_239 = by_id.get(239)
+    source_244 = by_id.get(244)
+    if source_239 is not None and source_244 is not None:
+        source_244["history"] = [
+            dict(event) for event in source_239.get("history", [])
+        ]
+
+    # Full-screen source screenshot #252:
+    # CO raise 2.3 -> BTN raise 7.5 -> SB fold -> BB raise 20 ->
+    # CO all-in to 100 -> BTN fold; BB is now to act.
+    # The previous transcription omitted SB fold and the BTN fold response.
+    source_252 = by_id.get(252)
+    if source_252 is not None:
+        source_252["history"] = [
+            {"position": "CO", "action": "raise", "size_bb": 2.3},
+            {"position": "BTN", "action": "raise", "size_bb": 7.5},
+            {"position": "SB", "action": "fold", "size_bb": None},
+            {"position": "BB", "action": "raise", "size_bb": 20.0},
+            {"position": "CO", "action": "allin", "size_bb": 100.0},
+            {"position": "BTN", "action": "fold", "size_bb": None},
+        ]
+
+    # Full-screen source screenshot #253 is a DIFFERENT node:
+    # CO raise 2.3 -> BTN raise 7.5 -> SB fold -> BB raise 20 ->
+    # CO fold -> BTN all-in to 100; BB is now to act.
+    # Do not collapse it with #252: their action histories and range
+    # matrices differ.
+    source_253 = by_id.get(253)
+    if source_253 is not None:
+        source_253["history"] = [
+            {"position": "CO", "action": "raise", "size_bb": 2.3},
+            {"position": "BTN", "action": "raise", "size_bb": 7.5},
+            {"position": "SB", "action": "fold", "size_bb": None},
+            {"position": "BB", "action": "raise", "size_bb": 20.0},
+            {"position": "CO", "action": "fold", "size_bb": None},
+            {"position": "BTN", "action": "allin", "size_bb": 100.0},
+        ]
+
+    return tuple(scenarios)
 
 
 def _normalise_action(value: Any) -> str:
@@ -174,6 +246,82 @@ def _event_matches(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
     if action in {"raise", "allin"}:
         return _size_matches(expected.get("size_bb"), actual.get("size_bb"))
     return True
+
+
+def resolve_exact_preflop_174_scenario(
+    actor_position: str, actual_history: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    """Return a uniquely matching source scenario; never use nearest-node inference.
+
+    Action order and acting positions must match across the complete history.
+    Recorded raise sizes are checked tightly. A source row with a missing size
+    can match only when the complete position/action sequence identifies one
+    and only one of the 174 source scenarios.
+    """
+    actor = str(actor_position or "").upper()
+    if actor not in POSITIONS or not isinstance(actual_history, list):
+        return None
+
+    matches: list[dict[str, Any]] = []
+    for scenario in _scenarios():
+        if str(scenario.get("position", "")).upper() != actor:
+            continue
+        expected_history = scenario.get("history")
+        if not isinstance(expected_history, list) or len(expected_history) != len(actual_history):
+            continue
+
+        matched = True
+        for expected, actual in zip(expected_history, actual_history):
+            if not isinstance(expected, dict) or not isinstance(actual, dict):
+                matched = False
+                break
+            expected_position = str(expected.get("position", "")).upper()
+            actual_position = str(actual.get("position", "")).upper()
+            expected_action = _normalise_action(expected.get("action"))
+            actual_action = _normalise_action(actual.get("action"))
+            if expected_position != actual_position or expected_action != actual_action:
+                matched = False
+                break
+            if expected_action in {"raise", "allin"}:
+                expected_size = expected.get("size_bb")
+                actual_size = actual.get("size_bb")
+                if expected_size is not None:
+                    if actual_size is None:
+                        matched = False
+                        break
+                    try:
+                        e, a = float(expected_size), float(actual_size)
+                    except (TypeError, ValueError, OverflowError):
+                        matched = False
+                        break
+                    if not math.isfinite(e) or not math.isfinite(a):
+                        matched = False
+                        break
+                    if abs(e - a) > max(0.03, abs(e) * 0.01):
+                        matched = False
+                        break
+        if matched:
+            matches.append(scenario)
+
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        return None
+
+    # If the complete action history yields multiple records, coalesce only
+    # IDs whose ORIGINAL range PNGs were verified byte-identical. This affects
+    # only the bitmap selector; no strategy rows or frequencies are merged.
+    canonical = {
+        _range_image_canonical_id(int(item.get("id", -1)))
+        for item in matches
+    }
+    if len(canonical) != 1:
+        return None
+    canonical_id = next(iter(canonical))
+    return next(
+        (item for item in matches if int(item.get("id", -1)) == canonical_id),
+        None,
+    )
 
 
 def _event_cost(expected: dict[str, Any], actual: dict[str, Any]) -> float:

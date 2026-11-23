@@ -37,7 +37,11 @@ from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOErr
                           is_gto_plus_supported_postflop_hand, CPUPoolStore, GGCareLedger, CashierLedger, bind_first_matching_tree)
 from pigeon_poker.range_image_catalog import create_range_photo, RangeImageCatalogError
 from pigeon_poker.poker_reasoning import choose_range_aware_action
-from pigeon_poker.preflop_174_policy import choose_preflop_174_action
+from pigeon_poker.preflop_174_policy import (
+    choose_preflop_174_action, resolve_exact_preflop_174_scenario,
+    _actual_history as _preflop_174_actual_history,
+    _position_map as _preflop_174_position_map,
+)
 from pigeon_poker.cpu_learning import CPULearningStore
 from pigeon_poker.multitable import MultiTableRegistry, next_big_blind_index_after_rotation
 from pigeon_poker.betting_ui import (DEFAULT_POT_PRESETS, normalize_pot_presets, format_chip_amount,
@@ -3772,6 +3776,7 @@ class PigeonPokerApp(tk.Tk):
         canvas.create_line(23, 3, 23, 7, fill=color, width=1.8)
 
     def _range_chart_for_table(self, slot, hand):
+        """Return a chart only for one uniquely identified source 174 scenario."""
         if hand is None or bool(getattr(hand, "finished", False)):
             return None
         if bool(slot.state.get("cash_busy", False)) or bool(slot.state.get("cash_deal_busy", False)):
@@ -3782,10 +3787,31 @@ class PigeonPokerApp(tk.Tk):
             return None
         if str(getattr(hand, "next_to_act", "") or "") != "hero":
             return None
-        # The previous range resolver depended on the retired preflop policy.
-        # The 174-scenario catalogue will replace this lookup together with the
-        # new CPU policy; never display a guessed or mismatched source image.
-        return None
+        try:
+            positions = _preflop_174_position_map(
+                slot.state.get("cash_table"), hand
+            )
+            actor_position = positions.get("hero")
+            history = _preflop_174_actual_history(
+                slot.state.get("cash_table"), hand, "hero", positions
+            )
+            scenario = resolve_exact_preflop_174_scenario(actor_position, history)
+        except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
+            return None
+        if scenario is None:
+            return None
+        try:
+            source_id = int(scenario["id"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return None
+        if source_id not in range(128, 302):
+            return None
+        return {
+            "source_id": source_id,
+            "scenario_id": source_id,
+            "actor_position": str(actor_position),
+            "match_mode": "exact-174",
+        }
 
     def _refresh_live_range_icons(self):
         for table_id, record in list(getattr(self, "table_windows", {}).items()):
@@ -3813,18 +3839,13 @@ class PigeonPokerApp(tk.Tk):
             current_key,
         )
         paid = bool(current_key and slot.state.get("range_paid_hand_key") == current_key)
-        if paid:
-            # The same paid chart remains available through this hand even
-            # after HERO acts or the board advances; reopening never charges again.
-            chart = slot.state.get("range_paid_chart")
+        # A prior payment is only a fee waiver for this hand. It must never
+        # keep an old scenario image clickable after the action history changes.
+        if record.get("range_chart_cache_key") != signature:
+            chart = self._range_chart_for_table(slot, hand)
             record["range_chart_cache"] = chart
             record["range_chart_cache_key"] = signature
-        else:
-            if record.get("range_chart_cache_key") != signature:
-                chart = self._range_chart_for_table(slot, hand)
-                record["range_chart_cache"] = chart
-                record["range_chart_cache_key"] = signature
-            chart = record.get("range_chart_cache")
+        chart = record.get("range_chart_cache")
         # Use the already synchronized wallet cache during high-frequency table
         # refreshes. The click handler re-checks/debits SQLite atomically.
         balance = max(0, int(getattr(self, "cash_balance_cents", 0)))
@@ -3832,13 +3853,16 @@ class PigeonPokerApp(tk.Tk):
         enabled = bool(chart and (paid or (fee > 0 and balance >= fee)))
         if record.get("range_icon_enabled") != enabled:
             self._draw_range_grid_icon(canvas, enabled=enabled)
+            if enabled:
+                canvas.configure(state="normal", cursor="hand2")
+                canvas.bind(
+                    "<Button-1>",
+                    lambda _event, tid=slot.table_id: self._open_realtime_preflop_range(tid),
+                )
+            else:
+                canvas.unbind("<Button-1>")
+                canvas.configure(state="disabled", cursor="arrow")
             record["range_icon_enabled"] = enabled
-        # Keep the icon clickable even when no exact chart is available.
-        # The click handler explains the reason and never charges without a chart.
-        try:
-            canvas.configure(state="normal", cursor="hand2")
-        except tk.TclError:
-            pass
         record["range_paid_for_current_hand"] = paid
         record["range_current_hand_key"] = current_key
 
@@ -3890,14 +3914,13 @@ class PigeonPokerApp(tk.Tk):
         hand = table.hand if table is not None else None
         hand_key = str(slot.state.get("cash_current_hand_key") or f"{table_id}:{id(hand)}")
         paid = str(slot.state.get("range_paid_hand_key") or "") == hand_key
-        chart = slot.state.get("range_paid_chart") if paid else self._range_chart_for_table(slot, hand)
-        if chart is None:
+        # Resolve the CURRENT history every time. A paid chart from an earlier
+        # action is never reused for a different or unsupported situation.
+        chart = self._range_chart_for_table(slot, hand)
+        if chart is None or int(chart.get("source_id", 0) or 0) not in range(128, 302):
+            # Unmatched situations are intentionally inert: no modal, no charge,
+            # and no nearest-scenario substitution.
             self._update_range_icon_state(slot, self.table_windows.get(table_id, {}), hand)
-            messagebox.showinfo(
-                "Preflop range",
-                "この状況に一致する元画像レンジはありません。\n"
-                "推測画像は表示せず、レンジ料金も発生していません。",
-            )
             return
         try:
             range_photo = create_range_photo(self, int(chart["source_id"]))
@@ -4241,8 +4264,9 @@ class PigeonPokerApp(tk.Tk):
                                highlightthickness=0, bd=0, cursor="hand2")
         range_icon.pack(side="left", padx=(1, 7))
         self._draw_range_grid_icon(range_icon, enabled=False)
-        range_icon.configure(state="normal", cursor="hand2")
-        range_icon.bind("<Button-1>", lambda _e, tid=table_id: self._open_realtime_preflop_range(tid))
+        # Live range review is inert until a unique exact 174-scenario match
+        # has been verified for the current preflop history.
+        range_icon.configure(state="disabled", cursor="arrow")
         tk.Label(header, textvariable=title_var, bg="#080e19", fg=COLORS["gold"],
                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=12)
         tk.Label(header, textvariable=status_var, bg="#080e19", fg=COLORS["text"],
@@ -10665,9 +10689,26 @@ class PigeonPokerApp(tk.Tk):
                 players=helper_players, events=prior, big_blind=int(bb_cents),
                 dealer_index=0, street="preflop",
             )
-            # Historical range lookup is disabled with the retired policy.
-            # It will be restored against the complete 174-scenario index.
-            return None
+            # Historical range is enabled only when HERO's complete prior
+            # action history uniquely identifies one of the 174 source charts.
+            position_table = SimpleNamespace(dealer_index=0, big_blind=int(bb_cents))
+            positions = _preflop_174_position_map(position_table, hand)
+            actor_position = positions.get(hero_id)
+            history = _preflop_174_actual_history(
+                position_table, hand, hero_id, positions
+            )
+            scenario = resolve_exact_preflop_174_scenario(actor_position, history)
+            if scenario is None:
+                return None
+            source_id = int(scenario["id"])
+            if source_id not in range(128, 302):
+                return None
+            return {
+                "source_id": source_id,
+                "scenario_id": source_id,
+                "actor_position": str(actor_position),
+                "match_mode": "exact-174",
+            }
         except Exception:
             return None
 

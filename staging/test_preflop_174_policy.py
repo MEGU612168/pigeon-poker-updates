@@ -11,7 +11,7 @@ sys.path.insert(0, str(SOURCE))
 from pigeon_poker.preflop_174_policy import (
     _HAND_INDEX, _actual_history, _choose_scenario, _position_map,
     _scenario_distribution, _scenarios, choose_preflop_174_action,
-    preflop_174_catalog_summary,
+    preflop_174_catalog_summary, resolve_exact_preflop_174_scenario,
 )
 
 
@@ -106,6 +106,51 @@ def test_same_actor_multiple_actions_are_preserved():
     assert scenario["id"] == 180 and not inferred and distance == 0.0
 
 
+def test_scenario_244_fullscreen_header_correction_matches_source_239():
+    source = {int(item["id"]): item for item in _scenarios()}
+    scenario_239 = source[239]
+    scenario_244 = source[244]
+    assert scenario_244["position"] == "BTN"
+    assert scenario_244["history"] == scenario_239["history"]
+    assert scenario_244["history"][-1]["position"] == "CO"
+    assert scenario_244["history"][-1]["action"] == "fold"
+    assert not any(
+        str(item.get("action", "")).lower() == "allin"
+        and str(item.get("position", "")).upper() == "CO"
+        for item in scenario_244["history"]
+    )
+
+
+def test_scenarios_252_and_253_preserve_distinct_fullscreen_action_histories():
+    by_id = {int(item["id"]): item for item in _scenarios()}
+    history_252 = by_id[252]["history"]
+    history_253 = by_id[253]["history"]
+    assert by_id[252]["position"] == "BB"
+    assert by_id[253]["position"] == "BB"
+    assert [(e["position"], e["action"], e.get("size_bb")) for e in history_252] == [
+        ("CO", "raise", 2.3),
+        ("BTN", "raise", 7.5),
+        ("SB", "fold", None),
+        ("BB", "raise", 20.0),
+        ("CO", "allin", 100.0),
+        ("BTN", "fold", None),
+    ]
+    assert [(e["position"], e["action"], e.get("size_bb")) for e in history_253] == [
+        ("CO", "raise", 2.3),
+        ("BTN", "raise", 7.5),
+        ("SB", "fold", None),
+        ("BB", "raise", 20.0),
+        ("CO", "fold", None),
+        ("BTN", "allin", 100.0),
+    ]
+    assert history_252 != history_253
+    assert by_id[252]["hands"] != by_id[253]["hands"]
+    resolved_252 = resolve_exact_preflop_174_scenario("BB", list(history_252))
+    resolved_253 = resolve_exact_preflop_174_scenario("BB", list(history_253))
+    assert resolved_252 is not None and int(resolved_252["id"]) == 252
+    assert resolved_253 is not None and int(resolved_253["id"]) == 253
+
+
 def test_scenario_251_actor_is_btn():
     events = [event("co", "raise", 230), event("btn", "raise", 750),
               event("sb", "fold"), event("bb", "raise", 2000), event("co", "allin", 10000)]
@@ -113,6 +158,85 @@ def test_scenario_251_actor_is_btn():
     history = _actual_history(FakeTable(), hand, "btn", _position_map(FakeTable(), hand))
     scenario, inferred, distance = _choose_scenario("BTN", history, FakeCPU().rng)
     assert scenario["id"] == 251 and not inferred and distance == 0.0
+
+
+def test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges():
+    alias_groups = (
+        (148, 288), (196, 205), (195, 204), (201, 211), (238, 243),
+        (239, 244), (245, 251), (259, 263),
+    )
+    alias_pairs = {frozenset(group) for group in alias_groups}
+    covered_ids = set()
+    for source in _scenarios():
+        source_id = int(source["id"])
+        matched = resolve_exact_preflop_174_scenario(
+            source["position"], list(source["history"])
+        )
+        if matched is None:
+            candidates = [
+                item for item in _scenarios()
+                if item["position"] == source["position"]
+                and len(item["history"]) == len(source["history"])
+                and all(
+                    str(want.get("position", "")).upper() == str(got.get("position", "")).upper()
+                    and str(want.get("action", "")).lower() == str(got.get("action", "")).lower()
+                    for want, got in zip(item["history"], source["history"])
+                )
+            ]
+            print("UNRESOLVED 174 RANGE", source_id, source["history"],
+                  "CANDIDATES", [(item["id"], item["history"]) for item in candidates])
+        assert matched is not None, source_id
+        assert matched["position"] == source["position"], source_id
+        matched_id = int(matched["id"])
+        if matched_id != source_id:
+            assert frozenset((source_id, matched_id)) in alias_pairs, (
+                source_id, matched_id
+            )
+            source_history = source["history"]
+            matched_history = next(
+                item["history"] for item in _scenarios()
+                if int(item["id"]) == matched_id
+            )
+            assert source_history == matched_history, (source_id, matched_id)
+        covered_ids.add(source_id)
+    assert covered_ids == set(range(128, 302))
+
+
+def test_identical_image_aliases_never_merge_different_action_histories():
+    alias_groups = (
+        (148, 288), (196, 205), (195, 204), (201, 211), (238, 243),
+        (239, 244), (245, 251), (259, 263),
+    )
+    by_id = {int(item["id"]): item for item in _scenarios()}
+    for first_id, second_id in alias_groups:
+        first, second = by_id[first_id], by_id[second_id]
+        first_match = resolve_exact_preflop_174_scenario(
+            first["position"], list(first["history"])
+        )
+        second_match = resolve_exact_preflop_174_scenario(
+            second["position"], list(second["history"])
+        )
+        assert first_match is not None and second_match is not None
+        if first["history"] == second["history"]:
+            assert int(first_match["id"]) == int(second_match["id"]) == min(
+                first_id, second_id
+            )
+        else:
+            assert int(first_match["id"]) == first_id
+            assert int(second_match["id"]) == second_id
+
+
+def test_exact_range_resolver_rejects_unlisted_or_size_mismatched_histories():
+    source = next(item for item in _scenarios() if item["id"] == 146)
+    wrong = [dict(item) for item in source["history"]]
+    raise_event = next(item for item in wrong if item["action"] == "raise")
+    raise_event["size_bb"] = float(raise_event["size_bb"]) + 0.5
+    assert resolve_exact_preflop_174_scenario(source["position"], wrong) is None
+
+    extra_action = [dict(item) for item in source["history"]]
+    extra_action.append({"position": "UTG", "action": "fold", "size_bb": None})
+    assert resolve_exact_preflop_174_scenario(source["position"], extra_action) is None
+    assert resolve_exact_preflop_174_scenario("UNKNOWN", list(source["history"])) is None
 
 
 def test_unclassified_cell_is_inferred_not_folded():
@@ -134,7 +258,12 @@ if __name__ == "__main__":
         test_bb_vs_btn_open_matches_source_146_and_uses_13bb,
         test_same_actor_multiple_actions_are_preserved,
         test_scenario_251_actor_is_btn,
+        test_scenarios_252_and_253_preserve_distinct_fullscreen_action_histories,
+        test_scenario_244_fullscreen_header_correction_matches_source_239,
         test_unclassified_cell_is_inferred_not_folded,
+        test_exact_range_resolver_covers_all_174_histories_without_mixing_ranges,
+        test_identical_image_aliases_never_merge_different_action_histories,
+        test_exact_range_resolver_rejects_unlisted_or_size_mismatched_histories,
         test_preflop_policy_is_cpu_level_independent,
     ]
     for test in tests:
