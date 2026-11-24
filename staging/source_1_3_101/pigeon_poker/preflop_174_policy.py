@@ -341,13 +341,14 @@ def _strict_range_history_matches(
         action = _normalise_action(expected.get("action"))
         if action != _normalise_action(actual.get("action")):
             return False
-        if action in {"raise", "allin"}:
-            # A missing size may be tolerated by BOT inference, but never by
-            # a paid screenshot lookup: it could select the wrong source chart.
+        if action == "raise":
+            # A missing raise size could select a different paid source chart.
             if expected.get("size_bb") is None or actual.get("size_bb") is None:
                 return False
             if not _size_matches(expected.get("size_bb"), actual.get("size_bb")):
                 return False
+        # All-in is an action class here. Some source histories do not record
+        # a target size for the shove, so never reject them only for that.
     return True
 
 
