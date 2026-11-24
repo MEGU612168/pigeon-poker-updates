@@ -102,7 +102,7 @@ def _same_action(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
     action = str(expected.get("action", "")).lower()
     if action != str(actual.get("action", "")).lower():
         return False
-    if action in {"raise", "allin"}:
+    if action == "raise":
         try:
             expected_size = float(expected.get("size_bb"))
             actual_size = float(actual.get("amount_bb"))
