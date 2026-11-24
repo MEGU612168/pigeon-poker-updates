@@ -389,6 +389,10 @@ def exact_preflop_174_source_image(
     actual_history = _actual_history(table, hand, str(player_id), positions)
     return find_exact_preflop_174_scenario(actor_position, actual_history)
 
+def exact_preflop_174_source_image_for_hero(table: Any, hand: Any) -> int | None:
+    """Convenience wrapper for the live cash-table hero."""
+    return exact_preflop_174_source_image(table, hand, "hero")
+
 def _legal_actions(legal: dict[str, Any]) -> set[str]:
     return {_normalise_action(value) for value in legal.get("actions", ())}
 
