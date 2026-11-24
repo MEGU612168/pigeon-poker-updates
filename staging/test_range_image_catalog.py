@@ -40,7 +40,7 @@ def test_paid_range_lookup_never_uses_nearest_node_inference():
 def test_missing_raise_sizes_do_not_create_false_exact_matches():
     for scenario in _scenarios():
         history = _history(scenario)
-        if any(item["action"] in {"raise", "allin"} and item.get("size_bb") is None
+        if any(item["action"] == "raise" and item.get("size_bb") is None
                for item in history):
             assert find_exact_preflop_174_scenario(scenario["position"], history) is None
 
@@ -58,11 +58,30 @@ def test_changed_raise_size_is_not_treated_as_the_original_situation():
     assert find_exact_preflop_174_scenario(candidate["position"], history) is None
 
 
+def test_allin_without_target_size_is_still_an_exact_action_class():
+    scenario = next(
+        scenario for scenario in _scenarios()
+        if any(item.get("action") == "allin" and item.get("size_bb") is None
+               for item in scenario.get("history", []))
+    )
+    history = _history(scenario)
+    assert find_exact_preflop_174_scenario(scenario["position"], history) == int(scenario["id"])
+
+
+def test_key_source_situations_146_and_147_keep_their_own_image_ids():
+    by_id = {int(item["id"]): item for item in _scenarios()}
+    for source_id in (146, 147):
+        scenario = by_id[source_id]
+        assert find_exact_preflop_174_scenario(
+            scenario["position"], _history(scenario)
+        ) == source_id
+
+
 def test_all_unambiguous_fully_sized_histories_resolve_to_their_source_id():
     keyed = {}
     for scenario in _scenarios():
         history = _history(scenario)
-        if any(item["action"] in {"raise", "allin"} and item.get("size_bb") is None
+        if any(item["action"] == "raise" and item.get("size_bb") is None
                for item in history):
             continue
         key = (scenario["position"], tuple(
@@ -87,6 +106,8 @@ def run_tests():
         test_paid_range_lookup_never_uses_nearest_node_inference,
         test_missing_raise_sizes_do_not_create_false_exact_matches,
         test_changed_raise_size_is_not_treated_as_the_original_situation,
+        test_allin_without_target_size_is_still_an_exact_action_class,
+        test_key_source_situations_146_and_147_keep_their_own_image_ids,
         test_all_unambiguous_fully_sized_histories_resolve_to_their_source_id,
     ]
     for test in tests:
