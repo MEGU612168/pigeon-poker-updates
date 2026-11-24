@@ -10,6 +10,8 @@ on:
       - "staging/source_1_3_101/pigeon_poker/preflop_cleanup.py"
       - "staging/source_1_3_101/pigeon_poker/preflop_174_policy.py"
       - "staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py"
+      - "staging/source_1_3_101/pigeon_poker/range_image_catalog.py"
+      - "staging/test_range_image_catalog.py"
       - "staging/test_preflop_174_policy.py"
       - "staging/test_preflop_legacy_cleanup.py"
       - "staging/test_preflop_policy_removed.py"
@@ -23,6 +25,8 @@ on:
       - "staging/source_1_3_101/pigeon_poker/preflop_cleanup.py"
       - "staging/source_1_3_101/pigeon_poker/preflop_174_policy.py"
       - "staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py"
+      - "staging/source_1_3_101/pigeon_poker/range_image_catalog.py"
+      - "staging/test_range_image_catalog.py"
       - "staging/test_preflop_174_policy.py"
       - "staging/test_preflop_legacy_cleanup.py"
       - "staging/test_preflop_policy_removed.py"
@@ -46,7 +50,9 @@ jobs:
           python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_174_policy.py
           python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py
       - name: Verify PokerCraft, live-flow and range controls
-        run: python staging/test_pokercraft_features.py
+        run: |
+          python staging/test_pokercraft_features.py
+          python staging/test_range_image_catalog.py
       - name: Verify legacy preflop strategy retirement
         run: |
           python staging/test_preflop_legacy_cleanup.py
