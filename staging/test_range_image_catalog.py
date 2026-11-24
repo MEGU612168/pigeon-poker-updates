@@ -30,10 +30,11 @@ def test_catalog_still_contains_exactly_174_source_scenarios():
 
 
 def test_paid_range_lookup_never_uses_nearest_node_inference():
-    assert find_exact_preflop_174_scenario("UTG", []) is None
     assert find_exact_preflop_174_scenario("UNKNOWN", []) is None
-    assert find_exact_preflop_174_scenario("CO", [
-        {"position": "UTG", "action": "raise", "size_bb": 99.0}
+    # An impossible raise size must not be treated as a nearest-node match,
+    # even if UTG has a legitimate empty-history source node.
+    assert find_exact_preflop_174_scenario("UTG", [
+        {"position": "UTG", "action": "raise", "size_bb": 9999.0}
     ]) is None
 
 
