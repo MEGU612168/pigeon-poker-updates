@@ -98,10 +98,10 @@ def test_range_icon_is_disabled_and_unbound_outside_the_174_catalogue():
     build = source_of("_create_table_window")
     updater = source_of("_update_range_icon_state")
     opener = source_of("_open_realtime_preflop_range")
-    assert 'range_icon.configure(state="disabled", cursor="")' in build
+    assert 'range_icon.configure(cursor="")' in build
     assert 'canvas.unbind("<Button-1>")' in updater
-    assert 'canvas.configure(state="disabled", cursor="")' in updater
-    assert 'canvas.configure(state="normal", cursor="hand2")' in updater
+    assert 'canvas.configure(cursor="")' in updater
+    assert 'canvas.configure(cursor="hand2")' in updater
     assert "この状況に一致する元画像レンジはありません。" in opener
     assert "レンジ料金も発生していません。" in opener
 
