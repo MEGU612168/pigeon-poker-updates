@@ -327,6 +327,67 @@ def _choose_scenario(actor_position: str, actual_history: list[dict[str, Any]], 
     return selected, True, best_score
 
 
+
+def _strict_range_history_matches(
+    expected_history: list[dict[str, Any]],
+    actual_history: list[dict[str, Any]],
+) -> bool:
+    """Match a paid range image only when every action and raise size is known."""
+    if len(expected_history) != len(actual_history):
+        return False
+    for expected, actual in zip(expected_history, actual_history):
+        if str(expected.get("position", "")).upper() != str(actual.get("position", "")).upper():
+            return False
+        action = _normalise_action(expected.get("action"))
+        if action != _normalise_action(actual.get("action")):
+            return False
+        if action in {"raise", "allin"}:
+            # A missing size may be tolerated by BOT inference, but never by
+            # a paid screenshot lookup: it could select the wrong source chart.
+            if expected.get("size_bb") is None or actual.get("size_bb") is None:
+                return False
+            if not _size_matches(expected.get("size_bb"), actual.get("size_bb")):
+                return False
+    return True
+
+
+def find_exact_preflop_174_scenario(
+    actor_position: str,
+    actual_history: list[dict[str, Any]],
+) -> int | None:
+    """Return a unique exact source-image ID; never use nearest-node inference."""
+    actor = str(actor_position or "").upper()
+    if actor not in POSITIONS:
+        return None
+    matches = [
+        scenario for scenario in _scenarios()
+        if str(scenario.get("position", "")).upper() == actor
+        and _strict_range_history_matches(list(scenario.get("history", []) or []), actual_history)
+    ]
+    # If multiple source charts share the same visible history, do not guess.
+    if len(matches) != 1:
+        return None
+    try:
+        return int(matches[0]["id"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+
+
+def exact_preflop_174_source_image(
+    table: Any,
+    hand: Any,
+    player_id: str,
+) -> int | None:
+    """Resolve the actor's exact 174-node image for a live decision."""
+    if str(getattr(hand, "next_to_act", "") or "") != str(player_id):
+        return None
+    positions = _position_map(table, hand)
+    actor_position = positions.get(str(player_id))
+    if actor_position not in POSITIONS:
+        return None
+    actual_history = _actual_history(table, hand, str(player_id), positions)
+    return find_exact_preflop_174_scenario(actor_position, actual_history)
+
 def _legal_actions(legal: dict[str, Any]) -> set[str]:
     return {_normalise_action(value) for value in legal.get("actions", ())}
 
