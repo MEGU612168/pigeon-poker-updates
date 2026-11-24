@@ -61,8 +61,12 @@ def test_changed_raise_size_is_not_treated_as_the_original_situation():
 def test_allin_without_target_size_is_still_an_exact_action_class():
     scenario = next(
         scenario for scenario in _scenarios()
-        if any(item.get("action") == "allin" and item.get("size_bb") is None
-               for item in scenario.get("history", []))
+        if (
+            any(item.get("action") == "allin" and item.get("size_bb") is None
+                for item in scenario.get("history", []))
+            and not any(item.get("action") == "raise" and item.get("size_bb") is None
+                        for item in scenario.get("history", []))
+        )
     )
     history = _history(scenario)
     assert find_exact_preflop_174_scenario(scenario["position"], history) == int(scenario["id"])
@@ -114,3 +118,7 @@ def run_tests():
         test()
         print("PASS", test.__name__)
     print("ALL PASS", len(tests), "174-range lookup tests")
+
+
+if __name__ == "__main__":
+    run_tests()
