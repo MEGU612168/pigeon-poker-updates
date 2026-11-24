@@ -3843,16 +3843,16 @@ class PigeonPokerApp(tk.Tk):
             record["range_icon_enabled"] = enabled
         try:
             if enabled:
-                canvas.configure(state="normal", cursor="hand2")
+                canvas.configure(cursor="hand2")
                 canvas.bind(
                     "<Button-1>",
                     lambda _event, tid=slot.table_id: self._open_realtime_preflop_range(tid),
                 )
             else:
                 # Non-catalogued situations are not just greyed out: there is
-                # no click binding and the widget itself is disabled.
+                # no click binding; Tk Canvas has no widget-level state option.
                 canvas.unbind("<Button-1>")
-                canvas.configure(state="disabled", cursor="")
+                canvas.configure(cursor="")
         except tk.TclError:
             pass
         record["range_paid_for_current_hand"] = paid
@@ -4257,8 +4257,8 @@ class PigeonPokerApp(tk.Tk):
                                highlightthickness=0, bd=0, cursor="hand2")
         range_icon.pack(side="left", padx=(1, 7))
         self._draw_range_grid_icon(range_icon, enabled=False)
-        # Start disabled; _update_range_icon_state binds only an exact 174-node match.
-        range_icon.configure(state="disabled", cursor="")
+        # Start without a click binding; only an exact 174-node match enables it.
+        range_icon.configure(cursor="")
         tk.Label(header, textvariable=title_var, bg="#080e19", fg=COLORS["gold"],
                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=12)
         tk.Label(header, textvariable=status_var, bg="#080e19", fg=COLORS["text"],
