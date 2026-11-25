@@ -7,12 +7,14 @@ import random
 import sys
 import types
 from pathlib import Path
+from types import SimpleNamespace
 
 
 # The policy module uses the app's CPUAction and Hold'em evaluator. Provide
 # compatible deterministic test doubles so this suite runs in GitHub Actions.
 pkg = types.ModuleType("pigeon_poker")
-pkg.__path__ = []
+SOURCE_DIR = Path(__file__).with_name("source_1_3_101")
+pkg.__path__ = [str(SOURCE_DIR / "pigeon_poker")]
 sys.modules["pigeon_poker"] = pkg
 
 cpu_mod = types.ModuleType("pigeon_poker.cpu")
@@ -1629,6 +1631,90 @@ def test_semi_bluff_draw_strength_uses_call_range_improvement_equity():
     assert clean_draw > 0.50
     assert no_improvement == 0.22
     assert river == 0.0
+
+
+def test_174_chart_bayesian_ranges_update_from_recorded_action_and_learned_stats():
+    players = [
+        FakePlayer("btn"), FakePlayer("sb"), FakePlayer("bb"),
+        FakePlayer("utg"), FakePlayer("hj"), FakePlayer("co"),
+    ]
+    hand = FakeHand(
+        players, board=(), pot=150, street="preflop",
+        to_call=0, actions=("check", "raise", "fold"),
+    )
+    hand.big_blind = 100
+    hand.events = [
+        {"type": "action", "street": "preflop", "player_id": "utg", "action": "fold"},
+        {"type": "action", "street": "preflop", "player_id": "hj", "action": "fold"},
+        {"type": "action", "street": "preflop", "player_id": "co", "action": "fold"},
+        {"type": "action", "street": "preflop", "player_id": "btn",
+         "action": "raise", "target": 250, "paid": 250},
+        {"type": "action", "street": "preflop", "player_id": "sb", "action": "fold"},
+    ]
+    learned = {
+        "btn": {"sample_hands": 40.0, "postflop_call_rate": 0.52,
+                "postflop_aggression_rate": 0.34, "fold_to_bet_rate": 0.41},
+    }
+    profiles = {"btn": SimpleNamespace(archetype="aggressive")}
+    estimate = module.build_174_preflop_range_estimate(
+        FakeTable(), hand, learned_profiles=learned, player_profiles=profiles
+    )
+    assert estimate["supported"] is True
+    row = estimate["players"]["btn"]
+    assert row["supported"] is True
+    assert row["observed_preflop_actions"] == 1
+    assert row["confidence"] > 0.16
+    assert row["source"] == "174-preflop-sequential-bayesian-range"
+    assert abs(sum(row["hand_class_probabilities"].values()) - 1.0) < 1e-8
+    assert abs(sum(row["unblocked_hand_class_probabilities"].values()) - 1.0) < 1e-8
+    # A chart-observed BTN open is more compatible with premium hands than 72o.
+    assert row["hand_class_probabilities"]["AA"] > row["hand_class_probabilities"]["72o"]
+    assert row["archetype"] == "aggressive"
+    assert row["learned_behavior"]["sample_hands"] == 40.0
+
+
+def test_174_chart_does_not_invent_a_first_in_limp_range():
+    players = [
+        FakePlayer("btn"), FakePlayer("sb"), FakePlayer("bb"),
+        FakePlayer("utg"), FakePlayer("hj"), FakePlayer("co"),
+    ]
+    hand = FakeHand(players, board=(), street="preflop", actions=("call", "raise", "fold"))
+    hand.events = [
+        {"type": "action", "street": "preflop", "player_id": "utg", "action": "fold"},
+        {"type": "action", "street": "preflop", "player_id": "hj", "action": "fold"},
+        {"type": "action", "street": "preflop", "player_id": "co", "action": "fold"},
+        {"type": "action", "street": "preflop", "player_id": "btn", "action": "call", "paid": 100},
+    ]
+    estimate = module.build_174_preflop_range_estimate(FakeTable(), hand)
+    # An unsupported chart action is not silently converted into a fake range.
+    assert "btn" not in estimate["players"]
+
+
+def test_all_in_call_realizes_raw_equity_but_non_all_in_call_does_not():
+    raw = 0.48
+    realized = 0.86
+    assert module._call_realized_equity(
+        raw, realized, call_is_all_in=True
+    ) == raw
+    assert module._call_realized_equity(
+        raw, realized, call_is_all_in=False
+    ) == raw * realized
+
+
+def test_geometric_bet_size_tracks_spr_and_streets_remaining():
+    flop = module._geometric_bet_fraction(4.0, 3)
+    turn = module._geometric_bet_fraction(4.0, 2)
+    river = module._geometric_bet_fraction(4.0, 1)
+    assert flop is not None and turn is not None and river is not None
+    assert 0.50 < flop < turn < river
+    texture = module._postflop_board_texture(["As", "7d", "2c"])
+    sizes = module._postflop_bet_size_fractions(
+        to_call=False, donk_lead=False, range_advantage=True,
+        range_disadvantage=False, nut_advantage=0.12,
+        expected_callers=1.0, board_texture=texture,
+        spr=4.0, remaining_streets=3,
+    )
+    assert round(flop, 2) in sizes
 
 
 
