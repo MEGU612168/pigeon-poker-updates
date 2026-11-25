@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.5.3",
+  "package_mode": "full",
+  "source_version": "1.3.101",
+  "source_directory": "staging/source_1_3_101",
+  "release_notes": "Pigeon Poker 1.5.3 strengthens local postflop CPU play. It builds sequential Bayesian opponent ranges from the immutable 174-scenario preflop charts and observed raise sizes, feeds those ranges plus persistent opponent behavior into postflop equity and response modeling, corrects equity realization for all-in calls, and adds SPR/street-aware geometric bet sizing. Existing 174 preflop CPU actions and postflop action controls are retained.",
+  "distribution_status": "ready",
+  "preflop_174_policy_verified": true,
+  "postflop_theory_policy_verified": true,
+  "range_image_catalog_verified": true,
+  "windows_native_range_view_verified": true,
+  "preflop_raise_size_selector_verified": true
+}
