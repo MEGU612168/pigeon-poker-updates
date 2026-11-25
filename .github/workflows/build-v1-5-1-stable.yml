@@ -25,7 +25,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python - <<'PY'
+          import base64
+          import hashlib
+          import pathlib
+
+          source = pathlib.Path("staging/source_1_3_101/pigeon_poker")
+          asset = (source / "range_tables_v2.bin").read_bytes()
+          digest = hashlib.sha256(asset).hexdigest()
+          if len(asset) != 848418 or digest != "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715":
+              raise SystemExit("The original 174-range bitmap failed its independent size/hash check.")
+          encoded = base64.b64encode(asset).decode("ascii")
+          module = (
+              "# Generated from range_tables_v2.bin. Kept as .py so the original 1.5.0 updater can accept it.\\n"
+              "RANGE_TABLES_V2_B64 = (\\n"
+              + "".join("    " + repr(encoded[i:i + 100]) + "\\n" for i in range(0, len(encoded), 100))
+              + ")\\n"
+          )
+          (source / "range_tables_v2_asset.py").write_text(module, encoding="utf-8")
+          print(f"Generated legacy-compatible image carrier: {len(asset)} bytes, SHA-256 {digest}")
+          PY
           python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
+          python -m py_compile staging/source_1_3_101/pigeon_poker/range_image_catalog.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/range_tables_v2_asset.py
           python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_cleanup.py
           python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_174_policy.py
           python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py
@@ -98,8 +120,11 @@ jobs:
           image_asset_sha256 = hashlib.sha256(image_asset).hexdigest()
           if len(image_asset) != 848418 or image_asset_sha256 != "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715":
               raise SystemExit("The 174 range bitmap failed its source size or SHA-256 check.")
-          files["pigeon_poker/range_tables_v2.bin"] = image_asset_path
-          required = {"PigeonPoker.pyw", "pigeon_updater.py", "pigeon_poker/range_tables_v2.bin"}
+          asset_module_path = source_dir / "pigeon_poker" / "range_tables_v2_asset.py"
+          if not asset_module_path.is_file():
+              raise SystemExit("The legacy-compatible 174-range Python asset carrier is missing.")
+          files["pigeon_poker/range_tables_v2_asset.py"] = asset_module_path
+          required = {"PigeonPoker.pyw", "pigeon_updater.py", "pigeon_poker/range_tables_v2_asset.py"}
           if not required.issubset(files):
               raise SystemExit("Application root source files are incomplete")
 
@@ -136,16 +161,35 @@ jobs:
           with tempfile.TemporaryDirectory() as tmp:
               extracted_root = pathlib.Path(tmp) / "extract"
               extracted = updater._validate_and_extract(payload, manifest_for_test, extracted_root)
-              extracted_image_sha256 = hashlib.sha256((extracted_root / "pigeon_poker" / "range_tables_v2.bin").read_bytes()).hexdigest()
+              carrier_path = extracted_root / "pigeon_poker" / "range_tables_v2_asset.py"
+              carrier_scope = {}
+              exec(compile(carrier_path.read_text(encoding="utf-8"), str(carrier_path), "exec"), carrier_scope)
+              extracted_asset = base64.b64decode(carrier_scope["RANGE_TABLES_V2_B64"], validate=True)
+              extracted_image_sha256 = hashlib.sha256(extracted_asset).hexdigest()
           extracted_set = set(extracted)
           if not {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}.issubset(extracted_set):
               raise SystemExit("Shipped updater did not extract every required root file")
           if "pigeon_poker/preflop_gto_strategy.py" in extracted_set:
               raise SystemExit("Retired legacy preflop policy must not be bundled")
-          if "pigeon_poker/range_tables_v2.bin" not in extracted_set:
-              raise SystemExit("The 174 range bitmap is missing from the validated update ZIP")
+          if "pigeon_poker/range_tables_v2_asset.py" not in extracted_set:
+              raise SystemExit("The 174 range bitmap carrier is missing from the validated update ZIP")
+          if "pigeon_poker/range_tables_v2.bin" in extracted_set:
+              raise SystemExit("The update ZIP must not ship the .bin path rejected by the original 1.5.0 updater")
           if extracted_image_sha256 != "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715":
               raise SystemExit("The 174 range bitmap changed while packaging the update")
+          def legacy_v150_allows(name):
+              path = pathlib.PurePosixPath(name)
+              if name in {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}:
+                  return True
+              return (
+                  len(path.parts) >= 2
+                  and path.parts[0] in {"pigeon_poker", "pigeon_gto_plus"}
+                  and path.suffix.lower() == ".py"
+                  and not any(part.startswith(".") or part == "__pycache__" for part in path.parts)
+              )
+          legacy_rejected = sorted(name for name in extracted_set if not legacy_v150_allows(name))
+          if legacy_rejected:
+              raise SystemExit("The 1.5.0 updater would reject these package members: " + ", ".join(legacy_rejected))
           if "pigeon_poker/preflop_174_policy.py" not in extracted_set:
               raise SystemExit("The 174-scenario CPU policy is missing from the package")
           if "pigeon_poker/preflop_174_policy_data.py" not in extracted_set:
@@ -231,7 +275,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stable.json releases/v1.5.1/release.json releases/v1.5.1/payload-updater.zip.b64 staging/source_1_3_101/pigeon_poker/range_tables_v2.bin staging/source_1_3_101/pigeon_updater.py staging/source_1_3_101/PigeonPoker.pyw staging/source_1_3_101/pigeon_poker/preflop_cleanup.py staging/source_1_3_101/pigeon_poker/preflop_174_policy.py staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py staging/test_pokercraft_features.py staging/test_postflop_controls.py staging/test_poker_reasoning.py staging/test_cpu_learning.py staging/test_preflop_legacy_cleanup.py staging/test_preflop_policy_removed.py staging/test_preflop_174_policy.py staging/test_range_image_asset_packaging.py
+          git add stable.json releases/v1.5.1/release.json releases/v1.5.1/payload-updater.zip.b64 staging/source_1_3_101/pigeon_poker/range_tables_v2.bin staging/source_1_3_101/pigeon_poker/range_tables_v2_asset.py staging/source_1_3_101/pigeon_updater.py staging/source_1_3_101/PigeonPoker.pyw staging/source_1_3_101/pigeon_poker/preflop_cleanup.py staging/source_1_3_101/pigeon_poker/preflop_174_policy.py staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py staging/test_pokercraft_features.py staging/test_postflop_controls.py staging/test_poker_reasoning.py staging/test_cpu_learning.py staging/test_preflop_legacy_cleanup.py staging/test_preflop_policy_removed.py staging/test_preflop_174_policy.py staging/test_range_image_asset_packaging.py
           git rm --ignore-unmatch releases/v1.5.1/payload.ready staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py staging/test_preflop_gto_integrity.py staging/test_preflop_gto_policy.py staging/test_preflop_user_actions.py
           git commit -m "Publish verified Pigeon Poker v1.5.1 update"
           git push
