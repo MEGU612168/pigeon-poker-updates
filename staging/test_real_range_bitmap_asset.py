@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import struct
 import sys
+import types
 import zlib
 from pathlib import Path
 
@@ -52,6 +54,34 @@ def _validate_png(payload: bytes, expected_width: int, expected_height: int) -> 
     assert all(decoded[row * stride] <= 4 for row in range(height))
 
 
+def test_embedded_python_carrier_loads_without_a_binary_file() -> None:
+    data = ASSET.read_bytes()
+    module_name = "pigeon_poker.range_tables_v2_asset"
+    carrier = types.ModuleType(module_name)
+    carrier.RANGE_TABLES_V2_B64 = base64.b64encode(data).decode("ascii")
+    previous = sys.modules.get(module_name)
+    sys.modules[module_name] = carrier
+    original_path = range_image_catalog._ASSET_PATH
+    range_image_catalog._ASSET_PATH = ASSET.with_name("missing_range_tables_v2.bin")
+    range_image_catalog._load_catalog.cache_clear()
+    range_image_catalog.range_image_png.cache_clear()
+    try:
+        summary = range_image_catalog.range_catalog_summary()
+        assert summary["source_image_count"] == 174
+        assert summary["scenario_count"] == 174
+        assert summary["asset_sha256"] == EXPECTED_SHA256
+        for source_id in (128, 146, 147, 301):
+            assert range_image_catalog.range_image_png(source_id).startswith(PNG_SIGNATURE)
+    finally:
+        range_image_catalog._ASSET_PATH = original_path
+        if previous is None:
+            sys.modules.pop(module_name, None)
+        else:
+            sys.modules[module_name] = previous
+        range_image_catalog._load_catalog.cache_clear()
+        range_image_catalog.range_image_png.cache_clear()
+
+
 def test_real_174_bitmap_loads_and_every_source_image_renders() -> None:
     assert ASSET.is_file(), f"missing committed image asset: {ASSET}"
     data = ASSET.read_bytes()
@@ -74,4 +104,5 @@ def test_real_174_bitmap_loads_and_every_source_image_renders() -> None:
 
 if __name__ == "__main__":
     test_real_174_bitmap_loads_and_every_source_image_renders()
-    print("PASS: committed 174-image asset hash, catalogue, and 174 PNG renders")
+    test_embedded_python_carrier_loads_without_a_binary_file()
+    print("PASS: committed 174-image asset hash, embedded carrier fallback, and 174 PNG renders")
