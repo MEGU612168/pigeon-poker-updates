@@ -119,6 +119,7 @@ def run_tests():
         test_all_unambiguous_fully_sized_histories_resolve_to_their_source_id,
         test_all_174_live_histories_resolve_to_their_own_paid_image,
         test_live_range_signature_invalidates_when_eligibility_or_history_changes,
+        test_ambiguous_live_nodes_use_action_menu_and_all_in_state,
     ]
     for test in tests:
         test()
@@ -127,21 +128,24 @@ def run_tests():
 
 
 class _LivePlayer:
-    def __init__(self, player_id: str, position: str):
+    def __init__(self, player_id: str, position: str, all_in: bool = False):
         self.player_id = player_id
         self.position = position
+        self.all_in = bool(all_in)
+        self.stack = 0 if all_in else 10000
 
 
 class _LiveHand:
-    def __init__(self, events, next_to_act: str):
+    def __init__(self, events, next_to_act: str, legal_actions, all_in_positions=()):
         # dealer_index=0 and this seat order give the six standard positions.
+        all_in_positions = set(all_in_positions)
         self.players = [
-            _LivePlayer("btn", "BTN"),
-            _LivePlayer("sb", "SB"),
-            _LivePlayer("bb", "BB"),
-            _LivePlayer("utg", "UTG"),
-            _LivePlayer("hj", "HJ"),
-            _LivePlayer("co", "CO"),
+            _LivePlayer("btn", "BTN", "BTN" in all_in_positions),
+            _LivePlayer("sb", "SB", "SB" in all_in_positions),
+            _LivePlayer("bb", "BB", "BB" in all_in_positions),
+            _LivePlayer("utg", "UTG", "UTG" in all_in_positions),
+            _LivePlayer("hj", "HJ", "HJ" in all_in_positions),
+            _LivePlayer("co", "CO", "CO" in all_in_positions),
         ]
         self.seat_by_id = {player.player_id: index for index, player in enumerate(self.players)}
         self.events = events
@@ -150,6 +154,10 @@ class _LiveHand:
         self.finished = False
         self.big_blind = 100
         self.dealer_index = 0
+        self._legal_actions = list(legal_actions)
+
+    def legal_actions(self, player_id):
+        return {"actions": list(self._legal_actions)}
 
 
 class _LiveTable:
@@ -180,7 +188,15 @@ def _live_fixture_for_scenario(scenario: dict):
             event["target"] = round(float(item["size_bb"]) * 100)
         events.append(event)
     actor_id = player_by_position[scenario["position"]]
-    return _LiveTable(), _LiveHand(events, actor_id), actor_id
+    legal_actions = [
+        option[0] for option in scenario.get("action_options", [])
+        if isinstance(option, (list, tuple)) and option
+    ]
+    all_in_positions = {
+        252: ("CO",),
+        253: ("CO", "BTN"),
+    }.get(int(scenario["id"]), ())
+    return _LiveTable(), _LiveHand(events, actor_id, legal_actions, all_in_positions), actor_id
 
 
 def test_all_174_live_histories_resolve_to_their_own_paid_image():
@@ -192,7 +208,9 @@ def test_all_174_live_histories_resolve_to_their_own_paid_image():
         chart = resolve_range_image_for_hand(table, hand, actor_id)
         expected_id = int(scenario["id"])
         actual_id = int(chart["source_id"]) if chart else None
-        if actual_id != expected_id:
+        expected_image = range_image_png(expected_id)
+        actual_image = range_image_png(actual_id) if actual_id is not None else None
+        if actual_image != expected_image:
             history = _history(scenario)
             candidates = [
                 item for item in _scenarios()
@@ -256,6 +274,19 @@ def test_live_range_signature_invalidates_when_eligibility_or_history_changes():
         assert before != after
 
 
+
+
+
+def test_ambiguous_live_nodes_use_action_menu_and_all_in_state():
+    from pigeon_poker.range_image_catalog import resolve_range_image_for_hand
+
+    by_id = {int(item["id"]): item for item in _scenarios()}
+    for source_id in (244, 245, 252, 253, 266, 267):
+        scenario = by_id[source_id]
+        table, hand, actor_id = _live_fixture_for_scenario(scenario)
+        chart = resolve_range_image_for_hand(table, hand, actor_id)
+        assert chart is not None, f"Ambiguous source #{source_id} remained unavailable"
+        assert range_image_png(int(chart["source_id"])) == range_image_png(source_id)
 
 
 if __name__ == "__main__":
