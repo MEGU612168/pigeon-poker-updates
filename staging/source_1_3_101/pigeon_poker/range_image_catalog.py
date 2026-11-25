@@ -421,23 +421,50 @@ def range_image_png(source_id: int) -> bytes:
     )
 
 
+@functools.lru_cache(maxsize=174)
+def range_image_ppm(source_id: int) -> bytes:
+    """Return a native PPM (P6) bitmap for reliable Tk rendering on Windows."""
+    catalog = _load_catalog()
+    source_id = int(source_id)
+    indices = catalog["frames"].get(source_id)
+    if indices is None:
+        raise RangeImageCatalogError(f"Range screenshot #{source_id} is not in the image catalogue")
+
+    width, height = catalog["width"], catalog["height"]
+    palette = catalog["palette"]
+    lookup = [bytes(palette[i:i + 3]) for i in range(0, 768, 3)]
+    rgb = bytearray(width * height * 3)
+    offset = 0
+    for index in indices:
+        colour = lookup[index]
+        rgb[offset:offset + 3] = colour
+        offset += 3
+    header = f"P6\n{width} {height}\n255\n".encode("ascii")
+    return header + bytes(rgb)
+
+
 def create_range_photo(master: Any, source_id: int):
-    """Create a native Tk PhotoImage. Keep the returned object referenced by its window."""
+    """Create a native Tk PhotoImage using the universally-supported PPM decoder."""
     import tkinter as tk
 
-    payload = base64.b64encode(range_image_png(int(source_id))).decode("ascii")
+    source_id = int(source_id)
+    payload = base64.b64encode(range_image_ppm(source_id)).decode("ascii")
     try:
-        image = tk.PhotoImage(master=master, data=payload, format="png")
-        # Keep the original PNG in the source catalogue; only the Tk display is downscaled.
-        # The source screenshots are 1092x707. Display the original bitmap at
-        # half scale so the complete 13x13 matrix fits on ordinary Windows
-        # work areas instead of being clipped by the monitor/taskbar bounds.
+        # Use PPM rather than PNG for the native Tk display path. The PNG
+        # export is retained for catalogue validation and external tooling,
+        # but the Windows PhotoImage decoder has shown a blank/black result
+        # on some Tk builds despite accepting the PNG without raising TclError.
+        image = tk.PhotoImage(master=master, data=payload, format="PPM")
+        if image.width() <= 0 or image.height() <= 0:
+            raise tk.TclError("Tk created an empty PhotoImage")
+        # The source screenshots are 1092x707. Display at half scale so the
+        # complete 13x13 matrix fits on ordinary Windows work areas.
         if image.width() > 700 or image.height() > 550:
             image = image.subsample(2, 2)
         return image
     except tk.TclError as exc:
         raise RangeImageCatalogError(
-            f"Windows could not load the source range image #{int(source_id)}: {exc}"
+            f"Windows could not render the source range image #{source_id}: {exc}"
         ) from exc
 
 
