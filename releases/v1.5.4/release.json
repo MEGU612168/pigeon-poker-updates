@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.5.4",
+  "package_mode": "full",
+  "source_version": "1.3.101",
+  "source_directory": "staging/source_1_3_101",
+  "release_notes": "Pigeon Poker 1.5.4 fixes live paid preflop-range availability across the complete 174-scenario catalogue. The eligibility cache now invalidates when hand events, legal-turn state, dealing/busy state, player stacks, or all-in status changes. Exact duplicate source images are aliased only when their embedded pixel buffers are identical; differing same-history scenarios are disambiguated by current legal actions and all-in participants. The original 174 preflop charts, 1BB-per-hand review charge, CPU policy, and existing postflop controls are retained.",
+  "distribution_status": "prepared",
+  "preflop_174_policy_verified": true,
+  "postflop_theory_policy_verified": true,
+  "range_image_catalog_verified": false,
+  "paid_range_live_resolution_verified": false,
+  "live_range_button_cache_signature_verified": false,
+  "windows_native_range_view_verified": true,
+  "preflop_raise_size_selector_verified": true
+}
