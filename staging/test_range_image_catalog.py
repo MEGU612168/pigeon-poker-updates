@@ -278,7 +278,7 @@ def test_live_range_signature_invalidates_when_eligibility_or_history_changes():
 
 
 def test_ambiguous_live_nodes_use_action_menu_and_all_in_state():
-    from pigeon_poker.range_image_catalog import resolve_range_image_for_hand
+    from pigeon_poker.range_image_catalog import resolve_range_image_for_hand, range_image_png
 
     by_id = {int(item["id"]): item for item in _scenarios()}
     for source_id in (244, 245, 252, 253, 266, 267):
