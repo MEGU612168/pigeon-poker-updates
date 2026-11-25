@@ -225,7 +225,7 @@ def test_all_174_live_histories_resolve_to_their_own_paid_image():
                 "metadata": metadata,
                 "candidate_details": candidate_details,
             })
-    assert not failures, f"{len(failures)} / 174 live histories failed paid image resolution: {failures[:8]}"
+    assert not failures, f"{len(failures)} / 174 live histories failed paid image resolution: {failures}"
 
 
 def test_live_range_signature_invalidates_when_eligibility_or_history_changes():
