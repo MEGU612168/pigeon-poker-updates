@@ -38,6 +38,7 @@ jobs:
           python staging/test_preflop_policy_removed.py
           python staging/test_preflop_174_policy.py
           python staging/test_range_image_asset_packaging.py
+          python staging/test_real_range_bitmap_asset.py
 
       - name: Assemble and validate the full update package
         shell: bash
