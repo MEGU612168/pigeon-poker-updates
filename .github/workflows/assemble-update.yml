@@ -147,8 +147,13 @@ jobs:
                   allowed_root = name in {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
                   parts_path = path.parts
                   allowed_module = len(parts_path) >= 2 and parts_path[0] in {"pigeon_poker", "pigeon_gto_plus"} and path.suffix.lower() == ".py" and not any(p.startswith(".") or p == "__pycache__" for p in parts_path)
-                  if not (allowed_root or allowed_module):
+                  allowed_image_asset = name == "pigeon_poker/range_tables_v2.bin"
+                  if not (allowed_root or allowed_module or allowed_image_asset):
                       raise SystemExit("Update contains a non-allow-listed file: " + name)
+                  if allowed_image_asset:
+                      image_data = archive.read(info)
+                      if len(image_data) != 848418 or hashlib.sha256(image_data).hexdigest() != "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715":
+                          raise SystemExit("The 174 range bitmap failed its size or SHA-256 check.")
                   folded = name.casefold()
                   if folded in seen:
                       raise SystemExit("Duplicate file path: " + name)
@@ -166,6 +171,9 @@ jobs:
                   required = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
                   if not required.issubset(names):
                       raise SystemExit("Required full update files are missing.")
+                  app_source = archive.read("PigeonPoker.pyw").decode("utf-8")
+                  if "pigeon_poker.range_image_catalog" in app_source and "pigeon_poker/range_tables_v2.bin" not in names:
+                      raise SystemExit("The app opens the 174 range catalogue but the bitmap asset is missing.")
               else:
                   raise SystemExit("Unsupported package_mode: " + package_mode)
               bundled_version = archive.read("VERSION.txt").decode("utf-8").strip()
