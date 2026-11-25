@@ -114,6 +114,8 @@ def run_tests():
         test_allin_without_target_size_is_still_an_exact_action_class,
         test_key_source_situations_146_and_147_keep_their_own_image_ids,
         test_all_unambiguous_fully_sized_histories_resolve_to_their_source_id,
+        test_all_174_live_histories_resolve_to_their_own_paid_image,
+        test_live_range_signature_invalidates_when_eligibility_or_history_changes,
     ]
     for test in tests:
         test()
@@ -123,3 +125,111 @@ def run_tests():
 
 if __name__ == "__main__":
     run_tests()
+
+
+class _LivePlayer:
+    def __init__(self, player_id: str, position: str):
+        self.player_id = player_id
+        self.position = position
+
+
+class _LiveHand:
+    def __init__(self, events, next_to_act: str):
+        from types import SimpleNamespace
+
+        # dealer_index=0 and this seat order give the six standard positions.
+        self.players = [
+            _LivePlayer("btn", "BTN"),
+            _LivePlayer("sb", "SB"),
+            _LivePlayer("bb", "BB"),
+            _LivePlayer("utg", "UTG"),
+            _LivePlayer("hj", "HJ"),
+            _LivePlayer("co", "CO"),
+        ]
+        self.seat_by_id = {player.player_id: index for index, player in enumerate(self.players)}
+        self.events = events
+        self.next_to_act = next_to_act
+        self.street = "preflop"
+        self.finished = False
+        self.big_blind = 100
+        self.dealer_index = 0
+
+
+class _LiveTable:
+    dealer_index = 0
+
+
+def _live_fixture_for_scenario(scenario: dict):
+    from pigeon_poker.preflop_174_policy import POSITION_BY_SEAT_FROM_BUTTON
+
+    player_by_position = {
+        position: player_id
+        for position, player_id in zip(
+            POSITION_BY_SEAT_FROM_BUTTON,
+            ("btn", "sb", "bb", "utg", "hj", "co"),
+        )
+    }
+    events = []
+    for item in scenario.get("history", []):
+        action = str(item["action"]).lower()
+        event = {
+            "type": "action",
+            "street": "preflop",
+            "player_id": player_by_position[item["position"]],
+            "player": player_by_position[item["position"]],
+            "action": action,
+        }
+        if action == "raise":
+            event["target"] = round(float(item["size_bb"]) * 100)
+        events.append(event)
+    actor_id = player_by_position[scenario["position"]]
+    return _LiveTable(), _LiveHand(events, actor_id), actor_id
+
+
+def test_all_174_live_histories_resolve_to_their_own_paid_image():
+    from pigeon_poker.range_image_catalog import resolve_range_image_for_hand
+
+    failures = []
+    for scenario in _scenarios():
+        table, hand, actor_id = _live_fixture_for_scenario(scenario)
+        chart = resolve_range_image_for_hand(table, hand, actor_id)
+        expected_id = int(scenario["id"])
+        actual_id = int(chart["source_id"]) if chart else None
+        if actual_id != expected_id:
+            failures.append({
+                "expected_id": expected_id,
+                "actor": scenario["position"],
+                "history": scenario.get("history", []),
+                "actual_id": actual_id,
+            })
+    assert not failures, f"{len(failures)} / 174 live histories failed paid image resolution: {failures[:8]}"
+
+
+def test_live_range_signature_invalidates_when_eligibility_or_history_changes():
+    from pigeon_poker.range_image_catalog import live_range_lookup_signature
+
+    table, hand, _actor_id = _live_fixture_for_scenario(_scenarios()[18])
+    busy = live_range_lookup_signature(
+        hand, current_hand_key="T:1", cash_deal_busy=True,
+        dealer_index=table.dealer_index,
+    )
+    ready = live_range_lookup_signature(
+        hand, current_hand_key="T:1", cash_deal_busy=False,
+        dealer_index=table.dealer_index,
+    )
+    assert busy != ready
+
+    before = live_range_lookup_signature(
+        hand, current_hand_key="T:1", dealer_index=table.dealer_index,
+    )
+    # Changing an existing raise target without changing event count must
+    # invalidate the cached image lookup too.
+    raise_event = next((event for event in hand.events if event.get("action") == "raise"), None)
+    if raise_event is not None:
+        raise_event["target"] = int(raise_event["target"]) + 25
+        after = live_range_lookup_signature(
+            hand, current_hand_key="T:1", dealer_index=table.dealer_index,
+        )
+        assert before != after
+
+
