@@ -103,19 +103,20 @@ def test_real_174_bitmap_loads_and_every_source_image_renders() -> None:
 
 
 def _validate_ppm(payload: bytes, expected_width: int, expected_height: int) -> bytes:
-    magic, separator, remainder = payload.partition(b"\n")
-    assert magic == b"P6" and separator == b"\n"
-    dimensions, separator, remainder = remainder.partition(b"\n")
-    assert separator == b"\n"
-    width, height = (int(value) for value in dimensions.split())
-    max_value, separator, rgb = remainder.partition(b"\n")
-    assert separator == b"\n"
-    assert (width, height, int(max_value)) == (expected_width, expected_height, 255)
-    assert len(rgb) == width * height * 3
-    colours = {rgb[offset:offset + 3] for offset in range(0, len(rgb), 3)}
-    assert any(colour != b"\x00\x00\x00" for colour in colours), "image is entirely black"
+    tokens = payload.split()
+    assert len(tokens) >= 4 and tokens[0] == b"P3"
+    width, height, max_value = (int(value) for value in tokens[1:4])
+    assert (width, height, max_value) == (expected_width, expected_height, 255)
+    values = [int(value) for value in tokens[4:]]
+    assert len(values) == width * height * 3
+    assert all(0 <= value <= 255 for value in values)
+    colours = {
+        tuple(values[offset:offset + 3])
+        for offset in range(0, len(values), 3)
+    }
+    assert any(colour != (0, 0, 0) for colour in colours), "image is entirely black"
     assert len(colours) >= 2, "image contains no visible colour variation"
-    return rgb
+    return bytes(values)
 
 
 def test_every_ppm_image_has_visible_nonblack_pixels_including_range_136() -> None:
@@ -139,13 +140,11 @@ def test_create_range_photo_uses_ppm_and_keeps_visible_pixel_data() -> None:
         def __init__(self, *, master, data, format):
             captured["master"] = master
             captured["format"] = format
-            captured["payload"] = base64.b64decode(data, validate=True)
-            magic, _, remainder = captured["payload"].partition(b"\n")
-            dimensions, _, remainder = remainder.partition(b"\n")
-            max_value, _, rgb = remainder.partition(b"\n")
-            self._width, self._height = (int(value) for value in dimensions.split())
-            self.rgb = rgb
-            assert magic == b"P6" and int(max_value) == 255
+            captured["payload"] = data.encode("ascii")
+            tokens = data.split()
+            assert tokens[0] == "P3" and int(tokens[3]) == 255
+            self._width, self._height = int(tokens[1]), int(tokens[2])
+            self.rgb = bytes(int(value) for value in tokens[4:])
 
         def width(self):
             return self._width
@@ -167,6 +166,7 @@ def test_create_range_photo_uses_ppm_and_keeps_visible_pixel_data() -> None:
 
     assert captured["format"] == "PPM"
     assert len(captured["payload"]) > 1000
+    assert captured["payload"].startswith(b"P3\\n")
     assert (photo.width(), photo.height()) == (546, 353)
     assert any(photo.rgb[offset:offset + 3] != b"\x00\x00\x00"
                for offset in range(0, len(photo.rgb), 3))
