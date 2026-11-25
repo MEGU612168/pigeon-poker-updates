@@ -1,0 +1,155 @@
+name: Build Pigeon Poker 1.5.0 range-image validation package
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-range-image-validation.yml"
+      - "staging/source_1_3_101/pigeon_poker/range_tables_v2.bin"
+      - "staging/test_real_range_bitmap_asset.py"
+
+permissions:
+  contents: read
+
+jobs:
+  build-validation-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify application and the real 174-image source asset
+        run: |
+          set -euo pipefail
+          python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
+          python -m py_compile staging/source_1_3_101/pigeon_poker/range_image_catalog.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_174_policy.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py
+          python -m py_compile staging/source_1_3_101/pigeon_updater.py
+          python staging/test_real_range_bitmap_asset.py
+          python staging/test_range_image_asset_packaging.py
+          python staging/test_pokercraft_features.py
+          python staging/test_postflop_controls.py
+          python staging/test_poker_reasoning.py
+          python staging/test_cpu_learning.py
+          python staging/test_preflop_legacy_cleanup.py
+          python staging/test_preflop_policy_removed.py
+          python staging/test_preflop_174_policy.py
+      - name: Build and validate a full installable package without publishing stable
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import hashlib
+          import importlib.util
+          import io
+          import json
+          import pathlib
+          import sys
+          import tempfile
+          import zipfile
+
+          root = pathlib.Path(".")
+          source = root / "staging" / "source_1_3_101"
+          asset_path = source / "pigeon_poker" / "range_tables_v2.bin"
+          asset = asset_path.read_bytes()
+          asset_sha256 = hashlib.sha256(asset).hexdigest()
+          expected_asset_sha256 = "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715"
+          if len(asset) != 848418 or asset_sha256 != expected_asset_sha256:
+              raise SystemExit("The committed 174-range asset failed its independent size/hash check.")
+
+          version = "1.5.0"
+          files = {
+              "PigeonPoker.pyw": source / "PigeonPoker.pyw",
+              "pigeon_updater.py": source / "pigeon_updater.py",
+              "pigeon_poker/range_tables_v2.bin": asset_path,
+          }
+          for package in ("pigeon_poker", "pigeon_gto_plus"):
+              package_dir = source / package
+              if not package_dir.is_dir():
+                  raise SystemExit("Missing source package: " + package)
+              for path in sorted(package_dir.rglob("*.py")):
+                  if path.is_file() and "__pycache__" not in path.parts and not any(p.startswith(".") for p in path.parts):
+                      files[(pathlib.Path(package) / path.relative_to(package_dir)).as_posix()] = path
+
+          required = {
+              "PigeonPoker.pyw",
+              "pigeon_updater.py",
+              "pigeon_poker/range_tables_v2.bin",
+              "pigeon_poker/range_image_catalog.py",
+              "pigeon_poker/preflop_174_policy.py",
+              "pigeon_poker/preflop_174_policy_data.py",
+          }
+          if not required.issubset(files):
+              raise SystemExit("The full application or 174-scenario range files are missing.")
+          if "pigeon_poker/preflop_gto_strategy.py" in files:
+              raise SystemExit("Retired legacy preflop strategy must not be packaged.")
+
+          buffer = io.BytesIO()
+          with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+              archive.writestr("VERSION.txt", version + "\n")
+              for name, path in files.items():
+                  data = path.read_bytes()
+                  if not data:
+                      raise SystemExit("Empty package member: " + name)
+                  if pathlib.PurePosixPath(name).suffix.lower() in {".py", ".pyw"}:
+                      ast.parse(data.decode("utf-8"), filename=name)
+                  archive.writestr(name, data)
+
+          payload = buffer.getvalue()
+          payload_sha256 = hashlib.sha256(payload).hexdigest()
+          if not payload or len(payload) > 18 * 1024 * 1024:
+              raise SystemExit("Package is empty or exceeds the updater's size limit.")
+
+          updater_path = source / "pigeon_updater.py"
+          spec = importlib.util.spec_from_file_location("pigeon_validation_updater", updater_path)
+          if spec is None or spec.loader is None:
+              raise SystemExit("Could not import the shipped updater.")
+          updater = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = updater
+          spec.loader.exec_module(updater)
+
+          manifest = {
+              "version": version,
+              "payload_size": len(payload),
+              "payload_sha256": payload_sha256,
+              "package_mode": "full",
+          }
+          with tempfile.TemporaryDirectory() as temp:
+              destination = pathlib.Path(temp) / "extract"
+              extracted = updater._validate_and_extract(payload, manifest, destination)
+              actual_asset = (destination / "pigeon_poker" / "range_tables_v2.bin").read_bytes()
+              if hashlib.sha256(actual_asset).hexdigest() != expected_asset_sha256:
+                  raise SystemExit("The updater changed or omitted the original 174-range asset.")
+              names = set(extracted)
+              if not required.issubset(names):
+                  raise SystemExit("The updater did not extract the complete 174-range application.")
+
+          dist = root / "dist"
+          dist.mkdir(exist_ok=True)
+          package_path = dist / "PigeonPoker_1.5.0_174_range_validation.zip"
+          package_path.write_bytes(payload)
+          metadata = {
+              "version": version,
+              "package_type": "validation-only; not published to stable",
+              "source_directory": "staging/source_1_3_101",
+              "asset_size": len(asset),
+              "asset_sha256": asset_sha256,
+              "payload_size": len(payload),
+              "payload_sha256": payload_sha256,
+              "member_count": len(files) + 1,
+          }
+          (dist / "manifest.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(metadata, ensure_ascii=False, indent=2))
+          PY
+      - name: Upload installable validation package
+        uses: actions/upload-artifact@v4
+        with:
+          name: PigeonPoker-1.5.0-174-range-validation
+          path: |
+            dist/PigeonPoker_1.5.0_174_range_validation.zip
+            dist/manifest.json
+          if-no-files-found: error
+          retention-days: 30
