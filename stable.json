@@ -2,12 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "0.0.0",
-  "updates_paused": true,
-  "release_notes": "STABLE UPDATE PAUSED. Pigeon Poker 1.5.0 has been withdrawn because the paid preflop range window still renders blank on a user's Windows desktop. No update will be offered until the complete in-app range flow is verified.",
+  "version": "1.5.1",
+  "published_at": "2026-11-25T22:23:07Z",
+  "release_notes": "Pigeon Poker 1.5.1: update path for existing 1.5.0 installations; verified 174-scenario preflop image catalogue, native Windows range window, and 174-scenario CPU policy.",
   "package_mode": "full",
   "payload_encoding": "base64",
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.4.9/payload-updater.zip.b64?v=de8b08beffc826b80ef34b65ca91ea91902f8d867e515dd27689394d50e637a6",
-  "payload_sha256": "de8b08beffc826b80ef34b65ca91ea91902f8d867e515dd27689394d50e637a6",
-  "payload_size": 278532
+  "updates_paused": false,
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.1/payload-updater.zip.b64?v=97a6f564848ae30c07b949ef9fe9932321e770085ea536ebe464e85218409243",
+  "payload_sha256": "97a6f564848ae30c07b949ef9fe9932321e770085ea536ebe464e85218409243",
+  "payload_size": 1144854
 }
