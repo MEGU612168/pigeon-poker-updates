@@ -1972,6 +1972,7 @@ def _postflop_bet_size_fractions(
     expected_callers: float,
     board_texture: dict[str, Any] | None = None,
     spr: float | None = None,
+    remaining_streets: int = 2,
 ) -> tuple[float, ...]:
     """Choose sizes from position, range edge, nut density, board and SPR."""
     callers = max(0.0, float(expected_callers))
@@ -2003,8 +2004,15 @@ def _postflop_bet_size_fractions(
         if deep and wetness < 0.50 and not monotone:
             return (0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
         if wetness >= 0.50 or monotone:
-            return (0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
-        return (0.15, 0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
+            base_sizes = (0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
+        else:
+            base_sizes = (0.15, 0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
+        # When our range has a real nut edge, include the geometric size that
+        # plans a called pot to reach an effective all-in over the streets left.
+        geometric = _geometric_bet_fraction(effective_spr, remaining_streets)
+        if geometric is not None:
+            base_sizes = tuple(sorted(set(base_sizes + (round(geometric, 2),))))
+        return base_sizes
     if range_advantage:
         if paired or wetness < 0.25:
             return (0.10, 0.15, 0.25, 0.33, 0.50, 0.75)
@@ -2558,6 +2566,10 @@ def _choose_range_aware_action_impl(
     rake_cap = max(0, int(getattr(hand, "rake_cap", 0) or 0))
     call_pot = pot + to_call
     estimated_rake = min(rake_cap, int(call_pot * rake_bps / 10000)) if rake_bps else 0
+    call_is_all_in = stack > 0 and to_call >= stack
+    call_equity = _call_realized_equity(
+        equity, equity_realization, call_is_all_in=call_is_all_in
+    )
     required_call = required_call_equity(pot, to_call, estimated_rake)
     required_bluff = required_bluff_success(pot, max(1, int(round(max(1, pot) * 0.50))))
     fold_probability = 0.0
@@ -2603,7 +2615,7 @@ def _choose_range_aware_action_impl(
     elif best_action == "check":
         best_ev = showdown_value_ev if "check" in actions else 0.0
     elif best_action == "call":
-        best_ev = realized_equity * max(0, call_pot - estimated_rake) - to_call
+        best_ev = call_equity * max(0, call_pot - estimated_rake) - to_call
     elif best_action in {"all_in", "allin"}:
         best_ev = equity * max(0, call_pot - estimated_rake) - to_call
 
@@ -2611,7 +2623,7 @@ def _choose_range_aware_action_impl(
         best_action, best_amount, best_ev = "fold", None, 0.0
     elif to_call > 0 and "call" in actions:
         best_action, best_amount = "call", None
-        best_ev = equity * max(0, call_pot - estimated_rake) - to_call
+        best_ev = call_equity * max(0, call_pot - estimated_rake) - to_call
 
     # Candidate actions are retained for a controlled near-indifference mix
     # at high CPU levels; lower levels continue to choose the pure best EV.
@@ -2622,7 +2634,7 @@ def _choose_range_aware_action_impl(
         if "call" in actions:
             strategy_candidates.append((
                 "call", None,
-                equity * max(0, call_pot - estimated_rake) - to_call,
+                call_equity * max(0, call_pot - estimated_rake) - to_call,
             ))
     elif street != "preflop" and "check" in actions:
         strategy_candidates.append(("check", None, showdown_value_ev))
@@ -2661,6 +2673,7 @@ def _choose_range_aware_action_impl(
                 expected_callers=expected_opponents,
                 board_texture=board_texture,
                 spr=spr,
+                remaining_streets=max(1, 6 - len(board)),
             )
             bases = [
                 street_contribution + max(min_target - street_contribution,
@@ -2708,8 +2721,10 @@ def _choose_range_aware_action_impl(
             candidate_required_bluff = required_success
             raise_increment = max(0, risk - to_call) if to_call else risk
             caller_payment = raise_increment if to_call else risk
-            candidate_called_realized_equity = max(
-                0.0, min(1.0, candidate_called_equity * equity_realization)
+            candidate_called_realized_equity = _call_realized_equity(
+                candidate_called_equity,
+                equity_realization,
+                call_is_all_in=(stack > 0 and risk >= stack),
             )
             called_pot = (
                 pot + risk + candidate_expected_callers * caller_payment
@@ -2902,7 +2917,8 @@ def _choose_range_aware_action_impl(
         f"chart-range-top-adv={float(board_role.get('preflop_range_profile', {}).get('top_decile_advantage', 0.0)):.3f}; "
         f"range-advantage={bool(board_role.get('preflop_range_advantage', False))}; "
         f"range-edge={float(board_role.get('preflop_range_edge', 0.0)):.3f}; "
-        f"raw-equity={equity:.1%}; realized-equity={realized_equity:.1%}; SPR={spr:.2f}; "
+        f"raw-equity={equity:.1%}; realized-equity={realized_equity:.1%}; "
+        f"call-realized-equity={call_equity:.1%}; call-is-all-in={call_is_all_in}; SPR={spr:.2f}; "
         f"SDV-check-EV≈{showdown_value_ev:.1f}; "
         f"donk-lead={bool(board_role.get('donk_lead', False))}; "
         f"hero-made-category={hero_hand_category}; "
