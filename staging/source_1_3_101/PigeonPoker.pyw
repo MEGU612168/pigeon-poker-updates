@@ -36,7 +36,7 @@ from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOErr
                           PokerRuleError, build_gto_plus_spot_table, HandHistoryStore,
                           is_gto_plus_supported_postflop_hand, CPUPoolStore, GGCareLedger, CashierLedger, bind_first_matching_tree)
 from pigeon_poker.range_image_catalog import (create_range_photo, RangeImageCatalogError, resolve_range_image_for_hand)
-from pigeon_poker.poker_reasoning import choose_range_aware_action
+from pigeon_poker.poker_reasoning import (choose_range_aware_action, build_174_preflop_range_estimate)
 from pigeon_poker.preflop_174_policy import choose_preflop_174_action
 from pigeon_poker.preflop_174_policy import preflop_174_raise_size_options
 from pigeon_poker.cpu_learning import CPULearningStore
@@ -2629,6 +2629,26 @@ class PigeonPokerApp(tk.Tk):
         profiles = dict(self.cash_cpu_profiles)
         # Stable CPU identities carry empirical action statistics between Rush hands.
         opponent_learning = self.cpu_learning_store.get_profiles(self.cash_rate, profiles.keys())
+        # Feed each postflop decision the real 174-chart-conditioned preflop
+        # ranges and the persistent public-action profile for each CPU identity.
+        # The same estimate is reused within one hand state to avoid duplicate
+        # Bayesian range reconstruction during the equity/board-role passes.
+        postflop_range_cache = {}
+        def postflop_range_estimator(*, table, hand, exclude_player_id=None):
+            cache_key = (
+                id(hand),
+                tuple(str(card) for card in list(getattr(hand, "board", ()) or ())),
+                len(list(getattr(hand, "events", ()) or ())),
+            )
+            if cache_key not in postflop_range_cache:
+                postflop_range_cache.clear()
+                postflop_range_cache[cache_key] = build_174_preflop_range_estimate(
+                    table, hand,
+                    learned_profiles=opponent_learning,
+                    player_profiles=profiles,
+                )
+            return postflop_range_cache[cache_key]
+
         vip_roles = dict(slot_state.get("vip_cpu_roles", self.vip_cpu_roles))
         active_mode = normalize_table_mode(slot_state.get("cash_game_mode", self.cash_game_mode))
         # GTO+ live CPU execution has been removed; always use the local range policy.
@@ -2755,7 +2775,7 @@ class PigeonPokerApp(tk.Tk):
                         fallback_decision = choose_preflop_174_action(table, hand, pid, cpu)
                     elif not (session is not None and session.hand_token == id(hand) and session.context is not None):
                         # The same opponent-range engine handles postflop decisions.
-                        fallback_decision = choose_range_aware_action(table, hand, pid, cpu)
+                        fallback_decision = choose_range_aware_action(table, hand, pid, cpu, range_estimator=postflop_range_estimator)
                     if hand.street == "preflop":
                         if fallback_decision is not None and fallback_decision.action == "fold":
                             think_seconds = timing_rng.uniform(0.07, 0.16)
@@ -2855,7 +2875,7 @@ class PigeonPokerApp(tk.Tk):
                             if hand.street == "preflop":
                                 decision = choose_preflop_174_action(table, hand, pid, cpu)
                             else:
-                                decision = choose_range_aware_action(table, hand, pid, cpu)
+                                decision = choose_range_aware_action(table, hand, pid, cpu, range_estimator=postflop_range_estimator)
                         if decision is None:
                             raise RuntimeError("No safe decision was available for this CPU turn.")
                         if cancel_event.is_set():
