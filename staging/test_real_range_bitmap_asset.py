@@ -132,25 +132,23 @@ def test_every_ppm_image_has_visible_nonblack_pixels_including_range_136() -> No
                        for offset in range(0, len(rgb), 3))
 
 
-def test_create_range_photo_uses_ppm_and_keeps_visible_pixel_data() -> None:
+def test_create_range_photo_writes_real_rgb_pixels_into_native_tk_image() -> None:
     import tkinter as tk
 
-    captured = {}
+    captured = {"writes": []}
     class FakePhotoImage:
-        def __init__(self, *, master, data, format):
+        def __init__(self, *, master, width, height):
             captured["master"] = master
-            captured["format"] = format
-            captured["payload"] = data.encode("ascii")
-            tokens = data.split()
-            assert tokens[0] == "P3" and int(tokens[3]) == 255
-            self._width, self._height = int(tokens[1]), int(tokens[2])
-            self.rgb = bytes(int(value) for value in tokens[4:])
+            self._width, self._height = width, height
 
         def width(self):
             return self._width
 
         def height(self):
             return self._height
+
+        def put(self, data, to):
+            captured["writes"].append((data, to))
 
         def subsample(self, x, y):
             self._width //= x
@@ -164,12 +162,15 @@ def test_create_range_photo_uses_ppm_and_keeps_visible_pixel_data() -> None:
     finally:
         tk.PhotoImage = original_photo_image
 
-    assert captured["format"] == "PPM"
-    assert len(captured["payload"]) > 1000
-    assert captured["payload"].splitlines()[0] == b"P3"
     assert (photo.width(), photo.height()) == (546, 353)
-    assert any(photo.rgb[offset:offset + 3] != b"\x00\x00\x00"
-               for offset in range(0, len(photo.rgb), 3))
+    assert len(captured["writes"]) > 1
+    assert captured["writes"][0][1] == (0, 0)
+    assert all("#" in data for data, _to in captured["writes"])
+    assert any(
+        token not in {"#000000", "#ffffff"}
+        for data, _to in captured["writes"]
+        for token in data.replace("{", " ").replace("}", " ").split()
+    )
 
 
 
@@ -177,5 +178,5 @@ if __name__ == "__main__":
     test_real_174_bitmap_loads_and_every_source_image_renders()
     test_embedded_python_carrier_loads_without_a_binary_file()
     test_every_ppm_image_has_visible_nonblack_pixels_including_range_136()
-    test_create_range_photo_uses_ppm_and_keeps_visible_pixel_data()
-    print("PASS: 174 PNG + PPM images, nonblack pixels, embedded asset and Tk PhotoImage payload")
+    test_create_range_photo_writes_real_rgb_pixels_into_native_tk_image()
+    print("PASS: 174 PNG + PPM images, nonblack pixels, embedded asset and native Tk PhotoImage RGB writes")
