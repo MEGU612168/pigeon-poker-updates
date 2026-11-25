@@ -35,7 +35,7 @@ from pigeon_poker.sound_design import write_sound_wav, SOUND_ASSETS, SOUND_VARIA
 from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOError,
                           PokerRuleError, build_gto_plus_spot_table, HandHistoryStore,
                           is_gto_plus_supported_postflop_hand, CPUPoolStore, GGCareLedger, CashierLedger, bind_first_matching_tree)
-from pigeon_poker.range_image_catalog import (create_range_photo, RangeImageCatalogError, resolve_range_image_for_hand)
+from pigeon_poker.range_image_catalog import (create_range_photo, RangeImageCatalogError, resolve_range_image_for_hand, live_range_lookup_signature)
 from pigeon_poker.poker_reasoning import (choose_range_aware_action, build_174_preflop_range_estimate)
 from pigeon_poker.preflop_174_policy import choose_preflop_174_action
 from pigeon_poker.preflop_174_policy import preflop_174_raise_size_options
@@ -3834,12 +3834,14 @@ class PigeonPokerApp(tk.Tk):
             return
         current_key = str(slot.state.get("cash_current_hand_key") or
                           (f"{slot.table_id}:{id(hand)}" if hand is not None else ""))
-        signature = (
-            id(hand) if hand is not None else None,
-            len(getattr(hand, "events", ()) or ()) if hand is not None else 0,
-            str(getattr(hand, "street", "")) if hand is not None else "",
-            str(getattr(hand, "next_to_act", "")) if hand is not None else "",
-            current_key,
+        table = slot.state.get("cash_table")
+        signature = live_range_lookup_signature(
+            hand,
+            current_hand_key=current_key,
+            cash_busy=bool(slot.state.get("cash_busy", False)),
+            cash_deal_busy=bool(slot.state.get("cash_deal_busy", False)),
+            cash_sitting_out=bool(slot.state.get("cash_sitting_out", False)),
+            dealer_index=getattr(table, "dealer_index", None) if table is not None else None,
         )
         paid = bool(current_key and slot.state.get("range_paid_hand_key") == current_key)
         if paid:
