@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.1",
-  "published_at": "2026-11-25T22:30:14Z",
-  "release_notes": "Pigeon Poker 1.5.1 fixes the update path from existing 1.5.0 installations. The 174 original range images are transported in an allow-listed Python asset module so the original 1.5.0 updater can accept the update, then loaded with SHA-256 verification.",
+  "version": "1.5.2",
+  "published_at": "2026-11-25T22:43:13Z",
+  "release_notes": "Pigeon Poker 1.5.2 restores the 174-scenario preflop raise-size selector. On a live HERO preflop raise decision, the dedicated 174 RAISE SIZE button opens only legal chart-derived sizes for the current position, action history, and hand class. Selecting a size updates the amount field and slider without submitting the raise. Postflop sizing controls are unchanged. The update package retains legacy-updater-compatible Python transport for the original 174 bitmap.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.1/payload-updater.zip.b64?v=95556a193f1335f5ebf815c295c258fcadca7055f8e5f00f635d1c094f21fb66",
-  "payload_sha256": "95556a193f1335f5ebf815c295c258fcadca7055f8e5f00f635d1c094f21fb66",
-  "payload_size": 1177237
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.2/payload-updater.zip.b64?v=ad0cef4529b0339f650cbf48f91d19c1f7cf05cd63976239b5c30cd20c6c0e63",
+  "payload_sha256": "ad0cef4529b0339f650cbf48f91d19c1f7cf05cd63976239b5c30cd20c6c0e63",
+  "payload_size": 1178599
 }

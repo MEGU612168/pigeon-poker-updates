@@ -7,9 +7,30 @@
   "source_version": "1.3.101",
   "source_directory": "staging/source_1_3_101",
   "release_notes": "Pigeon Poker 1.5.2 restores the 174-scenario preflop raise-size selector. On a live HERO preflop raise decision, the dedicated 174 RAISE SIZE button opens only legal chart-derived sizes for the current position, action history, and hand class. Selecting a size updates the amount field and slider without submitting the raise. Postflop sizing controls are unchanged. The update package retains legacy-updater-compatible Python transport for the original 174 bitmap.",
-  "distribution_status": "ready",
+  "distribution_status": "published",
   "preflop_174_policy_verified": true,
   "range_image_catalog_verified": true,
   "windows_native_range_view_verified": true,
-  "preflop_raise_size_selector_verified": true
+  "preflop_raise_size_selector_verified": true,
+  "published_at": "2026-11-25T22:43:13Z",
+  "payload_sha256": "ad0cef4529b0339f650cbf48f91d19c1f7cf05cd63976239b5c30cd20c6c0e63",
+  "payload_size": 1178599,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/cpu_learning.py",
+    "pigeon_poker/poker_reasoning.py",
+    "pigeon_poker/preflop_174_policy.py",
+    "pigeon_poker/preflop_174_policy_data.py",
+    "pigeon_poker/preflop_cleanup.py",
+    "pigeon_poker/range_image_catalog.py",
+    "pigeon_poker/range_tables_v2_asset.py",
+    "pigeon_updater.py"
+  ],
+  "updater_actual_extract_validation": "passed",
+  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
+  "legacy_preflop_retirement_validation": "passed"
 }
