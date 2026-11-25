@@ -2000,11 +2000,11 @@ def _postflop_bet_size_fractions(
         return (0.15, 0.25, 0.33) if paired or wetness < 0.30 else (0.20, 0.33, 0.50)
     if range_advantage and nut_edge >= 0.05:
         if shallow:
-            return (0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50)
-        if deep and wetness < 0.50 and not monotone:
-            return (0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
-        if wetness >= 0.50 or monotone:
-            base_sizes = (0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
+            base_sizes = (0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50)
+        elif deep and wetness < 0.50 and not monotone:
+            base_sizes = (0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
+        elif wetness >= 0.50 or monotone:
+            base_sizes = (0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
         else:
             base_sizes = (0.15, 0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
         # When our range has a real nut edge, include the geometric size that
