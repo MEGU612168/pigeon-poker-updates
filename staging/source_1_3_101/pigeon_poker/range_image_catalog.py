@@ -476,7 +476,7 @@ def create_range_photo(master: Any, source_id: int):
                 start = y * width
                 row = " ".join(lookup[index] for index in indices[start:start + width])
                 rows.append("{" + row + "}")
-            image.put("{" + " ".join(rows) + "}", to=(0, first_y))
+            image.put(" ".join(rows), to=(0, first_y))
 
         # The source screenshots are 1092x707. Display at half scale so the
         # complete 13x13 matrix fits on ordinary Windows work areas.
