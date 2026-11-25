@@ -230,7 +230,13 @@ def create_range_photo(master: Any, source_id: int):
 
     payload = base64.b64encode(range_image_png(int(source_id))).decode("ascii")
     try:
-        return tk.PhotoImage(master=master, data=payload, format="png")
+        image = tk.PhotoImage(master=master, data=payload, format="png")
+        # The source screenshots are 1092x707. Display the original bitmap at
+        # half scale so the complete 13x13 matrix fits on ordinary Windows
+        # work areas instead of being clipped by the monitor/taskbar bounds.
+        if image.width() > 700 or image.height() > 550:
+            image = image.subsample(2, 2)
+        return image
     except tk.TclError as exc:
         raise RangeImageCatalogError(
             f"Windows could not load the source range image #{int(source_id)}: {exc}"
