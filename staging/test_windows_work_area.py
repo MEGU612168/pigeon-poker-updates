@@ -209,15 +209,17 @@ def test_paid_range_full_application_flow_on_windows(root, table):
     gdi32.GetPixel.restype = wintypes.COLORREF
 
     px, py = 30, 80
-    expected = str(photo.get(px, py))
-    assert expected.startswith("#") and len(expected) == 7, expected
+    expected = photo.get(px, py)
+    assert isinstance(expected, tuple) and len(expected) == 3, expected
+    image_offset_x = (image_label.winfo_width() - photo.width()) // 2
+    image_offset_y = (image_label.winfo_height() - photo.height()) // 2
     hdc = user32.GetDC(image_label.winfo_id())
     if not hdc:
         raise ctypes.WinError(ctypes.get_last_error())
     try:
-        pixel = int(gdi32.GetPixel(hdc, px, py))
+        pixel = int(gdi32.GetPixel(hdc, image_offset_x + px, image_offset_y + py))
         actual = (pixel & 0xFF, (pixel >> 8) & 0xFF, (pixel >> 16) & 0xFF)
-        wanted = tuple(int(expected[i:i + 2], 16) for i in (1, 3, 5))
+        wanted = tuple(int(channel) for channel in expected)
         assert all(abs(a - b) <= 4 for a, b in zip(actual, wanted)), {
             "point": (px, py), "actual_rgb": actual, "expected_rgb": wanted,
         }
