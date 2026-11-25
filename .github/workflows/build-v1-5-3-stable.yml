@@ -202,13 +202,13 @@ jobs:
               raise SystemExit("The postflop policy does not build Bayesian ranges from the 174 preflop chart.")
           if "def _call_realized_equity(" not in reasoning_source or "def _geometric_bet_fraction(" not in reasoning_source:
               raise SystemExit("The postflop equity-realization or geometric-sizing theory is missing.")
-          if "postflop_range_estimator" not in app_source or app_source.count("range_estimator=postflop_range_estimator") < 2:
-              raise SystemExit("The cash CPU does not feed 174-chart Bayesian ranges into both postflop decision paths.")
           if "pigeon_poker/preflop_cleanup.py" not in extracted_set:
               raise SystemExit("Retired preflop cleanup module is missing from the update")
           if ("pigeon_poker/preflop_screenshot_" + "ranges.py") in extracted_set:
               raise SystemExit("Retired preflop implementation must not be bundled")
           app_source = (source_dir / "PigeonPoker.pyw").read_text(encoding="utf-8")
+          if "postflop_range_estimator" not in app_source or app_source.count("range_estimator=postflop_range_estimator") < 2:
+              raise SystemExit("The cash CPU does not feed 174-chart Bayesian ranges into both postflop decision paths.")
           if "preflop_gto_strategy" in app_source or "choose_preflop_action" in app_source:
               raise SystemExit("Application still references the retired preflop policy")
           if "_choose_preflop_legal_fallback" in app_source:
