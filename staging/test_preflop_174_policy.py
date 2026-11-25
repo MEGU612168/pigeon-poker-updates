@@ -129,6 +129,7 @@ def test_hero_raise_size_options_match_the_174_scenario_and_stay_legal():
         "actions": ["raise", "call", "fold"], "to_call": 150,
         "raise_allowed": True, "min_target": 400, "max_target": 10000,
     })
+    hand.next_to_act = "bb"
     result = preflop_174_raise_size_options(FakeTable(), hand, "bb")
     assert result is not None
     assert result["scenario_id"] == 146
@@ -144,6 +145,7 @@ def test_hero_raise_size_options_are_not_offered_outside_preflop_or_out_of_turn(
     events = [event("utg", "fold"), event("hj", "fold"), event("co", "fold"),
               event("btn", "raise", 250), event("sb", "fold")]
     hand = FakeHand(events, "bb", ("As", "Ah"))
+    hand.next_to_act = "bb"
     hand.street = "flop"
     assert preflop_174_raise_size_options(FakeTable(), hand, "bb") is None
     hand.street = "preflop"
