@@ -21,7 +21,7 @@ def _rgb(value):
 
 def main():
     if sys.platform != "win32":
-        raise SystemExit("This test must run on Windows to exercise the native Windows Tk decoder.")
+        raise SystemExit("This test must run on Windows to exercise native Windows Tk PhotoImage rendering.")
 
     import tkinter as tk
 
@@ -65,7 +65,7 @@ def main():
 
     if failures:
         raise AssertionError(f"Native Windows Tk failed to render {len(failures)} / 174 images: {failures}")
-    print("PASS: native Windows Tk decoded all 174 PPM range images; range #136 included")
+    print("PASS: native Windows Tk rendered all 174 RGB range images; range #136 included")
 
 
 if __name__ == "__main__":
