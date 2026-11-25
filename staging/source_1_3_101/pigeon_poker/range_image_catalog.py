@@ -423,7 +423,7 @@ def range_image_png(source_id: int) -> bytes:
 
 @functools.lru_cache(maxsize=174)
 def range_image_ppm(source_id: int) -> bytes:
-    """Return a native PPM (P6) bitmap for reliable Tk rendering on Windows."""
+    """Return an ASCII PPM (P3) bitmap accepted by native Windows Tk PhotoImage."""
     catalog = _load_catalog()
     source_id = int(source_id)
     indices = catalog["frames"].get(source_id)
@@ -432,29 +432,31 @@ def range_image_ppm(source_id: int) -> bytes:
 
     width, height = catalog["width"], catalog["height"]
     palette = catalog["palette"]
-    lookup = [bytes(palette[i:i + 3]) for i in range(0, 768, 3)]
-    rgb = bytearray(width * height * 3)
+    lookup = [tuple(palette[i:i + 3]) for i in range(0, 768, 3)]
+    rows = []
     offset = 0
-    for index in indices:
-        colour = lookup[index]
-        rgb[offset:offset + 3] = colour
-        offset += 3
-    header = f"P6\n{width} {height}\n255\n".encode("ascii")
-    return header + bytes(rgb)
+    for _ in range(height):
+        values = []
+        for index in indices[offset:offset + width]:
+            red, green, blue = lookup[index]
+            values.extend((str(red), str(green), str(blue)))
+        offset += width
+        rows.append(" ".join(values))
+    header = f"P3\n{width} {height}\n255\n"
+    return (header + "\n".join(rows) + "\n").encode("ascii")
 
 
 def create_range_photo(master: Any, source_id: int):
-    """Create a native Tk PhotoImage using the universally-supported PPM decoder."""
+    """Create a native Tk PhotoImage from an ASCII PPM payload."""
     import tkinter as tk
 
     source_id = int(source_id)
-    payload = base64.b64encode(range_image_ppm(source_id)).decode("ascii")
+    payload = range_image_ppm(source_id).decode("ascii")
     try:
-        # Use PPM rather than PNG for the native Tk display path. The PNG
-        # export is retained for catalogue validation and external tooling,
-        # but the Windows PhotoImage decoder has shown a blank/black result
-        # on some Tk builds despite accepting the PNG without raising TclError.
-        image = tk.PhotoImage(master=master, data=payload, format="PPM")
+        # P3 is deliberately passed as plain ASCII data. Windows Tk's PPM
+        # decoder rejected a base64-encoded binary P6 payload in native tests;
+        # P3 avoids the binary/base64 ambiguity in Tk's -data option.
+        image = tk.PhotoImage(master=master, data=payload, format="PPM");
         if image.width() <= 0 or image.height() <= 0:
             raise tk.TclError("Tk created an empty PhotoImage")
         # The source screenshots are 1092x707. Display at half scale so the
