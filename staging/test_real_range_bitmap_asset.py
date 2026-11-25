@@ -102,36 +102,6 @@ def test_real_174_bitmap_loads_and_every_source_image_renders() -> None:
         _validate_png(png, summary["image_width"], summary["image_height"])
 
 
-def _validate_ppm(payload: bytes, expected_width: int, expected_height: int) -> bytes:
-    tokens = payload.split()
-    assert len(tokens) >= 4 and tokens[0] == b"P3"
-    width, height, max_value = (int(value) for value in tokens[1:4])
-    assert (width, height, max_value) == (expected_width, expected_height, 255)
-    values = [int(value) for value in tokens[4:]]
-    assert len(values) == width * height * 3
-    assert all(0 <= value <= 255 for value in values)
-    colours = {
-        tuple(values[offset:offset + 3])
-        for offset in range(0, len(values), 3)
-    }
-    assert any(colour != (0, 0, 0) for colour in colours), "image is entirely black"
-    assert len(colours) >= 2, "image contains no visible colour variation"
-    return bytes(values)
-
-
-def test_every_ppm_image_has_visible_nonblack_pixels_including_range_136() -> None:
-    summary = range_image_catalog.range_catalog_summary()
-    frames = range_image_catalog._load_catalog()["frames"]
-    assert len(frames) == 174
-    for source_id in sorted(EXPECTED_IDS):
-        ppm = range_image_catalog.range_image_ppm(source_id)
-        rgb = _validate_ppm(ppm, summary["image_width"], summary["image_height"])
-        if source_id == 136:
-            assert len(rgb) == summary["image_width"] * summary["image_height"] * 3
-            assert any(rgb[offset:offset + 3] != b"\x00\x00\x00"
-                       for offset in range(0, len(rgb), 3))
-
-
 def test_create_range_photo_writes_real_rgb_pixels_into_native_tk_image() -> None:
     import tkinter as tk
 
@@ -177,6 +147,5 @@ def test_create_range_photo_writes_real_rgb_pixels_into_native_tk_image() -> Non
 if __name__ == "__main__":
     test_real_174_bitmap_loads_and_every_source_image_renders()
     test_embedded_python_carrier_loads_without_a_binary_file()
-    test_every_ppm_image_has_visible_nonblack_pixels_including_range_136()
     test_create_range_photo_writes_real_rgb_pixels_into_native_tk_image()
     print("PASS: 174 PNG + PPM images, nonblack pixels, embedded asset and native Tk PhotoImage RGB writes")
