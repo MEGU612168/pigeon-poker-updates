@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.5.2",
+  "package_mode": "full",
+  "source_version": "1.3.101",
+  "source_directory": "staging/source_1_3_101",
+  "release_notes": "Pigeon Poker 1.5.2 restores the 174-scenario preflop raise-size selector. On a live HERO preflop raise decision, the dedicated 174 RAISE SIZE button opens only legal chart-derived sizes for the current position, action history, and hand class. Selecting a size updates the amount field and slider without submitting the raise. Postflop sizing controls are unchanged. The update package retains legacy-updater-compatible Python transport for the original 174 bitmap.",
+  "distribution_status": "ready",
+  "preflop_174_policy_verified": true,
+  "range_image_catalog_verified": true,
+  "windows_native_range_view_verified": true,
+  "preflop_raise_size_selector_verified": true
+}
