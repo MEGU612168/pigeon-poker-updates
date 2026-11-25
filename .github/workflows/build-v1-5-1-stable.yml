@@ -37,10 +37,10 @@ jobs:
               raise SystemExit("The original 174-range bitmap failed its independent size/hash check.")
           encoded = base64.b64encode(asset).decode("ascii")
           module = (
-              "# Generated from range_tables_v2.bin. Kept as .py so the original 1.5.0 updater can accept it.\\n"
-              "RANGE_TABLES_V2_B64 = (\\n"
-              + "".join("    " + repr(encoded[i:i + 100]) + "\\n" for i in range(0, len(encoded), 100))
-              + ")\\n"
+              "# Generated from range_tables_v2.bin. Kept as .py so the original 1.5.0 updater can accept it.\n"
+              "RANGE_TABLES_V2_B64 = (\n"
+              + "".join("    " + repr(encoded[i:i + 100]) + "\n" for i in range(0, len(encoded), 100))
+              + ")\n"
           )
           (source / "range_tables_v2_asset.py").write_text(module, encoding="utf-8")
           print(f"Generated legacy-compatible image carrier: {len(asset)} bytes, SHA-256 {digest}")
