@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.3",
-  "published_at": "2026-11-25T23:00:16Z",
-  "release_notes": "Pigeon Poker 1.5.3 strengthens local postflop CPU play. It builds sequential Bayesian opponent ranges from the immutable 174-scenario preflop charts and observed raise sizes, feeds those ranges plus persistent opponent behavior into postflop equity and response modeling, corrects equity realization for all-in calls, and adds SPR/street-aware geometric bet sizing. Existing 174 preflop CPU actions and postflop action controls are retained.",
+  "version": "1.5.4",
+  "published_at": "2026-11-25T23:25:30Z",
+  "release_notes": "Pigeon Poker 1.5.4 fixes live paid preflop-range availability across the complete 174-scenario catalogue. The eligibility cache now invalidates when hand events, legal-turn state, dealing/busy state, player stacks, or all-in status changes. Exact duplicate source images are aliased only when their embedded pixel buffers are identical; differing same-history scenarios are disambiguated by current legal actions and all-in participants. The original 174 preflop charts, 1BB-per-hand review charge, CPU policy, and existing postflop controls are retained.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.3/payload-updater.zip.b64?v=029dc8e196556c0aaa83858cb07e965b54044b592e5b3ff7cc0af1580293ea77",
-  "payload_sha256": "029dc8e196556c0aaa83858cb07e965b54044b592e5b3ff7cc0af1580293ea77",
-  "payload_size": 1181779
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.4/payload-updater.zip.b64?v=4e0188830ab7a44675964c91eb12ba44e0012ffef0ef9b8427f807515312d80c",
+  "payload_sha256": "4e0188830ab7a44675964c91eb12ba44e0012ffef0ef9b8427f807515312d80c",
+  "payload_size": 1183910
 }
