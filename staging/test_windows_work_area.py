@@ -126,7 +126,9 @@ def load_full_range_view_method():
         "RangeImageCatalogError": RangeImageCatalogError,
     }
     exec(compile(module_ast, str(SOURCE), "exec"), namespace)
-    return namespace["_open_preflop_range_view"], create_range_photo, (summary["image_width"], summary["image_height"])
+    display_width = (summary["image_width"] + 1) // 2 if summary["image_width"] > 700 or summary["image_height"] > 550 else summary["image_width"]
+    display_height = (summary["image_height"] + 1) // 2 if summary["image_width"] > 700 or summary["image_height"] > 550 else summary["image_height"]
+    return namespace["_open_preflop_range_view"], create_range_photo, (display_width, display_height)
 
 
 def test_paid_range_full_application_flow_on_windows(root, table):
