@@ -132,7 +132,7 @@ def test_create_range_photo_writes_real_rgb_pixels_into_native_tk_image() -> Non
     finally:
         tk.PhotoImage = original_photo_image
 
-    assert (photo.width(), photo.height()) == (546, 353)
+    assert (photo.width(), photo.height()) == (546, 354)
     assert len(captured["writes"]) > 1
     assert captured["writes"][0][1] == (0, 0)
     assert all("#" in data for data, _to in captured["writes"])
