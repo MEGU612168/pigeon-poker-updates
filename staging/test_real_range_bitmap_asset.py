@@ -166,7 +166,7 @@ def test_create_range_photo_uses_ppm_and_keeps_visible_pixel_data() -> None:
 
     assert captured["format"] == "PPM"
     assert len(captured["payload"]) > 1000
-    assert captured["payload"].startswith(b"P3\\n")
+    assert captured["payload"].splitlines()[0] == b"P3"
     assert (photo.width(), photo.height()) == (546, 353)
     assert any(photo.rgb[offset:offset + 3] != b"\x00\x00\x00"
                for offset in range(0, len(photo.rgb), 3))
