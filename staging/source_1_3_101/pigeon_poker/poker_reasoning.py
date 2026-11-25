@@ -345,10 +345,6 @@ def build_174_preflop_range_estimate(
         str(getattr(player, "name", "")): str(getattr(player, "player_id", ""))
         for player in players if str(getattr(player, "name", ""))
     }
-    player_by_id = {
-        str(getattr(player, "player_id", "")): player
-        for player in players if str(getattr(player, "player_id", ""))
-    }
     classes = tuple(chart._HAND_ORDER)
     class_counts = {
         hand_class: max(1, len(_physical_combos(hand_class)))
@@ -2619,7 +2615,7 @@ def _choose_range_aware_action_impl(
     elif best_action in {"all_in", "allin"}:
         best_ev = equity * max(0, call_pot - estimated_rake) - to_call
 
-    if to_call > 0 and realized_equity < required_call and "fold" in actions:
+    if to_call > 0 and call_equity < required_call and "fold" in actions:
         best_action, best_amount, best_ev = "fold", None, 0.0
     elif to_call > 0 and "call" in actions:
         best_action, best_amount = "call", None
