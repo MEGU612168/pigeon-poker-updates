@@ -184,7 +184,7 @@ def _live_fixture_for_scenario(scenario: dict):
 
 
 def test_all_174_live_histories_resolve_to_their_own_paid_image():
-    from pigeon_poker.range_image_catalog import resolve_range_image_for_hand
+    from pigeon_poker.range_image_catalog import resolve_range_image_for_hand, range_image_png
 
     failures = []
     for scenario in _scenarios():
@@ -214,6 +214,7 @@ def test_all_174_live_histories_resolve_to_their_own_paid_image():
                     },
                     "overall": item.get("overall"),
                     "matrix_sha256": hashlib.sha256(matrix.encode("utf-8")).hexdigest(),
+                    "image_sha256": hashlib.sha256(range_image_png(int(item["id"]))).hexdigest(),
                 })
             failures.append({
                 "expected_id": expected_id,
