@@ -44,6 +44,7 @@ MAX_UNCOMPRESSED_BYTES = 18 * 1024 * 1024
 MAX_FILES = 500
 
 RANGE_IMAGE_ASSET_PATH = "pigeon_poker/range_tables_v2.bin"
+RANGE_IMAGE_ASSET_MODULE_PATH = "pigeon_poker/range_tables_v2_asset.py"
 RANGE_IMAGE_ASSET_SIZE = 848418
 RANGE_IMAGE_ASSET_SHA256 = "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715"
 
@@ -274,8 +275,10 @@ def _validate_and_extract(payload: bytes, manifest: dict[str, Any], destination:
         if app_entry.is_file():
             app_text = app_entry.read_text(encoding="utf-8")
             requires_range_asset = "pigeon_poker.range_image_catalog" in app_text
-            if requires_range_asset and RANGE_IMAGE_ASSET_PATH not in extracted:
-                raise ValueError("The app uses the 174 range image catalogue but the bitmap asset is missing.")
+            has_bitmap_asset = RANGE_IMAGE_ASSET_PATH in extracted
+            has_embedded_asset = RANGE_IMAGE_ASSET_MODULE_PATH in extracted
+            if requires_range_asset and not (has_bitmap_asset or has_embedded_asset):
+                raise ValueError("The app uses the 174 range image catalogue but its bitmap asset is missing.")
         bundled_version = (destination / "VERSION.txt").read_text(encoding="utf-8").strip()
         if bundled_version != str(manifest["version"]):
             raise ValueError("The package version does not match the update manifest.")
