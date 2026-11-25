@@ -111,6 +111,7 @@ def test_all_unambiguous_fully_sized_histories_resolve_to_their_source_id():
 def run_tests():
     tests = [
         test_catalog_still_contains_exactly_174_source_scenarios,
+        test_complete_174_situation_and_source_image_inventory,
         test_paid_range_lookup_never_uses_nearest_node_inference,
         test_missing_raise_sizes_do_not_create_false_exact_matches,
         test_changed_raise_size_is_not_treated_as_the_original_situation,
@@ -287,6 +288,68 @@ def test_ambiguous_live_nodes_use_action_menu_and_all_in_state():
         chart = resolve_range_image_for_hand(table, hand, actor_id)
         assert chart is not None, f"Ambiguous source #{source_id} remained unavailable"
         assert range_image_png(int(chart["source_id"])) == range_image_png(source_id)
+
+
+def test_complete_174_situation_and_source_image_inventory():
+    import hashlib
+    from pigeon_poker.preflop_174_policy_data import load_preflop_174_data
+    from pigeon_poker.range_image_catalog import _load_catalog
+
+    data = load_preflop_174_data()
+    scenarios = data["scenarios"]
+    assert len(scenarios) == 174
+    assert [int(item["id"]) for item in scenarios] == sorted(int(item["id"]) for item in scenarios)
+    assert {int(item["id"]) for item in scenarios} == set(range(128, 302))
+    assert len(data["hand_order"]) == 169
+    assert len(set(data["hand_order"])) == 169
+
+    for scenario in scenarios:
+        assert scenario["position"] in {"UTG", "HJ", "CO", "BTN", "SB", "BB"}
+        assert len(scenario.get("hands", [])) == 169
+        assert scenario.get("action_options")
+        assert isinstance(scenario.get("history"), list)
+        for row in scenario["hands"]:
+            for option_index, frequency in row:
+                assert 0 <= int(option_index) < len(scenario["action_options"])
+                assert 0.0 <= float(frequency) <= 1.0
+            if row:
+                assert abs(sum(float(frequency) for _, frequency in row) - 1.0) <= 0.001
+
+    catalog = _load_catalog()
+    assert len(catalog["entries"]) == 174
+    assert set(catalog["frames"]) == set(range(128, 302))
+    assert {int(item["source_id"]) for item in catalog["entries"]} == set(range(128, 302))
+
+    def semantic_key(item):
+        return json.dumps(
+            {
+                "position": item["position"],
+                "history": item.get("history", []),
+                "action_options": item.get("action_options", []),
+                "overall": item.get("overall", []),
+                "hands": item.get("hands", []),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    semantic_groups = {}
+    image_groups = {}
+    for item in scenarios:
+        semantic_groups.setdefault(semantic_key(item), []).append(int(item["id"]))
+        image_hash = hashlib.sha256(catalog["frames"][int(item["id"])]).hexdigest()
+        image_groups.setdefault(image_hash, []).append(int(item["id"]))
+    semantic_duplicates = sorted(sorted(ids) for ids in semantic_groups.values() if len(ids) > 1)
+    image_duplicates = sorted(sorted(ids) for ids in image_groups.values() if len(ids) > 1)
+    print(
+        "174-SCENARIO AUDIT:",
+        f"ids={len(scenarios)}",
+        f"unique_semantic_situations={len(semantic_groups)}",
+        f"duplicate_situation_groups={semantic_duplicates}",
+        f"unique_source_images={len(image_groups)}",
+        f"duplicate_image_groups={image_duplicates}",
+    )
 
 
 if __name__ == "__main__":
