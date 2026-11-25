@@ -122,7 +122,7 @@ def test_create_range_photo_writes_real_rgb_pixels_into_native_tk_image() -> Non
 
         def subsample(self, x, y):
             self._width //= x
-            self._height //= y
+            self._height = (self._height + y - 1) // y
             return self
 
     original_photo_image = tk.PhotoImage
