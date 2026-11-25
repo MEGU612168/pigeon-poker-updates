@@ -465,6 +465,7 @@ def build_174_preflop_range_estimate(
                         inferred_share = cell_inference_mass
                         meta["inferred_cells"] += 1 if inferred_share >= 0.50 else 0
                         meta["quality"] += node_quality * (1.0 - 0.30 * inferred_share)
+                        meta["scenario_ids"].append(int(scenario.get("id", -1)))
         if actor_position in chart.POSITIONS and action in {
             "fold", "call", "check", "raise", "allin"
         }:
