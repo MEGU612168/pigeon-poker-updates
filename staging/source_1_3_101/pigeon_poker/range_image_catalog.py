@@ -231,6 +231,7 @@ def create_range_photo(master: Any, source_id: int):
     payload = base64.b64encode(range_image_png(int(source_id))).decode("ascii")
     try:
         image = tk.PhotoImage(master=master, data=payload, format="png")
+        # Keep the original PNG in the source catalogue; only the Tk display is downscaled.
         # The source screenshots are 1092x707. Display the original bitmap at
         # half scale so the complete 13x13 matrix fits on ordinary Windows
         # work areas instead of being clipped by the monitor/taskbar bounds.
