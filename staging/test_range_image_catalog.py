@@ -123,10 +123,6 @@ def run_tests():
     print("ALL PASS", len(tests), "174-range lookup tests")
 
 
-if __name__ == "__main__":
-    run_tests()
-
-
 class _LivePlayer:
     def __init__(self, player_id: str, position: str):
         self.player_id = player_id
@@ -135,8 +131,6 @@ class _LivePlayer:
 
 class _LiveHand:
     def __init__(self, events, next_to_act: str):
-        from types import SimpleNamespace
-
         # dealer_index=0 and this seat order give the six standard positions.
         self.players = [
             _LivePlayer("btn", "BTN"),
@@ -233,3 +227,7 @@ def test_live_range_signature_invalidates_when_eligibility_or_history_changes():
         assert before != after
 
 
+
+
+if __name__ == "__main__":
+    run_tests()
