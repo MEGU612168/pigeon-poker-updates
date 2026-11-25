@@ -102,7 +102,80 @@ def test_real_174_bitmap_loads_and_every_source_image_renders() -> None:
         _validate_png(png, summary["image_width"], summary["image_height"])
 
 
+def _validate_ppm(payload: bytes, expected_width: int, expected_height: int) -> bytes:
+    magic, separator, remainder = payload.partition(b"\n")
+    assert magic == b"P6" and separator == b"\n"
+    dimensions, separator, remainder = remainder.partition(b"\n")
+    assert separator == b"\n"
+    width, height = (int(value) for value in dimensions.split())
+    max_value, separator, rgb = remainder.partition(b"\n")
+    assert separator == b"\n"
+    assert (width, height, int(max_value)) == (expected_width, expected_height, 255)
+    assert len(rgb) == width * height * 3
+    colours = {rgb[offset:offset + 3] for offset in range(0, len(rgb), 3)}
+    assert any(colour != b"\x00\x00\x00" for colour in colours), "image is entirely black"
+    assert len(colours) >= 2, "image contains no visible colour variation"
+    return rgb
+
+
+def test_every_ppm_image_has_visible_nonblack_pixels_including_range_136() -> None:
+    summary = range_image_catalog.range_catalog_summary()
+    frames = range_image_catalog._load_catalog()["frames"]
+    assert len(frames) == 174
+    for source_id in sorted(EXPECTED_IDS):
+        ppm = range_image_catalog.range_image_ppm(source_id)
+        rgb = _validate_ppm(ppm, summary["image_width"], summary["image_height"])
+        if source_id == 136:
+            assert len(rgb) == summary["image_width"] * summary["image_height"] * 3
+            assert any(rgb[offset:offset + 3] != b"\x00\x00\x00"
+                       for offset in range(0, len(rgb), 3))
+
+
+def test_create_range_photo_uses_ppm_and_keeps_visible_pixel_data() -> None:
+    import tkinter as tk
+
+    captured = {}
+    class FakePhotoImage:
+        def __init__(self, *, master, data, format):
+            captured["master"] = master
+            captured["format"] = format
+            captured["payload"] = base64.b64decode(data, validate=True)
+            magic, _, remainder = captured["payload"].partition(b"\n")
+            dimensions, _, remainder = remainder.partition(b"\n")
+            max_value, _, rgb = remainder.partition(b"\n")
+            self._width, self._height = (int(value) for value in dimensions.split())
+            self.rgb = rgb
+            assert magic == b"P6" and int(max_value) == 255
+
+        def width(self):
+            return self._width
+
+        def height(self):
+            return self._height
+
+        def subsample(self, x, y):
+            self._width //= x
+            self._height //= y
+            return self
+
+    original_photo_image = tk.PhotoImage
+    tk.PhotoImage = FakePhotoImage
+    try:
+        photo = range_image_catalog.create_range_photo(object(), 136)
+    finally:
+        tk.PhotoImage = original_photo_image
+
+    assert captured["format"] == "PPM"
+    assert len(captured["payload"]) > 1000
+    assert (photo.width(), photo.height()) == (546, 353)
+    assert any(photo.rgb[offset:offset + 3] != b"\x00\x00\x00"
+               for offset in range(0, len(photo.rgb), 3))
+
+
+
 if __name__ == "__main__":
     test_real_174_bitmap_loads_and_every_source_image_renders()
     test_embedded_python_carrier_loads_without_a_binary_file()
-    print("PASS: committed 174-image asset hash, embedded carrier fallback, and 174 PNG renders")
+    test_every_ppm_image_has_visible_nonblack_pixels_including_range_136()
+    test_create_range_photo_uses_ppm_and_keeps_visible_pixel_data()
+    print("PASS: 174 PNG + PPM images, nonblack pixels, embedded asset and Tk PhotoImage payload")
