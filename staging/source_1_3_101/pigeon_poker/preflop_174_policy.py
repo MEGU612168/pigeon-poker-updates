@@ -513,6 +513,84 @@ def choose_preflop_174_action(table: Any, hand: Any, player_id: str, cpu: Any) -
     )
 
 
+
+def preflop_174_raise_size_options(
+    table: Any,
+    hand: Any,
+    player_id: str = "hero",
+) -> dict[str, Any] | None:
+    """Return legal chart-derived preflop raise sizes for the acting player.
+
+    Exact 174 histories are preferred. Other histories use the same nearest
+    source-scenario inference as the CPU policy, clearly marked as inferred.
+    This helper only selects sizing targets; it never submits an action.
+    """
+    if hand is None or bool(getattr(hand, "finished", False)):
+        return None
+    if str(getattr(hand, "street", "")).lower() != "preflop":
+        return None
+    if str(getattr(hand, "next_to_act", "") or "") != str(player_id):
+        return None
+    try:
+        legal = hand.legal_actions(player_id)
+        if "raise" not in _legal_actions(legal) or not bool(legal.get("raise_allowed", True)):
+            return None
+        positions = _position_map(table, hand)
+        actor_position = positions.get(str(player_id))
+        if actor_position not in POSITIONS:
+            return None
+        actual_history = _actual_history(table, hand, player_id, positions)
+        # A fixed seed makes the displayed source scenario stable while the user
+        # opens/closes the sizing menu; CPU action sampling keeps its own RNG.
+        scenario, scenario_inferred, distance = _choose_scenario(
+            actor_position, actual_history, random.Random(0)
+        )
+        player = hand.player(player_id)
+        hand_class = _hand_class(getattr(player, "hole_cards", ()))
+        if hand_class is None:
+            return None
+        distribution, hand_inferred, hand_method = _scenario_distribution(scenario, hand_class)
+        bb = _big_blind(hand, table)
+        legal_choices = _legal_choices(hand, player_id, distribution, bb)
+        total_frequency = sum(float(item["frequency"]) for item in legal_choices)
+        if total_frequency <= 0:
+            return None
+
+        by_target: dict[int, dict[str, float]] = {}
+        for item in legal_choices:
+            if item["action"] != "raise" or item.get("amount") is None:
+                continue
+            amount = int(item["amount"])
+            row = by_target.setdefault(amount, {
+                "size_bb": float(item["size_bb"]),
+                "frequency": 0.0,
+            })
+            row["frequency"] += float(item["frequency"])
+        if not by_target:
+            return None
+
+        choices = []
+        for amount, row in sorted(by_target.items()):
+            choices.append({
+                "amount": amount,
+                "size_bb": row["size_bb"],
+                "frequency": row["frequency"],
+                "frequency_pct": 100.0 * row["frequency"] / total_frequency,
+            })
+        return {
+            "scenario_id": int(scenario["id"]),
+            "scenario_match_mode": "nearest-inferred" if scenario_inferred else "exact",
+            "scenario_inferred": bool(scenario_inferred),
+            "distance": float(distance),
+            "hand_class": hand_class,
+            "hand_inferred": bool(hand_inferred),
+            "hand_inference_method": str(hand_method),
+            "choices": choices,
+        }
+    except (KeyError, TypeError, ValueError, AttributeError, RuntimeError, OverflowError):
+        return None
+
+
 def preflop_174_catalog_summary() -> dict[str, Any]:
     data = load_preflop_174_data()
     scenarios = _scenarios()
