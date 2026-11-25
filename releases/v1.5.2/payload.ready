@@ -1,1 +1,1 @@
-Rebuild with the final CPU import compatibility and the 174 preflop size-control regression tests.
+Rebuild Pigeon Poker 1.5.2 after fixing the preflop sizing test fixture actor state.
