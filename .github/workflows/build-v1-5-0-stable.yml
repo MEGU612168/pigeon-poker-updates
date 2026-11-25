@@ -133,7 +133,9 @@ jobs:
               "package_mode": "full",
           }
           with tempfile.TemporaryDirectory() as tmp:
-              extracted = updater._validate_and_extract(payload, manifest_for_test, pathlib.Path(tmp) / "extract")
+              extracted_root = pathlib.Path(tmp) / "extract"
+              extracted = updater._validate_and_extract(payload, manifest_for_test, extracted_root)
+              extracted_image_sha256 = hashlib.sha256((extracted_root / "pigeon_poker" / "range_tables_v2.bin").read_bytes()).hexdigest()
           extracted_set = set(extracted)
           if not {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}.issubset(extracted_set):
               raise SystemExit("Shipped updater did not extract every required root file")
@@ -141,8 +143,7 @@ jobs:
               raise SystemExit("Retired legacy preflop policy must not be bundled")
           if "pigeon_poker/range_tables_v2.bin" not in extracted_set:
               raise SystemExit("The 174 range bitmap is missing from the validated update ZIP")
-          extracted_image = pathlib.Path(tmp) / "extract" / "pigeon_poker" / "range_tables_v2.bin"
-          if hashlib.sha256(extracted_image.read_bytes()).hexdigest() != "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715":
+          if extracted_image_sha256 != "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715":
               raise SystemExit("The 174 range bitmap changed while packaging the update")
           if "pigeon_poker/preflop_174_policy.py" not in extracted_set:
               raise SystemExit("The 174-scenario CPU policy is missing from the package")
