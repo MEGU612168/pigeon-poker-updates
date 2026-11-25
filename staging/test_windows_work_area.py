@@ -138,19 +138,20 @@ def test_paid_range_full_application_flow_on_windows(root, table):
     table.update_idletasks()
     root.update()
 
-    app_stub = type("AppStub", (), {})()
-    app_stub.table_windows = {"smoke": {"canvas": table_canvas}}
-    app_stub.multi_tables = {}
-    app_stub.active_cash_table_id = None
-    app_stub.squeeze_deadline_jobs = {}
+    # Use a genuine Tk root as the application master. A plain object can
+    # hold test attributes but cannot own a native Tk PhotoImage or Toplevel.
+    root.table_windows = {"smoke": {"canvas": table_canvas}}
+    root.multi_tables = {}
+    root.active_cash_table_id = None
+    root.squeeze_deadline_jobs = {}
 
     chart = {
         "source_id": 301,
         "actor_position": "SB",
-        "match_mode": "suffix",
+        "match_mode": "exact",
     }
     open_range(
-        app_stub,
+        root,
         chart,
         title="LIVE PREFLOP RANGE",
         charge_label="Windows end-to-end smoke test",
