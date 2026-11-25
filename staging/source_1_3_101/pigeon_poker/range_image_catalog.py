@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 _ASSET_PATH = Path(__file__).with_name("range_tables_v2.bin")
-_EMBEDDED_ASSET_MODULE = "range_tables_v2_asset"
 _EXPECTED_ASSET_SIZE = 848418
 _EXPECTED_ASSET_SHA256 = "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715"
 _MAGIC = b"PPRIDX02"
