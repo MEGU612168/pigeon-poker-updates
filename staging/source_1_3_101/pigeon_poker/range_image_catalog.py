@@ -421,31 +421,6 @@ def range_image_png(source_id: int) -> bytes:
     )
 
 
-@functools.lru_cache(maxsize=174)
-def range_image_ppm(source_id: int) -> bytes:
-    """Return an ASCII PPM (P3) bitmap accepted by native Windows Tk PhotoImage."""
-    catalog = _load_catalog()
-    source_id = int(source_id)
-    indices = catalog["frames"].get(source_id)
-    if indices is None:
-        raise RangeImageCatalogError(f"Range screenshot #{source_id} is not in the image catalogue")
-
-    width, height = catalog["width"], catalog["height"]
-    palette = catalog["palette"]
-    lookup = [tuple(palette[i:i + 3]) for i in range(0, 768, 3)]
-    rows = []
-    offset = 0
-    for _ in range(height):
-        values = []
-        for index in indices[offset:offset + width]:
-            red, green, blue = lookup[index]
-            values.extend((str(red), str(green), str(blue)))
-        offset += width
-        rows.append(" ".join(values))
-    header = f"P3\n{width} {height}\n255\n"
-    return (header + "\n".join(rows) + "\n").encode("ascii")
-
-
 def create_range_photo(master: Any, source_id: int):
     """Create a native Tk PhotoImage by writing RGB pixels directly through Tk."""
     import tkinter as tk
