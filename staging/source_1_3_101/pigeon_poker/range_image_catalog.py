@@ -138,6 +138,75 @@ def _history_matches(expected: list[dict[str, Any]], actual: list[dict[str, Any]
     )
 
 
+
+_RANGE_LOOKUP_EVENT_FIELDS = (
+    "type", "street", "player_id", "player", "action", "decision",
+    "position", "is_all_in", "all_in", "jam", "target", "raise_to",
+    "to_amount", "total_contribution", "target_amount", "amount", "paid",
+)
+
+
+def live_range_lookup_signature(
+    hand: Any,
+    *,
+    current_hand_key: str = "",
+    cash_busy: bool = False,
+    cash_deal_busy: bool = False,
+    cash_sitting_out: bool = False,
+    dealer_index: Any = None,
+) -> tuple[Any, ...]:
+    """Return every live input that can change paid-range eligibility or matching.
+
+    The UI previously cached a failed lookup using only event count, street,
+    and actor. A lookup made while dealing/busy could therefore stay cached as
+    unavailable after the busy flag cleared. Event values can also be amended
+    without changing the list length. Snapshot the lookup-relevant inputs.
+    """
+    if hand is None:
+        return (
+            None, str(current_hand_key), bool(cash_busy),
+            bool(cash_deal_busy), bool(cash_sitting_out), repr(dealer_index),
+        )
+
+    events = list(getattr(hand, "events", ()) or ())
+    event_state = []
+    for event in events:
+        if isinstance(event, dict):
+            event_state.append(tuple(
+                (field, repr(event.get(field))) for field in _RANGE_LOOKUP_EVENT_FIELDS
+            ))
+        else:
+            event_state.append(("event", repr(event)))
+
+    players = list(getattr(hand, "players", ()) or ())
+    seat_by_id = getattr(hand, "seat_by_id", {}) or {}
+    player_state = []
+    for player in players:
+        player_id = str(getattr(player, "player_id", "") or "")
+        seat = seat_by_id.get(player_id) if isinstance(seat_by_id, dict) else None
+        player_state.append((
+            player_id,
+            str(getattr(player, "position", "") or ""),
+            repr(seat),
+        ))
+
+    return (
+        id(hand),
+        str(current_hand_key),
+        str(getattr(hand, "street", "") or ""),
+        str(getattr(hand, "next_to_act", "") or ""),
+        bool(getattr(hand, "finished", False)),
+        tuple(event_state),
+        tuple(player_state),
+        repr(getattr(hand, "dealer_index", None)),
+        repr(dealer_index),
+        repr(getattr(hand, "big_blind", None)),
+        bool(cash_busy),
+        bool(cash_deal_busy),
+        bool(cash_sitting_out),
+    )
+
+
 def resolve_range_image_for_situation(spot: dict[str, Any]) -> dict[str, Any] | None:
     """Resolve only a unique, exact match among the 174 embedded histories."""
     if not isinstance(spot, dict):
