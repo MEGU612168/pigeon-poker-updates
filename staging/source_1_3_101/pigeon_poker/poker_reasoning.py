@@ -389,9 +389,16 @@ def build_174_preflop_range_estimate(
             chart._event_action(event) if event.get("action")
             else chart._normalise_action(event.get("decision"))
         )
-        if actor_position in chart.POSITIONS and pid in posterior and action in {
-            "fold", "call", "check", "raise", "allin"
-        }:
+        has_prior_raise = any(
+            item.get("action") in {"raise", "allin"} for item in history
+        )
+        # First-in calls/limps are not present in the 174-node source charts.
+        # Never infer one from a merely-nearby node; preserve an unsupported
+        # prior rather than manufacturing a preflop limp range.
+        unsupported_first_in_limp = action == "call" and not has_prior_raise
+        if (actor_position in chart.POSITIONS and pid in posterior
+                and action in {"fold", "call", "check", "raise", "allin"}
+                and not unsupported_first_in_limp):
             try:
                 scenario, inferred_node, distance = chart._choose_scenario(
                     actor_position, history, random.Random(0)
