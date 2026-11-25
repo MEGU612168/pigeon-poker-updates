@@ -35,7 +35,7 @@ from pigeon_poker.sound_design import write_sound_wav, SOUND_ASSETS, SOUND_VARIA
 from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOError,
                           PokerRuleError, build_gto_plus_spot_table, HandHistoryStore,
                           is_gto_plus_supported_postflop_hand, CPUPoolStore, GGCareLedger, CashierLedger, bind_first_matching_tree)
-from pigeon_poker.range_image_catalog import create_range_photo, RangeImageCatalogError
+from pigeon_poker.range_image_catalog import (create_range_photo, RangeImageCatalogError, resolve_range_image_for_hand)
 from pigeon_poker.poker_reasoning import choose_range_aware_action
 from pigeon_poker.preflop_174_policy import choose_preflop_174_action
 from pigeon_poker.cpu_learning import CPULearningStore
@@ -3782,10 +3782,18 @@ class PigeonPokerApp(tk.Tk):
             return None
         if str(getattr(hand, "next_to_act", "") or "") != "hero":
             return None
-        # The previous range resolver depended on the retired preflop policy.
-        # The 174-scenario catalogue will replace this lookup together with the
-        # new CPU policy; never display a guessed or mismatched source image.
-        return None
+        table = slot.state.get("cash_table")
+        if table is None or hand is None:
+            return None
+        if str(getattr(hand, "next_to_act", "") or "") != "hero":
+            return None
+        # Paid range images are stricter than BOT inference: only a unique,
+        # exact action-history match among the 174 source nodes is accepted.
+        # Nearest-node inference is never used for a paid range image.
+        try:
+            return resolve_range_image_for_hand(table, hand, "hero")
+        except RangeImageCatalogError:
+            return None
 
     def _refresh_live_range_icons(self):
         for table_id, record in list(getattr(self, "table_windows", {}).items()):
@@ -3833,10 +3841,18 @@ class PigeonPokerApp(tk.Tk):
         if record.get("range_icon_enabled") != enabled:
             self._draw_range_grid_icon(canvas, enabled=enabled)
             record["range_icon_enabled"] = enabled
-        # Keep the icon clickable even when no exact chart is available.
-        # The click handler explains the reason and never charges without a chart.
         try:
-            canvas.configure(state="normal", cursor="hand2")
+            if enabled:
+                canvas.configure(cursor="hand2")
+                canvas.bind(
+                    "<Button-1>",
+                    lambda _event, tid=slot.table_id: self._open_realtime_preflop_range(tid),
+                )
+            else:
+                # Non-catalogued situations are not just greyed out: there is
+                # no click binding; Tk Canvas has no widget-level state option.
+                canvas.unbind("<Button-1>")
+                canvas.configure(cursor="")
         except tk.TclError:
             pass
         record["range_paid_for_current_hand"] = paid
@@ -4241,8 +4257,8 @@ class PigeonPokerApp(tk.Tk):
                                highlightthickness=0, bd=0, cursor="hand2")
         range_icon.pack(side="left", padx=(1, 7))
         self._draw_range_grid_icon(range_icon, enabled=False)
-        range_icon.configure(state="normal", cursor="hand2")
-        range_icon.bind("<Button-1>", lambda _e, tid=table_id: self._open_realtime_preflop_range(tid))
+        # Start without a click binding; only an exact 174-node match enables it.
+        range_icon.configure(cursor="")
         tk.Label(header, textvariable=title_var, bg="#080e19", fg=COLORS["gold"],
                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=12)
         tk.Label(header, textvariable=status_var, bg="#080e19", fg=COLORS["text"],

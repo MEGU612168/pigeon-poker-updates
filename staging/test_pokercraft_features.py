@@ -94,23 +94,28 @@ def test_range_view_displays_one_source_bitmap_without_canvas_redrawing():
     assert "top_left_of_anchor=True" in view
 
 
-def test_range_icon_stays_clickable_and_explains_unavailable_nodes():
+def test_range_icon_is_disabled_and_unbound_outside_the_174_catalogue():
+    build = source_of("_create_table_window")
     updater = source_of("_update_range_icon_state")
     opener = source_of("_open_realtime_preflop_range")
-    assert 'canvas.configure(state="normal", cursor="hand2")' in updater
+    assert 'range_icon.configure(cursor="")' in build
+    assert 'canvas.unbind("<Button-1>")' in updater
+    assert 'canvas.configure(cursor="")' in updater
+    assert 'canvas.configure(cursor="hand2")' in updater
     assert "この状況に一致する元画像レンジはありません。" in opener
     assert "レンジ料金も発生していません。" in opener
 
 
-def test_live_range_button_requires_exact_node_and_current_hero_turn():
+def test_live_range_button_requires_unique_exact_174_node_and_current_hero_turn():
     resolver = source_of("_range_chart_for_table")
     updater = source_of("_update_range_icon_state")
     opener = source_of("_open_realtime_preflop_range")
-    assert "preflop_range_image_for_situation" not in resolver
-    assert "return None" in resolver
-    assert "never display a guessed or mismatched source image" in resolver
+    assert "resolve_range_image_for_hand" in resolver
+    assert 'getattr(hand, "next_to_act"' in resolver
+    assert "Nearest-node inference is never used" in resolver
     assert "chart is None" in opener and "return" in opener
-    assert "state=" in updater and "enabled" in updater
+    assert 'canvas.bind(' in updater
+    assert 'canvas.unbind("<Button-1>")' in updater
     assert "_range_chart_for_table" in updater
 
 
@@ -210,8 +215,8 @@ def run_tests():
         test_history_icon_draws_two_real_playing_cards_tilted_left,
         test_live_hand_flow_shows_scrollable_table_history_with_cards_winner_and_pot,
         test_range_view_displays_one_source_bitmap_without_canvas_redrawing,
-        test_range_icon_stays_clickable_and_explains_unavailable_nodes,
-        test_live_range_button_requires_exact_node_and_current_hero_turn,
+        test_range_icon_is_disabled_and_unbound_outside_the_174_catalogue,
+        test_live_range_button_requires_unique_exact_174_node_and_current_hero_turn,
         test_live_range_charges_shared_wallet_once_per_hand_not_stack,
         test_historical_range_uses_only_events_before_hero_first_action,
         test_pokercraft_refreshes_live_without_blocking_table_play,

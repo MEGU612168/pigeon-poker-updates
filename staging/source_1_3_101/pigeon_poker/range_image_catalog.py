@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 _ASSET_PATH = Path(__file__).with_name("range_tables_v2.bin")
-_SCENARIO_PATH = Path(__file__).with_name("range_scenarios_v2.json")
 _MAGIC = b"PPRIDX02"
 _HEADER_SIZE = 18
 
@@ -61,25 +60,31 @@ def _load_catalog() -> dict[str, Any]:
         frames[int(source_id)] = indexed_pixels[i * frame_size:(i + 1) * frame_size]
 
     try:
-        scenario_data = json.loads(_SCENARIO_PATH.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RangeImageCatalogError("Range scenario index is missing or invalid") from exc
-    if scenario_data.get("schema_version") != 2:
-        raise RangeImageCatalogError("Range scenario index has an unsupported version")
-    entries = scenario_data.get("entries")
-    if not isinstance(entries, list) or len(entries) != count:
-        raise RangeImageCatalogError("Range scenario index does not cover all source images")
-    entry_ids = {int(item.get("source_id", -1)) for item in entries}
+        # The authoritative action histories already live in the same embedded
+        # 174-scenario dataset used by the CPU. A second JSON index went stale
+        # or missing and could desynchronise source IDs from the bot's nodes.
+        from .preflop_174_policy import _scenarios
+
+        scenarios = tuple(_scenarios())
+    except Exception as exc:
+        raise RangeImageCatalogError("The embedded 174-scenario history index is unavailable") from exc
+    entries = []
+    for scenario in scenarios:
+        source_id = int(scenario.get("id", -1))
+        entries.append({
+            "source_id": source_id,
+            "source_file": f"screenshot_({source_id}).png",
+            "active_position": str(scenario.get("position", "")).upper(),
+            "history": list(scenario.get("history", []) or []),
+            "verified": True,
+            "prefix_complete": True,
+        })
+    if len(entries) != count:
+        raise RangeImageCatalogError("The 174-scenario index does not cover all source images")
+    entry_ids = {int(item["source_id"]) for item in entries}
     if entry_ids != set(frames):
-        raise RangeImageCatalogError("Range scenario IDs do not match the bitmap catalogue")
-
+        raise RangeImageCatalogError("Scenario IDs do not match the bitmap catalogue")
     duplicate_canonical = {}
-    for group in scenario_data.get("duplicate_scenario_variants", []):
-        ids = [int(x) for x in group.get("source_ids", [])]
-        canonical = int(group.get("canonical_source_id", max(ids) if ids else -1))
-        for source_id in ids:
-            duplicate_canonical[source_id] = canonical
-
     return {
         "width": width,
         "height": height,
@@ -117,17 +122,10 @@ def _history_matches(expected: list[dict[str, Any]], actual: list[dict[str, Any]
 
 
 def resolve_range_image_for_situation(spot: dict[str, Any]) -> dict[str, Any] | None:
-    """Resolve only a source screenshot whose ordered preflop history fits.
-
-    Complete source headers require an exact full-history match. Horizontally
-    clipped headers may match only the end of the actual history; the longest
-    verified suffix is preferred. No inferred or nearest-node fallback exists.
-    """
+    """Resolve only a unique, exact match among the 174 embedded histories."""
     if not isinstance(spot, dict):
         return None
     actor = str(spot.get("actor_position") or "").upper()
-    if actor not in {"UTG", "HJ", "CO", "BTN", "SB", "BB"}:
-        return None
     records = list(spot.get("records", []) or [])
     actual = []
     for record in records:
@@ -139,56 +137,14 @@ def resolve_range_image_for_situation(spot: dict[str, Any]) -> dict[str, Any] | 
         actual.append({
             "position": str(record.get("position", "")).upper(),
             "action": action,
-            "amount_bb": record.get("amount_bb"),
+            "size_bb": record.get("amount_bb"),
         })
+    from .preflop_174_policy import find_exact_preflop_174_scenario
 
+    source_id = find_exact_preflop_174_scenario(actor, actual)
+    if source_id is None:
+        return None
     catalog = _load_catalog()
-    exact = []
-    suffix = []
-    for item in catalog["entries"]:
-        if not bool(item.get("verified")):
-            continue
-        if str(item.get("active_position", "")).upper() != actor:
-            continue
-        expected = list(item.get("history", []) or [])
-        if bool(item.get("prefix_complete")):
-            if _history_matches(expected, actual):
-                exact.append(item)
-        elif expected and len(expected) <= len(actual):
-            if _history_matches(expected, actual[-len(expected):]):
-                suffix.append(item)
-
-    mode = "exact"
-    candidates = exact
-    if not candidates:
-        mode = "suffix"
-        candidates = suffix
-    if not candidates:
-        return None
-
-    if mode == "suffix":
-        specificity = max(len(item.get("history", []) or []) for item in candidates)
-        candidates = [
-            item for item in candidates
-            if len(item.get("history", []) or []) == specificity
-        ]
-
-    signatures = {
-        (
-            str(item.get("active_position", "")),
-            tuple((e.get("position"), e.get("action"), e.get("size_bb"))
-                  for e in item.get("history", []) or []),
-            bool(item.get("prefix_complete")),
-        )
-        for item in candidates
-    }
-    if len(signatures) != 1:
-        # Do not pick a source image when different histories fit equally well.
-        return None
-
-    source_ids = sorted(int(item["source_id"]) for item in candidates)
-    source_id = source_ids[-1]
-    source_id = int(catalog["duplicate_canonical"].get(source_id, source_id))
     metadata = next(
         (item for item in catalog["entries"] if int(item["source_id"]) == source_id),
         None,
@@ -199,11 +155,34 @@ def resolve_range_image_for_situation(spot: dict[str, Any]) -> dict[str, Any] | 
         "source_id": source_id,
         "source_file": str(metadata.get("source_file", "")),
         "actor_position": actor,
-        "match_mode": mode,
+        "match_mode": "exact",
         "matched_history_count": len(metadata.get("history", []) or []),
-        "prefix_complete": bool(metadata.get("prefix_complete")),
+        "prefix_complete": True,
     }
 
+
+def resolve_range_image_for_hand(table: Any, hand: Any, player_id: str) -> dict[str, Any] | None:
+    """Resolve a live screenshot only for an exact, non-ambiguous source node."""
+    from .preflop_174_policy import exact_preflop_174_source_image
+
+    source_id = exact_preflop_174_source_image(table, hand, player_id)
+    if source_id is None:
+        return None
+    catalog = _load_catalog()
+    metadata = next(
+        (item for item in catalog["entries"] if int(item["source_id"]) == source_id),
+        None,
+    )
+    if metadata is None or source_id not in catalog["frames"]:
+        return None
+    return {
+        "source_id": source_id,
+        "source_file": str(metadata.get("source_file", "")),
+        "actor_position": str(metadata.get("active_position", "")),
+        "match_mode": "exact",
+        "matched_history_count": len(metadata.get("history", []) or []),
+        "prefix_complete": True,
+    }
 
 def _png_chunk(kind: bytes, payload: bytes) -> bytes:
     body = kind + payload
