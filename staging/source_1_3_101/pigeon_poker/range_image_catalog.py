@@ -447,18 +447,37 @@ def range_image_ppm(source_id: int) -> bytes:
 
 
 def create_range_photo(master: Any, source_id: int):
-    """Create a native Tk PhotoImage from an ASCII PPM payload."""
+    """Create a native Tk PhotoImage by writing RGB pixels directly through Tk."""
     import tkinter as tk
 
     source_id = int(source_id)
-    payload = range_image_ppm(source_id).decode("ascii")
+    catalog = _load_catalog()
+    indices = catalog["frames"].get(source_id)
+    if indices is None:
+        raise RangeImageCatalogError(f"Range screenshot #{source_id} is not in the image catalogue")
+
+    width, height = catalog["width"], catalog["height"]
+    palette = catalog["palette"]
+    lookup = [
+        "#{:02x}{:02x}{:02x}".format(palette[i], palette[i + 1], palette[i + 2])
+        for i in range(0, 768, 3)
+    ]
     try:
-        # P3 is deliberately passed as plain ASCII data. Windows Tk's PPM
-        # decoder rejected a base64-encoded binary P6 payload in native tests;
-        # P3 avoids the binary/base64 ambiguity in Tk's -data option.
-        image = tk.PhotoImage(master=master, data=payload, format="PPM");
-        if image.width() <= 0 or image.height() <= 0:
-            raise tk.TclError("Tk created an empty PhotoImage")
+        # Do not route the paid range through a platform image decoder. Some
+        # Windows Tk builds accepted our PNG without displaying it and rejected
+        # PPM data. PhotoImage.put() writes actual RGB colour names into Tk's
+        # native image surface, so the widget always owns the rendered pixels.
+        image = tk.PhotoImage(master=master, width=width, height=height)
+        rows_per_write = 12
+        for first_y in range(0, height, rows_per_write):
+            rows = []
+            end_y = min(height, first_y + rows_per_write)
+            for y in range(first_y, end_y):
+                start = y * width
+                row = " ".join(lookup[index] for index in indices[start:start + width])
+                rows.append("{" + row + "}")
+            image.put("{" + " ".join(rows) + "}", to=(0, first_y))
+
         # The source screenshots are 1092x707. Display at half scale so the
         # complete 13x13 matrix fits on ordinary Windows work areas.
         if image.width() > 700 or image.height() > 550:
