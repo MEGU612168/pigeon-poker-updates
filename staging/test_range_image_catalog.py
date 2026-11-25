@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -201,6 +203,18 @@ def test_all_174_live_histories_resolve_to_their_own_paid_image():
                 key: value for key, value in scenario.items()
                 if key not in {"hands", "history", "overall"}
             }
+            candidate_details = []
+            for item in candidates:
+                matrix = json.dumps(item.get("hands", []), ensure_ascii=False, separators=(",", ":"))
+                candidate_details.append({
+                    "id": int(item["id"]),
+                    "metadata": {
+                        key: value for key, value in item.items()
+                        if key not in {"hands", "history", "overall"}
+                    },
+                    "overall": item.get("overall"),
+                    "matrix_sha256": hashlib.sha256(matrix.encode("utf-8")).hexdigest(),
+                })
             failures.append({
                 "expected_id": expected_id,
                 "actor": scenario["position"],
@@ -208,6 +222,7 @@ def test_all_174_live_histories_resolve_to_their_own_paid_image():
                 "actual_id": actual_id,
                 "candidate_ids": [int(item["id"]) for item in candidates],
                 "metadata": metadata,
+                "candidate_details": candidate_details,
             })
     assert not failures, f"{len(failures)} / 174 live histories failed paid image resolution: {failures[:8]}"
 
