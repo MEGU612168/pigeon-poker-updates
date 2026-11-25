@@ -1718,6 +1718,18 @@ def test_geometric_bet_size_tracks_spr_and_streets_remaining():
 
 
 
+
+def test_cash_cpu_connects_174_chart_ranges_and_learned_profiles_to_postflop():
+    app_path = SOURCE_DIR / "PigeonPoker.pyw"
+    app_source = app_path.read_text(encoding="utf-8")
+    assert "build_174_preflop_range_estimate" in app_source
+    assert "learned_profiles=opponent_learning" in app_source
+    assert "player_profiles=profiles" in app_source
+    assert "def postflop_range_estimator(" in app_source
+    assert app_source.count("range_estimator=postflop_range_estimator") == 2
+    # The 174 preflop policy remains a separate, immutable CPU decision path.
+    assert "choose_preflop_174_action(table, hand, pid, cpu)" in app_source
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
