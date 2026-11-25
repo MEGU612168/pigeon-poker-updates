@@ -1666,7 +1666,11 @@ def test_174_chart_bayesian_ranges_update_from_recorded_action_and_learned_stats
     row = estimate["players"]["bb"]
     assert row["supported"] is True
     assert row["observed_preflop_actions"] == 1
-    assert row["scenario_ids"] == (146,)
+    # Multiple 174 source images can carry the same fully matched history;
+    # the range posterior should keep the matched node rather than force one ID.
+    assert row["exact_preflop_nodes"] == 1
+    assert row["inferred_preflop_nodes"] == 0
+    assert len(row["scenario_ids"]) == 1
     assert row["confidence"] > 0.16
     assert row["source"] == "174-preflop-sequential-bayesian-range"
     assert abs(sum(row["hand_class_probabilities"].values()) - 1.0) < 1e-8
