@@ -315,6 +315,262 @@ def _fallback_preflop_range(hand: Any, player_id: str,
     return weighted, source, confidence
 
 
+
+def build_174_preflop_range_estimate(
+    table: Any,
+    hand: Any,
+    *,
+    learned_profiles: dict[str, dict[str, Any]] | None = None,
+    player_profiles: dict[str, Any] | None = None,
+    exclude_player_id: str | None = None,
+) -> dict[str, Any]:
+    """Build Bayesian preflop ranges from the immutable 174-scenario chart.
+
+    Each recorded preflop decision updates that player's 169 hand-class prior
+    using the action and (for raises) the recorded raise-to size in the matching
+    action-history node. Exact nodes are preferred; nearest-node evidence is
+    down-weighted. Missing/unsupported chart actions are ignored rather than
+    treated as folds. Opponent behavior statistics are attached separately.
+    """
+    try:
+        from . import preflop_174_policy as chart
+    except Exception:
+        return {"supported": False, "players": {}}
+
+    players = list(getattr(hand, "players", ()) or ())
+    positions = chart._position_map(table, hand)
+    if not positions:
+        return {"supported": False, "players": {}}
+    id_by_name = {
+        str(getattr(player, "name", "")): str(getattr(player, "player_id", ""))
+        for player in players if str(getattr(player, "name", ""))
+    }
+    player_by_id = {
+        str(getattr(player, "player_id", "")): player
+        for player in players if str(getattr(player, "player_id", ""))
+    }
+    classes = tuple(chart._HAND_ORDER)
+    class_counts = {
+        hand_class: max(1, len(_physical_combos(hand_class)))
+        for hand_class in classes
+    }
+    combo_total = float(sum(class_counts.values()))
+    base_prior = {
+        hand_class: count / combo_total
+        for hand_class, count in class_counts.items()
+    }
+    posterior = {
+        pid: dict(base_prior)
+        for pid in positions
+    }
+    evidence: dict[str, dict[str, Any]] = {
+        pid: {
+            "observations": 0,
+            "quality": 0.0,
+            "exact_nodes": 0,
+            "inferred_nodes": 0,
+            "inferred_cells": 0,
+            "scenario_ids": [],
+        }
+        for pid in positions
+    }
+    history: list[dict[str, Any]] = []
+    big_blind = chart._big_blind(hand, table)
+    events = list(getattr(hand, "events", ()) or ())
+
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") not in {None, "action"} and not event.get("action"):
+            continue
+        event_street = str(event.get("street", "preflop")).lower().replace("-", "")
+        if event_street not in {"preflop", "pre"}:
+            continue
+        raw_pid = str(event.get("player_id") or event.get("player") or "")
+        pid = raw_pid if raw_pid in positions else id_by_name.get(raw_pid, raw_pid)
+        actor_position = positions.get(pid) or str(event.get("position", "")).upper()
+        action = (
+            chart._event_action(event) if event.get("action")
+            else chart._normalise_action(event.get("decision"))
+        )
+        if actor_position in chart.POSITIONS and pid in posterior and action in {
+            "fold", "call", "check", "raise", "allin"
+        }:
+            try:
+                scenario, inferred_node, distance = chart._choose_scenario(
+                    actor_position, history, random.Random(0)
+                )
+            except Exception:
+                scenario, inferred_node, distance = None, True, 9.0
+            if scenario is not None:
+                actual_size_bb = (
+                    chart._event_target_bb(event, big_blind)
+                    if action in {"raise", "allin"} else None
+                )
+                likelihoods: dict[str, float] = {}
+                cell_inference_mass = 0.0
+                prior_predictive = 0.0
+                for hand_class in classes:
+                    try:
+                        distribution, cell_inferred, _method = chart._scenario_distribution(
+                            scenario, hand_class
+                        )
+                    except Exception:
+                        distribution, cell_inferred = {}, True
+                    action_mass = 0.0
+                    for (candidate_action, candidate_size), frequency in distribution.items():
+                        normalized = chart._normalise_action(candidate_action)
+                        if action == "raise":
+                            if normalized != "raise":
+                                continue
+                            if (actual_size_bb is not None and candidate_size is not None
+                                    and not chart._size_matches(candidate_size, actual_size_bb)):
+                                continue
+                            if actual_size_bb is not None and candidate_size is None:
+                                continue
+                        elif action == "allin":
+                            if normalized != "allin":
+                                continue
+                            if (actual_size_bb is not None and candidate_size is not None
+                                    and not chart._size_matches(candidate_size, actual_size_bb)):
+                                continue
+                        elif normalized != action:
+                            continue
+                        action_mass += max(0.0, float(frequency))
+                    action_mass = max(0.0, min(1.0, action_mass))
+                    likelihoods[hand_class] = action_mass
+                    prior_predictive += posterior[pid][hand_class] * action_mass
+                    if cell_inferred:
+                        cell_inference_mass += posterior[pid][hand_class]
+
+                # The action was outside the represented chart node. Preserve
+                # the existing Bayesian prior; do not hallucinate a fold/raise.
+                if prior_predictive >= 1e-6:
+                    updated = {}
+                    for hand_class in classes:
+                        # Small likelihood smoothing avoids deleting a hand
+                        # class solely because a finite source chart has no row.
+                        likelihood = 0.012 + 0.988 * likelihoods[hand_class]
+                        updated[hand_class] = posterior[pid][hand_class] * likelihood
+                    total = sum(updated.values())
+                    if total > 0:
+                        posterior[pid] = {
+                            hand_class: value / total
+                            for hand_class, value in updated.items()
+                        }
+                        meta = evidence[pid]
+                        meta["observations"] += 1
+                        if inferred_node:
+                            meta["inferred_nodes"] += 1
+                            node_quality = math.exp(-min(3.0, max(0.0, float(distance))) * 1.15)
+                        else:
+                            meta["exact_nodes"] += 1
+                            node_quality = 1.0
+                        inferred_share = cell_inference_mass
+                        meta["inferred_cells"] += 1 if inferred_share >= 0.50 else 0
+                        meta["quality"] += node_quality * (1.0 - 0.30 * inferred_share)
+        if actor_position in chart.POSITIONS and action in {
+            "fold", "call", "check", "raise", "allin"
+        }:
+            history.append({
+                "position": actor_position,
+                "action": action,
+                "size_bb": (
+                    chart._event_target_bb(event, big_blind)
+                    if action in {"raise", "allin"} else None
+                ),
+            })
+
+    learned_profiles = learned_profiles or {}
+    player_profiles = player_profiles or {}
+    board_blockers = set(str(card) for card in list(getattr(hand, "board", ()) or ()))
+    rows: dict[str, dict[str, Any]] = {}
+    for pid, weights in posterior.items():
+        meta = evidence[pid]
+        if int(meta["observations"]) <= 0:
+            continue
+        total = sum(max(0.0, float(value)) for value in weights.values())
+        if total <= 0:
+            continue
+        probabilities = {
+            hand_class: max(0.0, float(value)) / total
+            for hand_class, value in weights.items()
+        }
+        unblocked: dict[str, float] = {}
+        for hand_class, probability in probabilities.items():
+            combos = _physical_combos(hand_class)
+            if not combos:
+                continue
+            available = sum(
+                1 for combo in combos if not (set(combo) & board_blockers)
+            )
+            if available:
+                unblocked[hand_class] = probability * available / len(combos)
+        unblocked_total = sum(unblocked.values())
+        if unblocked_total > 0:
+            unblocked = {
+                hand_class: value / unblocked_total
+                for hand_class, value in unblocked.items()
+            }
+        quality = max(0.0, float(meta["quality"]))
+        confidence = 0.16 + 0.72 * (1.0 - math.exp(-0.62 * quality))
+        confidence = max(0.16, min(0.88, confidence))
+
+        learned = learned_profiles.get(pid, {})
+        if not isinstance(learned, dict):
+            learned = {}
+        player_profile = player_profiles.get(pid)
+        archetype = str(getattr(player_profile, "archetype", "balanced") or "balanced")
+        if archetype not in {"aggressive", "calling_station", "overfolder", "underbluffer"}:
+            archetype = "balanced"
+        rows[pid] = {
+            "supported": True,
+            "position": positions.get(pid),
+            "hand_class_probabilities": probabilities,
+            "unblocked_hand_class_probabilities": unblocked or probabilities,
+            "confidence": confidence,
+            "source": "174-preflop-sequential-bayesian-range",
+            "archetype": archetype,
+            "learned_behavior": dict(learned),
+            "observed_preflop_actions": int(meta["observations"]),
+            "exact_preflop_nodes": int(meta["exact_nodes"]),
+            "inferred_preflop_nodes": int(meta["inferred_nodes"]),
+            "inferred_hand_cells": int(meta["inferred_cells"]),
+            "scenario_ids": tuple(meta["scenario_ids"]),
+        }
+    return {
+        "supported": bool(rows),
+        "players": rows,
+        "source": "174-preflop-sequential-bayesian-range",
+    }
+
+
+def _call_realized_equity(
+    raw_equity: float,
+    realization_factor: float,
+    *,
+    call_is_all_in: bool,
+) -> float:
+    """All-in calls realize raw equity; non-all-in calls retain less than full equity."""
+    equity = max(0.0, min(1.0, float(raw_equity)))
+    if call_is_all_in:
+        return equity
+    factor = max(0.0, min(1.0, float(realization_factor)))
+    return max(0.0, min(1.0, equity * factor))
+
+
+def _geometric_bet_fraction(spr: float, remaining_streets: int) -> float | None:
+    """Pot fraction that geometrically commits the effective stack over remaining streets."""
+    effective_spr = max(0.0, float(spr))
+    streets = max(1, int(remaining_streets))
+    if effective_spr <= 0:
+        return None
+    fraction = (math.pow(1.0 + 2.0 * effective_spr, 1.0 / streets) - 1.0) / 2.0
+    if not math.isfinite(fraction) or fraction <= 0:
+        return None
+    return max(0.05, min(4.0, fraction))
+
+
 def _uniform_combos(blockers: set[str]) -> list[tuple[tuple[str, str], float]]:
     cards = [rank + suit for suit in SUITS for rank in RANKS if rank + suit not in blockers]
     return [(combo, 1.0) for combo in itertools.combinations(cards, 2)]
@@ -636,8 +892,11 @@ def infer_opponent_ranges(table: Any, hand: Any, hero_id: str,
                 if class_weight > 0 and combos:
                     raw_options.extend((combo, class_weight / len(combos)) for combo in combos)
             if raw_options:
-                source = "fixed-chart-action-range"
-                confidence = 0.90
+                source = str(row.get("source", "fixed-chart-action-range"))
+                try:
+                    confidence = max(0.12, min(0.92, float(row.get("confidence", 0.82))))
+                except (TypeError, ValueError, OverflowError):
+                    confidence = 0.72
         if not raw_options:
             # Keep hero cards out until after the action likelihood updates so
             # removed value/bluff combinations can be measured explicitly.
