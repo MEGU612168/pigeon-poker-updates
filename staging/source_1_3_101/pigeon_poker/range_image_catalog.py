@@ -138,6 +138,77 @@ def _history_matches(expected: list[dict[str, Any]], actual: list[dict[str, Any]
     )
 
 
+
+_RANGE_LOOKUP_EVENT_FIELDS = (
+    "type", "street", "player_id", "player", "action", "decision",
+    "position", "is_all_in", "all_in", "jam", "target", "raise_to",
+    "to_amount", "total_contribution", "target_amount", "amount", "paid",
+)
+
+
+def live_range_lookup_signature(
+    hand: Any,
+    *,
+    current_hand_key: str = "",
+    cash_busy: bool = False,
+    cash_deal_busy: bool = False,
+    cash_sitting_out: bool = False,
+    dealer_index: Any = None,
+) -> tuple[Any, ...]:
+    """Return every live input that can change paid-range eligibility or matching.
+
+    The UI previously cached a failed lookup using only event count, street,
+    and actor. A lookup made while dealing/busy could therefore stay cached as
+    unavailable after the busy flag cleared. Event values can also be amended
+    without changing the list length. Snapshot the lookup-relevant inputs.
+    """
+    if hand is None:
+        return (
+            None, str(current_hand_key), bool(cash_busy),
+            bool(cash_deal_busy), bool(cash_sitting_out), repr(dealer_index),
+        )
+
+    events = list(getattr(hand, "events", ()) or ())
+    event_state = []
+    for event in events:
+        if isinstance(event, dict):
+            event_state.append(tuple(
+                (field, repr(event.get(field))) for field in _RANGE_LOOKUP_EVENT_FIELDS
+            ))
+        else:
+            event_state.append(("event", repr(event)))
+
+    players = list(getattr(hand, "players", ()) or ())
+    seat_by_id = getattr(hand, "seat_by_id", {}) or {}
+    player_state = []
+    for player in players:
+        player_id = str(getattr(player, "player_id", "") or "")
+        seat = seat_by_id.get(player_id) if isinstance(seat_by_id, dict) else None
+        player_state.append((
+            player_id,
+            str(getattr(player, "position", "") or ""),
+            repr(seat),
+            bool(getattr(player, "all_in", False)),
+            repr(getattr(player, "stack", None)),
+        ))
+
+    return (
+        id(hand),
+        str(current_hand_key),
+        str(getattr(hand, "street", "") or ""),
+        str(getattr(hand, "next_to_act", "") or ""),
+        bool(getattr(hand, "finished", False)),
+        tuple(event_state),
+        tuple(player_state),
+        repr(getattr(hand, "dealer_index", None)),
+        repr(dealer_index),
+        repr(getattr(hand, "big_blind", None)),
+        bool(cash_busy),
+        bool(cash_deal_busy),
+        bool(cash_sitting_out),
+    )
+
+
 def resolve_range_image_for_situation(spot: dict[str, Any]) -> dict[str, Any] | None:
     """Resolve only a unique, exact match among the 174 embedded histories."""
     if not isinstance(spot, dict):
@@ -179,13 +250,122 @@ def resolve_range_image_for_situation(spot: dict[str, Any]) -> dict[str, Any] | 
 
 
 def resolve_range_image_for_hand(table: Any, hand: Any, player_id: str) -> dict[str, Any] | None:
-    """Resolve a live screenshot only for an exact, non-ambiguous source node."""
-    from .preflop_174_policy import exact_preflop_174_source_image
+    """Resolve a paid image from an exact history plus live decision-state evidence."""
+    from .preflop_174_policy import (
+        PAID_RANGE_ALL_IN_POSITION_REQUIREMENTS,
+        _normalise_action,
+        exact_preflop_174_source_candidates,
+    )
 
-    source_id = exact_preflop_174_source_image(table, hand, player_id)
-    if source_id is None:
+    actor_position, positions, candidates = exact_preflop_174_source_candidates(
+        table, hand, player_id
+    )
+    if not candidates:
         return None
+
     catalog = _load_catalog()
+    match_mode = "exact"
+
+    if len(candidates) > 1:
+        # Action menu differences disambiguate nodes that share the same
+        # action history but have different legal decisions (e.g. all-in
+        # versus call/fold-only versions of a squeeze pot).
+        try:
+            legal = hand.legal_actions(player_id)
+            legal_actions = {
+                _normalise_action(value)
+                for value in (legal.get("actions", ()) if isinstance(legal, dict) else ())
+            }
+        except Exception:
+            legal_actions = set()
+
+        if legal_actions:
+            compatible = []
+            for scenario in candidates:
+                option_actions = {
+                    _normalise_action(option[0])
+                    for option in scenario.get("action_options", [])
+                    if isinstance(option, (list, tuple)) and option
+                }
+                if option_actions and option_actions.issubset(legal_actions):
+                    compatible.append(scenario)
+            if not compatible:
+                return None
+            largest_menu = max(
+                len({
+                    _normalise_action(option[0])
+                    for option in scenario.get("action_options", [])
+                    if isinstance(option, (list, tuple)) and option
+                })
+                for scenario in compatible
+            )
+            candidates = [
+                scenario for scenario in compatible
+                if len({
+                    _normalise_action(option[0])
+                    for option in scenario.get("action_options", [])
+                    if isinstance(option, (list, tuple)) and option
+                }) == largest_menu
+            ]
+            if len(candidates) == 1:
+                match_mode = "exact-live-actions"
+
+    if len(candidates) > 1:
+        # The chart descriptions for 252/253 specify whether BTN joined CO
+        # as an all-in player. That state is not represented in the action
+        # sequence, so read the hand's actual all-in flags.
+        actual_all_in_positions = {
+            positions.get(str(getattr(player, "player_id", "") or ""))
+            for player in (getattr(hand, "players", ()) or ())
+            if bool(getattr(player, "all_in", False))
+        }
+        actual_all_in_positions.discard(None)
+        constrained = [
+            scenario for scenario in candidates
+            if int(scenario.get("id", -1)) in PAID_RANGE_ALL_IN_POSITION_REQUIREMENTS
+        ]
+        if constrained:
+            compatible = [
+                scenario for scenario in candidates
+                if (
+                    int(scenario.get("id", -1)) not in PAID_RANGE_ALL_IN_POSITION_REQUIREMENTS
+                    or actual_all_in_positions
+                    == set(PAID_RANGE_ALL_IN_POSITION_REQUIREMENTS[int(scenario["id"])])
+                )
+            ]
+            if not compatible:
+                return None
+            if len(compatible) < len(candidates):
+                candidates = compatible
+                if len(candidates) == 1:
+                    match_mode = "exact-live-state"
+
+    if len(candidates) > 1:
+        # Several source IDs are true duplicate screenshots. Permit an alias
+        # only when their embedded pixel buffers are byte-for-byte identical.
+        frame_values = [
+            catalog["frames"].get(int(scenario["id"]))
+            for scenario in candidates
+        ]
+        if not frame_values or frame_values[0] is None or any(
+            frame != frame_values[0] for frame in frame_values[1:]
+        ):
+            return None
+
+        def canonical_key(scenario):
+            source = str(scenario.get("history_parse_source", ""))
+            return (
+                0 if source == "full_header_manual_verified" else 1,
+                int(scenario.get("id", 10**9)),
+            )
+
+        candidates = [min(candidates, key=canonical_key)]
+        match_mode = "exact-identical-source-image"
+
+    try:
+        source_id = int(candidates[0]["id"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
     metadata = next(
         (item for item in catalog["entries"] if int(item["source_id"]) == source_id),
         None,
@@ -195,8 +375,8 @@ def resolve_range_image_for_hand(table: Any, hand: Any, player_id: str) -> dict[
     return {
         "source_id": source_id,
         "source_file": str(metadata.get("source_file", "")),
-        "actor_position": str(metadata.get("active_position", "")),
-        "match_mode": "exact",
+        "actor_position": str(metadata.get("active_position", actor_position or "")),
+        "match_mode": match_mode,
         "matched_history_count": len(metadata.get("history", []) or []),
         "prefix_complete": True,
     }
