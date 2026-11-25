@@ -148,4 +148,4 @@ if __name__ == "__main__":
     test_real_174_bitmap_loads_and_every_source_image_renders()
     test_embedded_python_carrier_loads_without_a_binary_file()
     test_create_range_photo_writes_real_rgb_pixels_into_native_tk_image()
-    print("PASS: 174 PNG + PPM images, nonblack pixels, embedded asset and native Tk PhotoImage RGB writes")
+    print("PASS: 174 source PNG exports, embedded asset and native Tk RGB pixel-write path")
