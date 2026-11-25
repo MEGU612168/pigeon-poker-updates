@@ -43,6 +43,10 @@ MAX_COMPRESSED_BYTES = 18 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 18 * 1024 * 1024
 MAX_FILES = 500
 
+RANGE_IMAGE_ASSET_PATH = "pigeon_poker/range_tables_v2.bin"
+RANGE_IMAGE_ASSET_SIZE = 848418
+RANGE_IMAGE_ASSET_SHA256 = "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715"
+
 _ALLOWED_ROOT = {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}
 _ALLOWED_PACKAGES = {"pigeon_poker", "pigeon_gto_plus"}
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -177,7 +181,7 @@ def _is_allowed_member(name: str) -> bool:
     path = PurePosixPath(name)
     if path.is_absolute() or path.as_posix() != name or any(p in {"", ".", ".."} for p in path.parts):
         return False
-    if name in _ALLOWED_ROOT:
+    if name in _ALLOWED_ROOT or name == RANGE_IMAGE_ASSET_PATH:
         return True
     return (
         len(path.parts) >= 2
@@ -241,8 +245,17 @@ def _validate_and_extract(payload: bytes, manifest: dict[str, Any], destination:
                     raise ValueError("The uncompressed update exceeds the size limit.")
                 target = destination.joinpath(*PurePosixPath(relative).parts)
                 target.parent.mkdir(parents=True, exist_ok=True)
-                with archive.open(info, "r") as source, target.open("wb") as output:
-                    shutil.copyfileobj(source, output, length=64 * 1024)
+                with archive.open(info, "r") as source:
+                    if relative == RANGE_IMAGE_ASSET_PATH:
+                        image_data = source.read()
+                        if len(image_data) != RANGE_IMAGE_ASSET_SIZE:
+                            raise ValueError("The 174 range image asset has an unexpected byte count.")
+                        if hashlib.sha256(image_data).hexdigest() != RANGE_IMAGE_ASSET_SHA256:
+                            raise ValueError("The 174 range image asset failed SHA-256 verification.")
+                        target.write_bytes(image_data)
+                    else:
+                        with target.open("wb") as output:
+                            shutil.copyfileobj(source, output, length=64 * 1024)
                 if PurePosixPath(relative).suffix.lower() in {".py", ".pyw"}:
                     try:
                         ast.parse(target.read_text(encoding="utf-8"), filename=relative)
@@ -257,6 +270,12 @@ def _validate_and_extract(payload: bytes, manifest: dict[str, Any], destination:
             required = _ALLOWED_ROOT
             if not required.issubset(set(extracted)):
                 raise ValueError("The update is missing one or more required application files.")
+        app_entry = destination / "PigeonPoker.pyw"
+        if app_entry.is_file():
+            app_text = app_entry.read_text(encoding="utf-8")
+            requires_range_asset = "pigeon_poker.range_image_catalog" in app_text
+            if requires_range_asset and RANGE_IMAGE_ASSET_PATH not in extracted:
+                raise ValueError("The app uses the 174 range image catalogue but the bitmap asset is missing.")
         bundled_version = (destination / "VERSION.txt").read_text(encoding="utf-8").strip()
         if bundled_version != str(manifest["version"]):
             raise ValueError("The package version does not match the update manifest.")
