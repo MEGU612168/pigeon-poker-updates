@@ -7,10 +7,31 @@
   "source_version": "1.3.101",
   "source_directory": "staging/source_1_3_101",
   "release_notes": "Pigeon Poker 1.5.3 strengthens local postflop CPU play. It builds sequential Bayesian opponent ranges from the immutable 174-scenario preflop charts and observed raise sizes, feeds those ranges plus persistent opponent behavior into postflop equity and response modeling, corrects equity realization for all-in calls, and adds SPR/street-aware geometric bet sizing. Existing 174 preflop CPU actions and postflop action controls are retained.",
-  "distribution_status": "ready",
+  "distribution_status": "published",
   "preflop_174_policy_verified": true,
   "postflop_theory_policy_verified": true,
   "range_image_catalog_verified": true,
   "windows_native_range_view_verified": true,
-  "preflop_raise_size_selector_verified": true
+  "preflop_raise_size_selector_verified": true,
+  "published_at": "2026-11-25T23:00:16Z",
+  "payload_sha256": "029dc8e196556c0aaa83858cb07e965b54044b592e5b3ff7cc0af1580293ea77",
+  "payload_size": 1181779,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/cpu_learning.py",
+    "pigeon_poker/poker_reasoning.py",
+    "pigeon_poker/preflop_174_policy.py",
+    "pigeon_poker/preflop_174_policy_data.py",
+    "pigeon_poker/preflop_cleanup.py",
+    "pigeon_poker/range_image_catalog.py",
+    "pigeon_poker/range_tables_v2_asset.py",
+    "pigeon_updater.py"
+  ],
+  "updater_actual_extract_validation": "passed",
+  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
+  "legacy_preflop_retirement_validation": "passed"
 }
