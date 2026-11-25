@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.5.5",
+  "package_mode": "full",
+  "source_version": "1.3.101",
+  "source_directory": "staging/source_1_3_101",
+  "release_notes": "Pigeon Poker 1.5.5 fixes black/blank paid preflop range windows. Original range RGB pixels are written directly into native Tk PhotoImage surfaces instead of relying on the Windows PNG/PPM image decoder. Native Windows Tk verification renders and samples all 174 source images, including range #136. The full source audit confirms 174 IDs (128-301) and 174 image frames, with 171 unique semantic situations because three pairs are exact duplicate entries: 195/204, 196/205, and 238/243. The paid range remains 1BB per hand and uses exact live-state matching.",
+  "distribution_status": "prepared",
+  "preflop_174_policy_verified": true,
+  "postflop_theory_policy_verified": true,
+  "range_image_catalog_verified": false,
+  "paid_range_live_resolution_verified": true,
+  "live_range_button_cache_signature_verified": true,
+  "range_data_audit_verified": false,
+  "range_source_entries_expected": 174,
+  "unique_semantic_situations_expected": 171,
+  "duplicate_semantic_scenario_groups": [
+    [
+      195,
+      204
+    ],
+    [
+      196,
+      205
+    ],
+    [
+      238,
+      243
+    ]
+  ],
+  "native_windows_tk_range_render_verified": false,
+  "windows_native_range_view_verified": false,
+  "preflop_raise_size_selector_verified": true
+}
