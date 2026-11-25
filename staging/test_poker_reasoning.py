@@ -1650,19 +1650,23 @@ def test_174_chart_bayesian_ranges_update_from_recorded_action_and_learned_stats
         {"type": "action", "street": "preflop", "player_id": "btn",
          "action": "raise", "target": 250, "paid": 250},
         {"type": "action", "street": "preflop", "player_id": "sb", "action": "fold"},
+        # Scenario 146: BB responds to BTN's 2.5 BB open with a 13 BB 3-bet.
+        {"type": "action", "street": "preflop", "player_id": "bb",
+         "action": "raise", "target": 1300, "paid": 1300},
     ]
     learned = {
-        "btn": {"sample_hands": 40.0, "postflop_call_rate": 0.52,
-                "postflop_aggression_rate": 0.34, "fold_to_bet_rate": 0.41},
+        "bb": {"sample_hands": 40.0, "postflop_call_rate": 0.52,
+               "postflop_aggression_rate": 0.34, "fold_to_bet_rate": 0.41},
     }
-    profiles = {"btn": SimpleNamespace(archetype="aggressive")}
+    profiles = {"bb": SimpleNamespace(archetype="aggressive")}
     estimate = module.build_174_preflop_range_estimate(
         FakeTable(), hand, learned_profiles=learned, player_profiles=profiles
     )
     assert estimate["supported"] is True
-    row = estimate["players"]["btn"]
+    row = estimate["players"]["bb"]
     assert row["supported"] is True
     assert row["observed_preflop_actions"] == 1
+    assert row["scenario_ids"] == (146,)
     assert row["confidence"] > 0.16
     assert row["source"] == "174-preflop-sequential-bayesian-range"
     assert abs(sum(row["hand_class_probabilities"].values()) - 1.0) < 1e-8
