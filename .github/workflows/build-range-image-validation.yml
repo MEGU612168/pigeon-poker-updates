@@ -6,7 +6,12 @@ on:
       - main
     paths:
       - ".github/workflows/build-range-image-validation.yml"
+      - "staging/source_1_3_101/PigeonPoker.pyw"
+      - "staging/source_1_3_101/pigeon_poker/range_image_catalog.py"
+      - "staging/source_1_3_101/pigeon_poker/preflop_174_policy.py"
+      - "staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py"
       - "staging/source_1_3_101/pigeon_poker/range_tables_v2.bin"
+      - "staging/test_windows_work_area.py"
       - "staging/test_real_range_bitmap_asset.py"
 
 permissions:
