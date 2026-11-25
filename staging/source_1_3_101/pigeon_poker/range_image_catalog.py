@@ -12,8 +12,31 @@ from pathlib import Path
 from typing import Any
 
 _ASSET_PATH = Path(__file__).with_name("range_tables_v2.bin")
+_EMBEDDED_ASSET_MODULE = "range_tables_v2_asset"
+_EXPECTED_ASSET_SIZE = 848418
+_EXPECTED_ASSET_SHA256 = "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715"
 _MAGIC = b"PPRIDX02"
 _HEADER_SIZE = 18
+
+
+def _read_asset_bytes() -> bytes:
+    """Read the bitmap or its legacy-updater-compatible Python-embedded copy."""
+    try:
+        return _ASSET_PATH.read_bytes()
+    except OSError as file_error:
+        try:
+            from .range_tables_v2_asset import RANGE_TABLES_V2_B64
+
+            data = base64.b64decode(RANGE_TABLES_V2_B64, validate=True)
+        except (ImportError, AttributeError, ValueError) as exc:
+            raise RangeImageCatalogError(
+                f"Range image asset is missing: {_ASSET_PATH.name}"
+            ) from file_error
+        if len(data) != _EXPECTED_ASSET_SIZE:
+            raise RangeImageCatalogError("Embedded range image asset has an unexpected byte count")
+        if hashlib.sha256(data).hexdigest() != _EXPECTED_ASSET_SHA256:
+            raise RangeImageCatalogError("Embedded range image asset failed SHA-256 verification")
+        return data
 
 
 class RangeImageCatalogError(RuntimeError):
@@ -22,12 +45,7 @@ class RangeImageCatalogError(RuntimeError):
 
 @functools.lru_cache(maxsize=1)
 def _load_catalog() -> dict[str, Any]:
-    try:
-        data = _ASSET_PATH.read_bytes()
-    except OSError as exc:
-        raise RangeImageCatalogError(
-            f"Range image asset is missing: {_ASSET_PATH.name}"
-        ) from exc
+    data = _read_asset_bytes()
     if len(data) < _HEADER_SIZE or data[:8] != _MAGIC:
         raise RangeImageCatalogError("Range image asset has an unsupported header")
 
