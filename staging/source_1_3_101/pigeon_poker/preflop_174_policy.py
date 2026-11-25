@@ -352,26 +352,62 @@ def _strict_range_history_matches(
     return True
 
 
+def find_exact_preflop_174_scenario_candidates(
+    actor_position: str,
+    actual_history: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return every strictly exact source node for later live-state disambiguation."""
+    actor = str(actor_position or "").upper()
+    if actor not in POSITIONS:
+        return []
+    return [
+        scenario for scenario in _scenarios()
+        if str(scenario.get("position", "")).upper() == actor
+        and _strict_range_history_matches(list(scenario.get("history", []) or []), actual_history)
+    ]
+
+
 def find_exact_preflop_174_scenario(
     actor_position: str,
     actual_history: list[dict[str, Any]],
 ) -> int | None:
     """Return a unique exact source-image ID; never use nearest-node inference."""
-    actor = str(actor_position or "").upper()
-    if actor not in POSITIONS:
-        return None
-    matches = [
-        scenario for scenario in _scenarios()
-        if str(scenario.get("position", "")).upper() == actor
-        and _strict_range_history_matches(list(scenario.get("history", []) or []), actual_history)
-    ]
-    # If multiple source charts share the same visible history, do not guess.
+    matches = find_exact_preflop_174_scenario_candidates(actor_position, actual_history)
     if len(matches) != 1:
         return None
     try:
         return int(matches[0]["id"])
     except (KeyError, TypeError, ValueError, OverflowError):
         return None
+
+
+# Two source nodes explicitly distinguish whether BTN was already all-in.
+# Their visible action histories and available decision labels are otherwise
+# identical, so the live all-in state is required for safe paid-image lookup.
+PAID_RANGE_ALL_IN_POSITION_REQUIREMENTS = {
+    252: frozenset({"CO"}),
+    253: frozenset({"CO", "BTN"}),
+}
+
+
+def exact_preflop_174_source_candidates(
+    table: Any,
+    hand: Any,
+    player_id: str,
+) -> tuple[str | None, dict[str, str], list[dict[str, Any]]]:
+    """Return exact history candidates plus live seat-position mapping."""
+    if str(getattr(hand, "next_to_act", "") or "") != str(player_id):
+        return None, {}, []
+    positions = _position_map(table, hand)
+    actor_position = positions.get(str(player_id))
+    if actor_position not in POSITIONS:
+        return None, positions, []
+    actual_history = _actual_history(table, hand, str(player_id), positions)
+    return (
+        actor_position,
+        positions,
+        find_exact_preflop_174_scenario_candidates(actor_position, actual_history),
+    )
 
 
 def exact_preflop_174_source_image(
