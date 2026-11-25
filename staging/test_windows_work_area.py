@@ -95,7 +95,8 @@ def load_full_range_view_method():
         RangeImageCatalogError,
         range_catalog_summary,
     )
-    assert range_catalog_summary()["source_image_count"] == 174
+    summary = range_catalog_summary()
+    assert summary["source_image_count"] == 174
 
     source_text = SOURCE.read_text(encoding="utf-8")
     tree = ast.parse(source_text, filename=str(SOURCE))
@@ -125,13 +126,13 @@ def load_full_range_view_method():
         "RangeImageCatalogError": RangeImageCatalogError,
     }
     exec(compile(module_ast, str(SOURCE), "exec"), namespace)
-    return namespace["_open_preflop_range_view"], create_range_photo
+    return namespace["_open_preflop_range_view"], create_range_photo, (summary["image_width"], summary["image_height"])
 
 
 def test_paid_range_full_application_flow_on_windows(root, table):
     # Use the complete production method and the bundled screenshot-derived
     # bitmap. This test intentionally does not construct a Canvas renderer.
-    open_range, create_photo = load_full_range_view_method()
+    open_range, create_photo, expected_size = load_full_range_view_method()
 
     table_canvas = tk.Canvas(table, width=900, height=620, bg="#0a1220")
     table_canvas.pack(fill="both", expand=True)
@@ -179,7 +180,7 @@ def test_paid_range_full_application_flow_on_windows(root, table):
     image_name = str(image_label.cget("image"))
     assert image_name, "The range Label has no PhotoImage"
     photo = range_window._range_photo
-    assert photo.width() == 545 and photo.height() == 345
+    assert (photo.width(), photo.height()) == expected_size
     root.update()
     range_window.update()
     image_label.update()
@@ -229,7 +230,7 @@ def test_paid_range_full_application_flow_on_windows(root, table):
     # asset loader to verify image IDs beyond this one live scenario.
     for source_id in (128, 146, 174, 225, 258, 286, 301):
         extra = create_photo(root, source_id)
-        assert extra.width() == 545 and extra.height() == 345, source_id
+        assert (extra.width(), extra.height()) == expected_size, source_id
         del extra
     print("PASS selected source bitmaps load for multiple archive IDs")
 
