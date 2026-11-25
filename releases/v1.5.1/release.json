@@ -12,9 +12,9 @@
   "range_image_catalog_verified": true,
   "windows_native_range_view_verified": true,
   "updater_same_version_blocker_resolved_by_version_increment": true,
-  "published_at": "2026-11-25T22:23:07Z",
-  "payload_sha256": "97a6f564848ae30c07b949ef9fe9932321e770085ea536ebe464e85218409243",
-  "payload_size": 1144854,
+  "published_at": "2026-11-25T22:30:14Z",
+  "payload_sha256": "95556a193f1335f5ebf815c295c258fcadca7055f8e5f00f635d1c094f21fb66",
+  "payload_size": 1177237,
   "files": [
     "PigeonPoker.pyw",
     "VERSION.txt",
@@ -27,7 +27,7 @@
     "pigeon_poker/preflop_174_policy_data.py",
     "pigeon_poker/preflop_cleanup.py",
     "pigeon_poker/range_image_catalog.py",
-    "pigeon_poker/range_tables_v2.bin",
+    "pigeon_poker/range_tables_v2_asset.py",
     "pigeon_updater.py"
   ],
   "updater_actual_extract_validation": "passed",

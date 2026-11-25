@@ -3,12 +3,12 @@
   "product": "pigeon-poker",
   "channel": "stable",
   "version": "1.5.1",
-  "published_at": "2026-11-25T22:23:07Z",
-  "release_notes": "Pigeon Poker 1.5.1: update path for existing 1.5.0 installations; verified 174-scenario preflop image catalogue, native Windows range window, and 174-scenario CPU policy.",
+  "published_at": "2026-11-25T22:30:14Z",
+  "release_notes": "Pigeon Poker 1.5.1 fixes the update path from existing 1.5.0 installations. The 174 original range images are transported in an allow-listed Python asset module so the original 1.5.0 updater can accept the update, then loaded with SHA-256 verification.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.1/payload-updater.zip.b64?v=97a6f564848ae30c07b949ef9fe9932321e770085ea536ebe464e85218409243",
-  "payload_sha256": "97a6f564848ae30c07b949ef9fe9932321e770085ea536ebe464e85218409243",
-  "payload_size": 1144854
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.1/payload-updater.zip.b64?v=95556a193f1335f5ebf815c295c258fcadca7055f8e5f00f635d1c094f21fb66",
+  "payload_sha256": "95556a193f1335f5ebf815c295c258fcadca7055f8e5f00f635d1c094f21fb66",
+  "payload_size": 1177237
 }
