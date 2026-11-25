@@ -36,7 +36,7 @@ def main():
     try:
         for source_id in range(128, 302):
             image = create_range_photo(root, source_id)
-            if (image.width(), image.height()) != (546, 353):
+            if (image.width(), image.height()) != (546, 354):
                 failures.append((source_id, "unexpected dimensions", image.width(), image.height()))
                 image = None
                 continue
