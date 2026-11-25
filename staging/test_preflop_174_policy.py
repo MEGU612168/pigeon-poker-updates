@@ -11,7 +11,7 @@ sys.path.insert(0, str(SOURCE))
 from pigeon_poker.preflop_174_policy import (
     _HAND_INDEX, _actual_history, _choose_scenario, _position_map,
     _scenario_distribution, _scenarios, choose_preflop_174_action,
-    preflop_174_catalog_summary,
+    preflop_174_catalog_summary, preflop_174_raise_size_options,
 )
 
 
@@ -122,6 +122,36 @@ def test_unclassified_cell_is_inferred_not_folded():
     assert distribution and sum(distribution.values()) > 0.999
 
 
+def test_hero_raise_size_options_match_the_174_scenario_and_stay_legal():
+    events = [event("utg", "fold"), event("hj", "fold"), event("co", "fold"),
+              event("btn", "raise", 250), event("sb", "fold")]
+    hand = FakeHand(events, "bb", ("As", "Ah"), {
+        "actions": ["raise", "call", "fold"], "to_call": 150,
+        "raise_allowed": True, "min_target": 400, "max_target": 10000,
+    })
+    result = preflop_174_raise_size_options(FakeTable(), hand, "bb")
+    assert result is not None
+    assert result["scenario_id"] == 146
+    assert result["scenario_match_mode"] == "exact"
+    assert result["hand_class"] == "AA"
+    assert result["choices"]
+    assert all(400 <= choice["amount"] <= 10000 for choice in result["choices"])
+    assert {choice["size_bb"] for choice in result["choices"]} == {13.0}
+    assert {choice["amount"] for choice in result["choices"]} == {1300}
+
+
+def test_hero_raise_size_options_are_not_offered_outside_preflop_or_out_of_turn():
+    events = [event("utg", "fold"), event("hj", "fold"), event("co", "fold"),
+              event("btn", "raise", 250), event("sb", "fold")]
+    hand = FakeHand(events, "bb", ("As", "Ah"))
+    hand.street = "flop"
+    assert preflop_174_raise_size_options(FakeTable(), hand, "bb") is None
+    hand.street = "preflop"
+    hand.next_to_act = "btn"
+    assert preflop_174_raise_size_options(FakeTable(), hand, "bb") is None
+
+
+
 def test_preflop_policy_is_cpu_level_independent():
     source = (SOURCE / "pigeon_poker" / "preflop_174_policy.py").read_text(encoding="utf-8")
     assert "cpu.level" not in source and "cpu.archetype" not in source
@@ -135,6 +165,8 @@ if __name__ == "__main__":
         test_same_actor_multiple_actions_are_preserved,
         test_scenario_251_actor_is_btn,
         test_unclassified_cell_is_inferred_not_folded,
+        test_hero_raise_size_options_match_the_174_scenario_and_stay_legal,
+        test_hero_raise_size_options_are_not_offered_outside_preflop_or_out_of_turn,
         test_preflop_policy_is_cpu_level_independent,
     ]
     for test in tests:
