@@ -37,7 +37,7 @@ from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOErr
                           is_gto_plus_supported_postflop_hand, CPUPoolStore, GGCareLedger, CashierLedger, bind_first_matching_tree)
 from pigeon_poker.range_image_catalog import (create_range_photo, RangeImageCatalogError, resolve_range_image_for_hand)
 from pigeon_poker.poker_reasoning import choose_range_aware_action
-from pigeon_poker.preflop_174_policy import choose_preflop_174_action
+from pigeon_poker.preflop_174_policy import (choose_preflop_174_action, preflop_174_raise_size_options)
 from pigeon_poker.cpu_learning import CPULearningStore
 from pigeon_poker.multitable import MultiTableRegistry, next_big_blind_index_after_rotation
 from pigeon_poker.betting_ui import (DEFAULT_POT_PRESETS, normalize_pot_presets, format_chip_amount,
@@ -6626,6 +6626,58 @@ class PigeonPokerApp(tk.Tk):
         else:
             button.configure(bg="#1ca878", fg="#071b14", activebackground="#31c58b")
 
+
+    def _show_preflop_174_sizing_menu(self, table_id: str):
+        """Show the legal raise sizes from the matching 174-scenario preflop chart."""
+        record = self.table_windows.get(table_id)
+        slot = self.multi_tables.get(table_id)
+        if not record or not slot:
+            return
+        table = slot.state.get("cash_table")
+        hand = table.hand if table is not None else None
+        if (hand is None or hand.finished or hand.street != "preflop"
+                or hand.next_to_act != "hero" or bool(slot.state.get("cash_busy", False))):
+            return
+        info = preflop_174_raise_size_options(table, hand, "hero")
+        if not info or not info.get("choices"):
+            record["status"].set("NO LEGAL 174-SCENARIO RAISE SIZE FOR THIS SPOT")
+            return
+
+        bb = max(1, int(getattr(table, "big_blind", 1)))
+        menu = tk.Menu(
+            record["window"], tearoff=0,
+            bg="#142236", fg=COLORS["text"],
+            activebackground="#1ca878", activeforeground="#071b14",
+            disabledforeground=COLORS["muted"],
+            font=("Segoe UI", 9),
+        )
+        match_label = "EXACT" if not info["scenario_inferred"] else "INFERRED"
+        menu.add_command(
+            label=f"174 SCENARIO #{info['scenario_id']} • {match_label} • {info['hand_class']}",
+            state="disabled",
+        )
+        menu.add_separator()
+        for option in info["choices"]:
+            amount = int(option["amount"])
+            size_bb = float(option["size_bb"])
+            pct = float(option["frequency_pct"])
+            size_label = f"{size_bb:g} BB"
+            if self.chip_display_unit == "USD":
+                size_label = format_chip_amount(amount, bb, "USD")
+            menu.add_command(
+                label=f"RAISE TO {size_label}  •  {pct:.1f}% chart frequency",
+                command=lambda tid=table_id, target=amount: self._set_table_bet_target(tid, target),
+            )
+        button = record.get("gto_size_button")
+        try:
+            if button is not None and button.winfo_exists():
+                menu.tk_popup(button.winfo_rootx(), button.winfo_rooty() + button.winfo_height())
+        finally:
+            try:
+                menu.grab_release()
+            except tk.TclError:
+                pass
+
     def _set_table_pot_preset(self, table_id: str, percentage: int):
         slot = self.multi_tables.get(table_id)
         record = self.table_windows.get(table_id)
@@ -7038,6 +7090,24 @@ class PigeonPokerApp(tk.Tk):
                     submit.pack(side="left", padx=(7, 2))
                     record["bet_action_button"] = submit
                     self._update_bet_submit_label(slot.table_id)
+
+                # Restore the dedicated 174-scenario raise-size selector. It is
+                # shown only on a live HERO preflop raise decision; postflop
+                # sizing remains the normal slider and pot-percentage controls.
+                if hand.street == "preflop" and "raise" in action_names:
+                    sizing_info = preflop_174_raise_size_options(table, hand, "hero")
+                    if sizing_info and sizing_info.get("choices"):
+                        match_mark = "" if not sizing_info["scenario_inferred"] else " ~"
+                        sizing_button = self._compact_action_button(
+                            situation_frame,
+                            f"174 RAISE SIZE{match_mark}  •  #{sizing_info['scenario_id']}",
+                            lambda tid=slot.table_id: self._show_preflop_174_sizing_menu(tid),
+                            "accent",
+                        )
+                        sizing_button.pack(side="left", padx=2)
+                        record["gto_size_button"] = sizing_button
+                    else:
+                        record["gto_size_button"] = None
 
                 tk.Label(actions_frame, text=f"TO CALL {format_chip_amount(legal['to_call'], bb, self.chip_display_unit)}",
                          bg=COLORS["panel"], fg=COLORS["muted"],
