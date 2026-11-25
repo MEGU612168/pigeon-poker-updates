@@ -342,6 +342,12 @@ def test_complete_174_situation_and_source_image_inventory():
         image_groups.setdefault(image_hash, []).append(int(item["id"]))
     semantic_duplicates = sorted(sorted(ids) for ids in semantic_groups.values() if len(ids) > 1)
     image_duplicates = sorted(sorted(ids) for ids in image_groups.values() if len(ids) > 1)
+    # The source set has 174 numeric entries but these three pairs are exact
+    # duplicates of the complete poker decision situation, not merely image
+    # duplicates. Keep this explicit so the app never overstates uniqueness.
+    assert len(semantic_groups) == 171
+    assert semantic_duplicates == [[195, 204], [196, 205], [238, 243]]
+    assert len(image_groups) == 162
     print(
         "174-SCENARIO AUDIT:",
         f"ids={len(scenarios)}",
