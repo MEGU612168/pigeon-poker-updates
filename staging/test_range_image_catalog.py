@@ -190,11 +190,23 @@ def test_all_174_live_histories_resolve_to_their_own_paid_image():
         expected_id = int(scenario["id"])
         actual_id = int(chart["source_id"]) if chart else None
         if actual_id != expected_id:
+            history = _history(scenario)
+            candidates = [
+                item for item in _scenarios()
+                if item["position"] == scenario["position"]
+                and _strict_range_history_matches(item.get("history", []), history)
+            ]
+            metadata = {
+                key: value for key, value in scenario.items()
+                if key not in {"hands", "history", "overall"}
+            }
             failures.append({
                 "expected_id": expected_id,
                 "actor": scenario["position"],
                 "history": scenario.get("history", []),
                 "actual_id": actual_id,
+                "candidate_ids": [int(item["id"]) for item in candidates],
+                "metadata": metadata,
             })
     assert not failures, f"{len(failures)} / 174 live histories failed paid image resolution: {failures[:8]}"
 
