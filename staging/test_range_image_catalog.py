@@ -8,6 +8,7 @@ sys.path.insert(0, str(SOURCE_DIR))
 
 from pigeon_poker.preflop_174_policy import (  # noqa: E402
     _scenarios,
+    _strict_range_history_matches,
     find_exact_preflop_174_scenario,
 )
 
