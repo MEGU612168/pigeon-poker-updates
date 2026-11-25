@@ -1,1 +1,1 @@
-Build and publish Pigeon Poker 1.5.3 with Bayesian 174-chart postflop ranges, opponent learning, equity-realization and geometric SPR sizing.
+Rebuild 1.5.3 after correcting the postflop validation script order.
