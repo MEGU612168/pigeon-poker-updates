@@ -102,7 +102,50 @@ def test_real_174_bitmap_loads_and_every_source_image_renders() -> None:
         _validate_png(png, summary["image_width"], summary["image_height"])
 
 
+def test_create_range_photo_writes_real_rgb_pixels_into_native_tk_image() -> None:
+    import tkinter as tk
+
+    captured = {"writes": []}
+    class FakePhotoImage:
+        def __init__(self, *, master, width, height):
+            captured["master"] = master
+            self._width, self._height = width, height
+
+        def width(self):
+            return self._width
+
+        def height(self):
+            return self._height
+
+        def put(self, data, to):
+            captured["writes"].append((data, to))
+
+        def subsample(self, x, y):
+            self._width //= x
+            self._height = (self._height + y - 1) // y
+            return self
+
+    original_photo_image = tk.PhotoImage
+    tk.PhotoImage = FakePhotoImage
+    try:
+        photo = range_image_catalog.create_range_photo(object(), 136)
+    finally:
+        tk.PhotoImage = original_photo_image
+
+    assert (photo.width(), photo.height()) == (546, 354)
+    assert len(captured["writes"]) > 1
+    assert captured["writes"][0][1] == (0, 0)
+    assert all("#" in data for data, _to in captured["writes"])
+    assert any(
+        token not in {"#000000", "#ffffff"}
+        for data, _to in captured["writes"]
+        for token in data.replace("{", " ").replace("}", " ").split()
+    )
+
+
+
 if __name__ == "__main__":
     test_real_174_bitmap_loads_and_every_source_image_renders()
     test_embedded_python_carrier_loads_without_a_binary_file()
-    print("PASS: committed 174-image asset hash, embedded carrier fallback, and 174 PNG renders")
+    test_create_range_photo_writes_real_rgb_pixels_into_native_tk_image()
+    print("PASS: 174 source PNG exports, embedded asset and native Tk RGB pixel-write path")

@@ -1,6 +1,17 @@
 name: Build Pigeon Poker 1.5.0 range-image validation package
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/build-range-image-validation.yml"
+      - "staging/source_1_3_101/pigeon_poker/range_image_catalog.py"
+      - "staging/source_1_3_101/pigeon_poker/preflop_174_policy.py"
+      - "staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py"
+      - "staging/source_1_3_101/pigeon_poker/range_tables_v2.bin"
+      - "staging/test_real_range_bitmap_asset.py"
+      - "staging/test_range_image_catalog.py"
+      - "staging/test_range_photo_tk_windows.py"
+      - "staging/test_range_photo_tk_windows.py"
   push:
     branches:
       - main
@@ -19,6 +30,19 @@ permissions:
   contents: read
 
 jobs:
+  verify-native-windows-tk-render:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Decode every range image using native Windows Tk
+        shell: pwsh
+        run: |
+          python -m py_compile staging/source_1_3_101/pigeon_poker/range_image_catalog.py
+          python staging/test_range_photo_tk_windows.py
+
   build-validation-package:
     runs-on: ubuntu-latest
     steps:

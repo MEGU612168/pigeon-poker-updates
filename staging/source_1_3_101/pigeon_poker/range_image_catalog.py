@@ -422,22 +422,45 @@ def range_image_png(source_id: int) -> bytes:
 
 
 def create_range_photo(master: Any, source_id: int):
-    """Create a native Tk PhotoImage. Keep the returned object referenced by its window."""
+    """Create a native Tk PhotoImage by writing RGB pixels directly through Tk."""
     import tkinter as tk
 
-    payload = base64.b64encode(range_image_png(int(source_id))).decode("ascii")
+    source_id = int(source_id)
+    catalog = _load_catalog()
+    indices = catalog["frames"].get(source_id)
+    if indices is None:
+        raise RangeImageCatalogError(f"Range screenshot #{source_id} is not in the image catalogue")
+
+    width, height = catalog["width"], catalog["height"]
+    palette = catalog["palette"]
+    lookup = [
+        "#{:02x}{:02x}{:02x}".format(palette[i], palette[i + 1], palette[i + 2])
+        for i in range(0, 768, 3)
+    ]
     try:
-        image = tk.PhotoImage(master=master, data=payload, format="png")
-        # Keep the original PNG in the source catalogue; only the Tk display is downscaled.
-        # The source screenshots are 1092x707. Display the original bitmap at
-        # half scale so the complete 13x13 matrix fits on ordinary Windows
-        # work areas instead of being clipped by the monitor/taskbar bounds.
+        # Do not route the paid range through a platform image decoder. Some
+        # Windows Tk builds accepted our PNG without displaying it and rejected
+        # PPM data. PhotoImage.put() writes actual RGB colour names into Tk's
+        # native image surface, so the widget always owns the rendered pixels.
+        image = tk.PhotoImage(master=master, width=width, height=height)
+        rows_per_write = 12
+        for first_y in range(0, height, rows_per_write):
+            rows = []
+            end_y = min(height, first_y + rows_per_write)
+            for y in range(first_y, end_y):
+                start = y * width
+                row = " ".join(lookup[index] for index in indices[start:start + width])
+                rows.append("{" + row + "}")
+            image.put(" ".join(rows), to=(0, first_y))
+
+        # The source screenshots are 1092x707. Display at half scale so the
+        # complete 13x13 matrix fits on ordinary Windows work areas.
         if image.width() > 700 or image.height() > 550:
             image = image.subsample(2, 2)
         return image
     except tk.TclError as exc:
         raise RangeImageCatalogError(
-            f"Windows could not load the source range image #{int(source_id)}: {exc}"
+            f"Windows could not render the source range image #{source_id}: {exc}"
         ) from exc
 
 
