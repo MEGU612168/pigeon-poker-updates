@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/pokercraft-live-range-tools
+      - fix/174-range-asset-packaging
     paths:
       - "staging/source_1_3_101/PigeonPoker.pyw"
       - "staging/source_1_3_101/pigeon_poker/preflop_cleanup.py"
