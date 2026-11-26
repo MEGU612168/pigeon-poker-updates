@@ -329,7 +329,10 @@ def test_paid_range_resolves_when_live_raise_amount_is_omitted_but_history_is_un
     assert int(chart["source_id"]) == int(scenario["id"])
     assert chart["raise_size_verified"] is False
     assert chart["action_history_exact"] is True
-    assert chart["match_mode"].startswith("actions-size-unverified-")
+    assert (
+        chart["match_mode"] == "exact-actions-size-unverified"
+        or chart["match_mode"].startswith("actions-size-unverified-")
+    )
 
     cpu = type("CPU", (), {"rng": __import__("random").Random(7), "level": 1,
                            "archetype": "balanced"})()
