@@ -298,11 +298,72 @@ def test_bot_uses_the_169_hand_frequencies_for_each_first_in_and_response_family
     )
 
 
+def test_paid_range_resolves_when_live_raise_amount_is_omitted_but_history_is_unique():
+    from pigeon_poker.preflop_174_policy import choose_preflop_174_action
+    from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand
+
+    groups = {}
+    for scenario in _scenarios():
+        key = (
+            str(scenario["position"]).upper(),
+            tuple(
+                (str(item["position"]).upper(), str(item["action"]).lower())
+                for item in scenario.get("history", [])
+            ),
+        )
+        groups.setdefault(key, []).append(scenario)
+
+    scenario = next(
+        item for values in groups.values() if len(values) == 1
+        for item in values
+        if any(str(action.get("action", "")).lower() == "raise"
+               for action in item.get("history", []))
+    )
+    table, hand, actor_id = _live_fixture_for_scenario(scenario)
+    for event in hand.events:
+        if str(event.get("action", "")).lower() == "raise":
+            event.pop("target", None)
+
+    chart = resolve_range_image_for_hand(table, hand, actor_id)
+    assert chart is not None, f"Paid range was not resolved for source #{scenario['id']}"
+    assert int(chart["source_id"]) == int(scenario["id"])
+    assert chart["raise_size_verified"] is False
+    assert chart["action_history_exact"] is True
+    assert chart["match_mode"].startswith("actions-size-unverified-")
+
+    cpu = type("CPU", (), {"rng": __import__("random").Random(7), "level": 1,
+                           "archetype": "balanced"})()
+    decision = choose_preflop_174_action(table, hand, actor_id, cpu)
+    assert int(decision.source_image_no) == int(chart["source_id"])
+    assert decision.scenario_match_mode == "actions-size-unverified"
+    assert "raise size unavailable" in decision.note
+
+
+def test_paid_range_does_not_ignore_a_known_but_wrong_live_raise_amount():
+    from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand
+
+    scenario = next(
+        item for item in _scenarios()
+        if any(str(action.get("action", "")).lower() == "raise"
+               and action.get("size_bb") is not None
+               for action in item.get("history", []))
+    )
+    table, hand, actor_id = _live_fixture_for_scenario(scenario)
+    raise_event = next(
+        event for event in hand.events
+        if str(event.get("action", "")).lower() == "raise"
+    )
+    raise_event["target"] = 9999999
+    assert resolve_range_image_for_hand(table, hand, actor_id) is None
+
+
 def run_tests():
     tests = [
         test_catalog_still_contains_exactly_174_source_scenarios,
         test_complete_174_situation_and_source_image_inventory,
         test_paid_range_lookup_never_uses_nearest_node_inference,
+        test_paid_range_resolves_when_live_raise_amount_is_omitted_but_history_is_unique,
+        test_paid_range_does_not_ignore_a_known_but_wrong_live_raise_amount,
         test_missing_raise_sizes_do_not_create_false_exact_matches,
         test_changed_raise_size_is_not_treated_as_the_original_situation,
         test_allin_without_target_size_is_still_an_exact_action_class,
