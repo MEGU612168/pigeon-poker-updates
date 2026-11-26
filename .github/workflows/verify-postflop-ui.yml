@@ -1,10 +1,17 @@
 name: Verify Pigeon Poker postflop action controls
 
 on:
+  pull_request:
+    paths:
+      - "staging/source_1_3_101/PigeonPoker.pyw"
+      - "staging/test_postflop_controls.py"
+      - "staging/test_allin_runout_presentation.py"
+      - ".github/workflows/verify-postflop-ui.yml"
   push:
     paths:
       - "staging/source_1_3_101/PigeonPoker.pyw"
       - "staging/test_postflop_controls.py"
+      - "staging/test_allin_runout_presentation.py"
       - ".github/workflows/verify-postflop-ui.yml"
 
 permissions:
@@ -20,6 +27,8 @@ jobs:
           python-version: "3.12"
       - name: Check Python syntax
         run: python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
+      - name: Check all-in Run It Twice showdown presentation
+        run: python staging/test_allin_runout_presentation.py
       - name: Check postflop controls and immutable preflop gate
         run: python staging/test_postflop_controls.py
       - name: Verify legacy preflop strategy remains removed
