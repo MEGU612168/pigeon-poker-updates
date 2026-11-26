@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.5.8",
+  "package_mode": "full",
+  "source_version": "1.3.101",
+  "source_directory": "staging/source_1_3_101",
+  "release_notes": "Pigeon Poker 1.5.8 makes the 174-scenario preflop dataset the single source for live range charts, BOT decisions, and hero raise-size choices. The live resolver normalizes fold-only first-in prefixes and the BOT uses the same resolved scenario ID as the displayed chart. All source-defined raise sizes for the selected scenario remain visible; options unavailable to the current hand or live legal state are explicitly disabled rather than silently omitted. Regression tests cover all 174 scenarios, 169-hand frequency use across ten scenario families, and exact sizing-menu source alignment.",
+  "distribution_status": "queued",
+  "preflop_174_policy_verified": true,
+  "postflop_theory_policy_verified": true,
+  "range_data_audit_verified": true,
+  "range_source_entries_expected": 174,
+  "unique_semantic_situations_expected": 171,
+  "duplicate_semantic_scenario_groups": [
+    [
+      195,
+      204
+    ],
+    [
+      196,
+      205
+    ],
+    [
+      238,
+      243
+    ]
+  ],
+  "range_bitmap_display_retired": true,
+  "native_windows_canvas_range_render_verified": false,
+  "paid_range_live_resolution_verified": false,
+  "live_range_button_cache_signature_verified": true,
+  "preflop_raise_size_selector_verified": false,
+  "range_chart_bot_source_id_consistency_verified": false,
+  "all_174_situations_bot_mapped_verified": false,
+  "bot_169_hand_frequency_integration_verified": false,
+  "source_raise_sizes_visible_in_matching_menu_verified": false
+}
