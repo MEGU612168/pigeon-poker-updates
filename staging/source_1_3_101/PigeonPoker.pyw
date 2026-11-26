@@ -132,6 +132,11 @@ ALLIN_RUNOUT_FLOP_FRAME_MS = 42
 ALLIN_RUNOUT_STREET_FRAME_MS = 48
 
 
+def initial_allin_runout_reveal_count(existing_board_count: int) -> int:
+    """Keep already exposed community cards visible; start at the next street."""
+    return max(0, min(4, int(existing_board_count)))
+
+
 def calculate_table_pot_layout(width: int, height: int) -> dict[str, float | None]:
     """Calculate collision-free pot, chip, board and street-label positions.
 
@@ -930,6 +935,7 @@ class PigeonPokerApp(tk.Tk):
             ],
             "cash_runout_phase": str(slot_state.get("cash_runout_phase", "") or ""),
             "cash_runout_reveal_pending": bool(slot_state.get("cash_runout_reveal_pending", False)),
+            "cash_runout_initial_reveal_count": int(slot_state.get("cash_runout_initial_reveal_count", 0)),
             "cash_runout_pre_settlement_stacks": dict(slot_state.get("cash_runout_pre_settlement_stacks", {})) if isinstance(slot_state.get("cash_runout_pre_settlement_stacks"), dict) else {},
             "cash_runout_pre_settlement_pot": slot_state.get("cash_runout_pre_settlement_pot"),
             "cash_runout_prompt_token": slot_state.get("cash_runout_prompt_token"),
@@ -3073,6 +3079,7 @@ class PigeonPokerApp(tk.Tk):
             active_state["cash_runout_pre_settlement_stacks"] = {}
             active_state["cash_runout_pre_settlement_pot"] = None
             active_state["cash_runout_prompt_token"] = None
+            active_state["cash_runout_initial_reveal_count"] = 0
             self.cash_board_anim_index = None
             self.cash_board_anim_progress = 1.0
             if self.active_cash_table_id and self.multi_tables.get(self.active_cash_table_id):
@@ -4885,6 +4892,9 @@ class PigeonPokerApp(tk.Tk):
         if hand is None or hand.finished or not getattr(hand, "awaiting_runout_choice", False):
             self._close_allin_dialog(table_id)
             return
+        # Capture the board street BEFORE the engine fixes the remaining cards.
+        # A flop that is already on the felt must not be dealt a second time.
+        runout_initial_reveal_count = initial_allin_runout_reveal_count(len(hand.board))
         self._close_allin_dialog(table_id)
         try:
             if cashout_offer is not None:
@@ -4895,12 +4905,14 @@ class PigeonPokerApp(tk.Tk):
                 slot.state["cash_runout_pre_settlement_stacks"] = {}
                 slot.state["cash_runout_pre_settlement_pot"] = None
                 slot.state["cash_runout_prompt_token"] = None
+                slot.state["cash_runout_initial_reveal_count"] = 0
                 self.cash_log_lines.append(
                     f"EV CASHOUT • {cashout_offer.equity:.1%} equity • "
                     f"-{self._format_table_chips(cashout_offer.fee, hand.big_blind)} fee")
             else:
                 selected = max(1, min(3, int(count)))
                 hand.resolve_allin_runout(selected)
+                slot.state["cash_runout_initial_reveal_count"] = runout_initial_reveal_count
                 self.cash_log_lines.append(f"RUN IT {selected}×")
             table.sync_external_hand_state()
             slot.state["cash_busy"] = False
@@ -4965,13 +4977,23 @@ class PigeonPokerApp(tk.Tk):
             self.cash_board_target = list(primary_board)
             self.cash_visible_board = list(primary_board)
             self.cash_board_reveal_count = len(primary_board)
+        # The already dealt preflop/flop/turn cards are shared by every runout.
+        # Keep them face-up and begin animation at the NEXT unrevealed street.
+        initial_reveal_count = initial_allin_runout_reveal_count(
+            state.get("cash_runout_initial_reveal_count", 0)
+        )
+        state["cash_runout_initial_reveal_count"] = initial_reveal_count
         state["cash_runout_boards_for_reveal"] = boards
-        state["cash_runout_reveal_counts"] = [0 for _ in boards]
+        state["cash_runout_reveal_counts"] = [initial_reveal_count for _ in boards]
         state["cash_runout_reveal_anim"] = None
         state["cash_runout_phase"] = "OPPONENT CARDS REVEALED"
         self._redraw_floating_table(table_id)
         # Both hands stay exposed for a full beat before any community card moves.
-        self.after(ALLIN_RUNOUT_HOLE_REVEAL_PAUSE_MS, lambda tid=table_id: self._multi_runout_reveal_step(tid, 0, 0))
+        self.after(
+            ALLIN_RUNOUT_HOLE_REVEAL_PAUSE_MS,
+            lambda tid=table_id, first=initial_reveal_count:
+                self._multi_runout_reveal_step(tid, 0, first),
+        )
         return True
 
     def _multi_runout_reveal_step(self, table_id: str, board_index: int, card_index: int):
@@ -4990,10 +5012,13 @@ class PigeonPokerApp(tk.Tk):
         if card_index >= 5:
             # Separate the two boards so BOARD 2 feels like a second runout,
             # not a continuation of BOARD 1's river.
+            initial_reveal_count = initial_allin_runout_reveal_count(
+                state.get("cash_runout_initial_reveal_count", 0)
+            )
             self.after(
                 max(ALLIN_RUNOUT_BETWEEN_BOARDS_PAUSE_MS, STREET_BETWEEN_CARDS_MS + 180),
-                lambda tid=table_id, bi=board_index + 1:
-                    self._multi_runout_reveal_step(tid, bi, 0),
+                lambda tid=table_id, bi=board_index + 1, first=initial_reveal_count:
+                    self._multi_runout_reveal_step(tid, bi, first),
             )
             return
         stage = next(
@@ -5078,6 +5103,7 @@ class PigeonPokerApp(tk.Tk):
             slot.state["cash_runout_pre_settlement_stacks"] = {}
             slot.state["cash_runout_pre_settlement_pot"] = None
             slot.state["cash_runout_prompt_token"] = None
+            slot.state["cash_runout_initial_reveal_count"] = 0
             slot.state["cash_busy"] = False
             self.cash_busy = False
             self._update_cash_after_action()
