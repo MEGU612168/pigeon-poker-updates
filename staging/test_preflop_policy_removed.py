@@ -43,7 +43,8 @@ def test_174_policy_is_packaged_and_is_cpu_level_independent() -> None:
     assert "cpu.level" not in policy
     assert "cpu.archetype" not in policy
     assert "preflop-174-scenario-policy" in policy
-    assert "unmeasured-image-cell" in policy
+    assert "out-of-range-at-node" in policy
+    assert "preflop-174-out-of-range-guardrail" in policy
     assert "No exact 174-scenario action history" in policy
     assert "ranked = [(_history_distance" not in policy
 
