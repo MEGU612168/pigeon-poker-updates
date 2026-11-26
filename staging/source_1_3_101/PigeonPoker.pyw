@@ -3730,9 +3730,10 @@ class PigeonPokerApp(tk.Tk):
                 runout_boards = [
                     list(board) for board in (getattr(hand, "runout_boards", []) or [])
                 ]
-                if len(runout_boards) > 1:
-                    self._animate_multi_runout_reveal(table_id, runout_boards)
-                else:
+                if not (
+                    len(runout_boards) > 1
+                    and self._animate_multi_runout_reveal(table_id, runout_boards)
+                ):
                     self._animate_board_reveal(
                         table_id, list(hand.board),
                         on_done=lambda tid=table_id: self._finish_allin_runout_reveal(tid),
@@ -3753,10 +3754,10 @@ class PigeonPokerApp(tk.Tk):
         """Reveal each Run It Multiple Times board as a real flop/turn/river sequence."""
         slot = self.multi_tables.get(table_id)
         if slot is None:
-            return
+            return False
         boards = [list(board[:5]) for board in runout_boards if len(board) >= 5]
         if len(boards) < 2:
-            return
+            return False
         state = slot.state
         # Stop any stale single-board peel/flip job before taking ownership of
         # the board presentation. The poker engine has already fixed both runouts.
@@ -3772,6 +3773,18 @@ class PigeonPokerApp(tk.Tk):
         state["cash_board_anim_index"] = None
         state["cash_board_anim_progress"] = 1.0
         state["cash_runout_show_hole_cards"] = True
+        # Mark the engine's settled primary board as already owned by this
+        # runout animator so normal post-action flow cannot replay it afterward.
+        table = state.get("cash_table")
+        hand = table.hand if table is not None else None
+        primary_board = list(hand.board) if hand is not None else list(boards[0])
+        state["cash_board_target"] = primary_board
+        state["cash_visible_board"] = primary_board
+        state["cash_board_reveal_count"] = len(primary_board)
+        if table_id == self.active_cash_table_id:
+            self.cash_board_target = list(primary_board)
+            self.cash_visible_board = list(primary_board)
+            self.cash_board_reveal_count = len(primary_board)
         state["cash_runout_boards_for_reveal"] = boards
         state["cash_runout_reveal_counts"] = [0 for _ in boards]
         state["cash_runout_reveal_anim"] = None
@@ -3779,6 +3792,7 @@ class PigeonPokerApp(tk.Tk):
         self._redraw_floating_table(table_id)
         # Give the revealed hands a short beat before the first flop arrives.
         self.after(620, lambda tid=table_id: self._multi_runout_reveal_step(tid, 0, 0))
+        return True
 
     def _multi_runout_reveal_step(self, table_id: str, board_index: int, card_index: int):
         slot = self.multi_tables.get(table_id)
