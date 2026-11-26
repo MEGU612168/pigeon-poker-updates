@@ -67,6 +67,10 @@ def test_all_174_scenarios_and_169_hand_classes_are_loaded():
     assert summary["scenario_count"] == 174
     assert summary["hand_classes_per_scenario"] == 169
     assert summary["scenario_ids"] == list(range(128, 302))
+    assert 0 < summary["unique_action_history_count"] <= 174
+    assert "duplicate_action_history_groups" in summary
+    assert "unique_169_cell_strategy_matrix_count" in summary
+    assert "ambiguous_duplicate_history_groups" in summary
     assert len(_HAND_INDEX) == 169
     assert all(len(item["hands"]) == 169 for item in _scenarios())
 
@@ -116,12 +120,33 @@ def test_scenario_251_actor_is_btn():
     assert scenario["id"] == 251 and not inferred and distance == 0.0
 
 
-def test_unclassified_cell_is_inferred_not_folded():
+def test_unmeasured_cell_is_not_fabricated_from_neighbouring_hands():
     scenario = next(item for item in _scenarios() if item["id"] == 153)
     distribution, inferred, method = _scenario_distribution(scenario, "K4s")
-    assert inferred and method == "same-scenario-hand-neighbours"
-    assert distribution and sum(distribution.values()) > 0.999
+    assert inferred and method == "unmeasured-image-cell"
+    assert distribution == {}
 
+
+
+def test_unmatched_preflop_history_never_borrows_a_nearest_chart():
+    import math
+    scenario, inferred, distance = _choose_scenario(
+        "CO", [event("utg", "raise", 7700)], FakeCPU().rng
+    )
+    assert scenario is None
+    assert inferred
+    assert math.isinf(distance)
+
+    hand = FakeHand([event("utg", "raise", 7700)], "co", ("As", "Ah"))
+    decision = choose_preflop_174_action(FakeTable(), hand, "co", FakeCPU())
+    assert decision.source == "preflop-uncovered-legal-guardrail"
+    assert decision.source_image_no is None
+    assert decision.node_id == "UNMAPPED_PREFLOP_HISTORY"
+
+
+def test_paid_raise_size_menu_is_hidden_for_unmatched_history():
+    hand = FakeHand([event("utg", "raise", 7700)], "co", ("As", "Ah"))
+    assert preflop_174_raise_size_options(FakeTable(), hand, "co") is None
 
 def test_hero_raise_size_options_match_the_174_scenario_and_stay_legal():
     events = [event("utg", "fold"), event("hj", "fold"), event("co", "fold"),
@@ -288,7 +313,9 @@ if __name__ == "__main__":
         test_bb_vs_btn_open_matches_source_146_and_uses_13bb,
         test_same_actor_multiple_actions_are_preserved,
         test_scenario_251_actor_is_btn,
-        test_unclassified_cell_is_inferred_not_folded,
+        test_unmeasured_cell_is_not_fabricated_from_neighbouring_hands,
+        test_unmatched_preflop_history_never_borrows_a_nearest_chart,
+        test_paid_raise_size_menu_is_hidden_for_unmatched_history,
         test_hero_raise_size_options_match_the_174_scenario_and_stay_legal,
         test_hero_raise_size_options_are_not_offered_outside_preflop_or_out_of_turn,
         test_preflop_policy_is_cpu_level_independent,
