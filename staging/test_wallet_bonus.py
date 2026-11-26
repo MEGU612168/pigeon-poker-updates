@@ -32,7 +32,7 @@ apply_1100 = namespace[METHOD_NAMES[2]]
 apply_5000 = namespace[METHOD_NAMES[3]]
 
 
-def test_existing_wallet_is_preserved_and_four_credits_are_exactly_once() -> None
+def test_existing_wallet_is_preserved_and_four_credits_are_exactly_once() -> None:
     with tempfile.TemporaryDirectory() as directory:
         db_path = Path(directory) / "wallet.sqlite3"
         with sqlite3.connect(db_path) as con:
