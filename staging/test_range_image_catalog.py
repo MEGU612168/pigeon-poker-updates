@@ -476,7 +476,10 @@ class _LivePlayer:
 
 
 class _LiveHand:
-    def __init__(self, events, next_to_act: str, legal_actions, all_in_positions=()):
+    def __init__(
+        self, events, next_to_act: str, legal_actions, all_in_positions=(),
+        *, pot=0, to_call=100,
+    ):
         # dealer_index=0 and this seat order give the six standard positions.
         all_in_positions = set(all_in_positions)
         self.players = [
@@ -495,12 +498,14 @@ class _LiveHand:
         self.big_blind = 100
         self.dealer_index = 0
         self._legal_actions = list(legal_actions)
+        self.pot = int(pot)
+        self._to_call = int(to_call)
 
     def legal_actions(self, player_id):
         actions = list(self._legal_actions)
         return {
             "actions": actions,
-            "to_call": 100 if "call" in actions else 0,
+            "to_call": self._to_call if "call" in actions else 0,
             "raise_allowed": "raise" in actions,
             "min_target": 100,
             "max_target": 100000,
@@ -537,17 +542,34 @@ def _live_fixture_for_scenario(scenario: dict, cards=("As", "Ah")):
                 "player": player_by_position[position],
                 "action": "fold",
             })
+    contributions = {"SB": 0.5, "BB": 1.0}
+    current_bet = 1.0
     for item in scenario.get("history", []):
         action = str(item["action"]).lower()
+        position = str(item["position"]).upper()
         event = {
             "type": "action",
             "street": "preflop",
-            "player_id": player_by_position[item["position"]],
-            "player": player_by_position[item["position"]],
+            "player_id": player_by_position[position],
+            "player": player_by_position[position],
             "action": action,
         }
         if action == "raise":
             event["target"] = round(float(item["size_bb"]) * 100)
+            target = float(item["size_bb"])
+            contributions[position] = max(contributions.get(position, 0.0), target)
+            current_bet = max(current_bet, target)
+        elif action == "call":
+            contributions[position] = max(contributions.get(position, 0.0), current_bet)
+        elif action == "allin":
+            # The source uses the all-in action class without storing the
+            # effective stack size. This fixture mirrors a live all-in event
+            # that records the paid amount, while raise-to fields are omitted
+            # in the dedicated regression test below.
+            target = float(item.get("size_bb") or 100.0)
+            event["amount"] = round(target * 100)
+            contributions[position] = max(contributions.get(position, 0.0), target)
+            current_bet = max(current_bet, target)
         events.append(event)
     actor_id = player_by_position[scenario["position"]]
     legal_actions = [
@@ -558,8 +580,20 @@ def _live_fixture_for_scenario(scenario: dict, cards=("As", "Ah")):
         252: ("CO",),
         253: ("CO", "BTN"),
     }.get(int(scenario["id"]), ())
+    all_in_positions = set(all_in_positions) | {
+        str(item["position"]).upper()
+        for item in scenario.get("history", [])
+        if str(item.get("action", "")).lower() == "allin"
+    }
     table = _LiveTable()
-    hand = _LiveHand(events, actor_id, legal_actions, all_in_positions)
+    pot_cents = int(round(sum(contributions.values()) * 100))
+    to_call_cents = int(round(max(0.0, current_bet - contributions.get(
+        str(scenario["position"]).upper(), 0.0
+    )) * 100))
+    hand = _LiveHand(
+        events, actor_id, legal_actions, all_in_positions,
+        pot=pot_cents, to_call=to_call_cents,
+    )
     hand.player(actor_id).hole_cards = tuple(cards)
     return table, hand, actor_id
 
