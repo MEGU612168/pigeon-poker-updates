@@ -3026,6 +3026,9 @@ def _choose_range_aware_action_impl(
     last_full_raise = max(1, int(getattr(hand, "last_full_raise", 1) or 1))
 
     if can_raise and max_target >= min_target > street_contribution:
+        # Only postflop sizing consumes a range/nut profile. Preflop remains
+        # fully controlled by the immutable 174-situation chart.
+        nut_advantage = 0.0
         if street == "preflop":
             multipliers = (2.15, 2.40, 2.70) if to_call else (2.0, 2.3)
             targets = {
