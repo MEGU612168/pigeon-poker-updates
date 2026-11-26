@@ -46,7 +46,8 @@ def test_run_it_twice_is_animated_in_two_complete_street_sequences() -> None:
     assert "FLOP_REVEAL_FRAMES" in frame
     assert "STREET_REVEAL_FRAMES" in frame
     assert "cash_runout_reveal_counts" in frame
-    assert "_finish_allin_runout_reveal" in source_of("_finish_allin_runout_reveal")
+    assert "_finish_allin_runout_reveal" in step
+    assert "self._update_cash_after_action()" in source_of("_finish_allin_runout_reveal")
 
 
 def test_runout_renderer_keeps_future_cards_hidden_until_each_street() -> None:
