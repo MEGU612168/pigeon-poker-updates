@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.14",
-  "published_at": "2026-11-26T12:45:21Z",
-  "release_notes": "Pigeon Poker 1.5.14 improves all-in showdown presentation. After an all-in runout is chosen, all live opponents' hole cards are revealed while folded hands remain hidden. Run It Twice now reveals Board 1 flop, turn and river in sequence, then Board 2 flop, turn and river, using the existing card-flip animations and street sounds. Future cards stay face-down until their street, runout progress survives switching tables, and pot payout animation waits until the runout is fully revealed. The immutable 174-situation preflop chart is unchanged.",
+  "version": "1.5.15",
+  "published_at": "2026-11-26T13:07:19Z",
+  "release_notes": "Pigeon Poker 1.5.15 adds Rush & Cash NL500 ($2.50/$5) and NL1000 ($5/$10), both with 100BB buy-ins, independent CPU population profiles, PokerCraft filters and BB/100 normalization. The new Casino page adds playable six-deck Blackjack (dealer stands on soft 17, natural pays 3:2, Hit/Stand/Double Down) and Punto Banco Baccarat (standard third-card rules, 5% Banker commission, Player/Banker/Tie bets). Casino wagers and payouts use the shared simulated wallet but remain separate from poker P&L. An unfinished Blackjack hand and remaining shoe persist across app restarts. The immutable 174-situation preflop chart and existing Run It Twice presentation are unchanged.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.14/payload-updater.zip.b64?v=1b24bd4fc4bf4e8485ef93eac14001ef0ef6a457bed8c62f012661d3a246249a",
-  "payload_sha256": "1b24bd4fc4bf4e8485ef93eac14001ef0ef6a457bed8c62f012661d3a246249a",
-  "payload_size": 1203609
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.15/payload-updater.zip.b64?v=c1623c91c109b32bbcbb4cc99618b87abc4e84db3cb6613df02f531eaf5dfe2d",
+  "payload_sha256": "c1623c91c109b32bbcbb4cc99618b87abc4e84db3cb6613df02f531eaf5dfe2d",
+  "payload_size": 1210320
 }
