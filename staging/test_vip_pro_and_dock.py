@@ -68,7 +68,7 @@ def test_vip_has_distinct_private_club_window_and_table_surface() -> None:
     assert "VIP PRIVATE CLUB" in create
     assert 'bg="#caa45f"' in create
     assert 'header_bg = "#090b10" if vip_mode' in create
-    assert "VIP PRIVATE CLUB" in draw
+    assert "P I G E O N   P R I V A T E   C L U B" in draw
     assert "vip_rail_double_line" in draw
     assert "vip_felt_gold_pinstripe" in draw
     assert 'text="PRO ONLY"' in draw
