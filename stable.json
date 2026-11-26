@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.10",
-  "published_at": "2026-11-26T09:26:11Z",
-  "release_notes": "Pigeon Poker 1.5.10 fixes live paid preflop range matching across all 174 source situations. When a live action history omits raise-to amounts, the resolver now matches the exact ordered actor/action history and safely disambiguates same-action nodes using the live pot and amount-to-call. Known incorrect raise sizes remain rejected, and ambiguous or mismatched source histories do not produce a paid chart. The BOT and paid range viewer continue to share the same source scenario and 169-hand matrix. Verification covers all 174 situations, all 169 hand classes, omitted raise-size histories, wrong-size rejection, Windows native Tk rendering, and updater package extraction.",
+  "version": "1.5.11",
+  "published_at": "2026-11-26T11:39:20Z",
+  "release_notes": "Pigeon Poker 1.5.11 strengthens the postflop CPU BOT with GTO-inspired bet sizing and polarized range selection. The response model now measures a raise using the incremental raise over the pot after call, not the hero's combined call-plus-raise spend. Routine flop and multiway bets use smaller size menus; overbets require suitable nut advantage, street, SPR and made-hand strength. Bets of 75% pot or larger use a polarized selection: strong value or blocker-qualified low-showdown-value bluffs, while medium-strength showdown-value hands remain in the check/call region. Large multiway bluffs are blocked and large multiway value requires exceptional nutted conditions. The immutable 174-situation preflop policy is unchanged.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.10/payload-updater.zip.b64?v=85302e25de438edfb5535464bf420429cb6c9e8659aea1f88680dc3e3eab443b",
-  "payload_sha256": "85302e25de438edfb5535464bf420429cb6c9e8659aea1f88680dc3e3eab443b",
-  "payload_size": 1196376
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.11/payload-updater.zip.b64?v=3f64d4e4e760bfd9c064f1e277f5babcd31fa952e5af5acbcd3510b2375c43d5",
+  "payload_sha256": "3f64d4e4e760bfd9c064f1e277f5babcd31fa952e5af5acbcd3510b2375c43d5",
+  "payload_size": 1199411
 }

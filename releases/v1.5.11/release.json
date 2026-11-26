@@ -7,7 +7,7 @@
   "source_version": "1.3.101",
   "source_directory": "staging/source_1_3_101",
   "release_notes": "Pigeon Poker 1.5.11 strengthens the postflop CPU BOT with GTO-inspired bet sizing and polarized range selection. The response model now measures a raise using the incremental raise over the pot after call, not the hero's combined call-plus-raise spend. Routine flop and multiway bets use smaller size menus; overbets require suitable nut advantage, street, SPR and made-hand strength. Bets of 75% pot or larger use a polarized selection: strong value or blocker-qualified low-showdown-value bluffs, while medium-strength showdown-value hands remain in the check/call region. Large multiway bluffs are blocked and large multiway value requires exceptional nutted conditions. The immutable 174-situation preflop policy is unchanged.",
-  "distribution_status": "pending",
+  "distribution_status": "published",
   "preflop_174_policy_verified": true,
   "postflop_theory_policy_verified": true,
   "postflop_sdv_policy_verified": true,
@@ -53,5 +53,28 @@
   "source_raise_sizes_visible_in_matching_menu_verified": true,
   "range_source_entries_verified": 174,
   "unique_semantic_situations_verified": 171,
-  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt"
+  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
+  "published_at": "2026-11-26T11:39:20Z",
+  "payload_sha256": "3f64d4e4e760bfd9c064f1e277f5babcd31fa952e5af5acbcd3510b2375c43d5",
+  "payload_size": 1199411,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/cpu_learning.py",
+    "pigeon_poker/poker_reasoning.py",
+    "pigeon_poker/preflop_174_policy.py",
+    "pigeon_poker/preflop_174_policy_data.py",
+    "pigeon_poker/preflop_cleanup.py",
+    "pigeon_poker/range_chart_canvas.py",
+    "pigeon_poker/range_image_catalog.py",
+    "pigeon_poker/range_scenario_resolver.py",
+    "pigeon_poker/range_tables_v2_asset.py",
+    "pigeon_updater.py"
+  ],
+  "updater_actual_extract_validation": "passed",
+  "windows_native_range_view_verified": true,
+  "legacy_preflop_retirement_validation": "passed"
 }
