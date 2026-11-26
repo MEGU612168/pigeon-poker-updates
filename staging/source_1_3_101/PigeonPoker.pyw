@@ -5783,7 +5783,7 @@ class PigeonPokerApp(tk.Tk):
         header.pack(fill="x")
         header.pack_propagate(False)
         title_var = tk.StringVar(
-            value=(f"VIP PRIVATE CLUB  •  {slot.rate}  •  PRO ONLY"
+            value=(f"VIP PRIVATE CLUB  •  {slot.rate}  •  PRO / TOP PRO"
                    if vip_mode else f"{table_mode_label(slot.state.get('cash_game_mode'))}  •  {slot.rate}")
         )
         status_var = tk.StringVar(value="Waiting for hand")
