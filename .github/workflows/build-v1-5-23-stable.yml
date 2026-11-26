@@ -355,6 +355,10 @@ jobs:
               "PRO ONLY",
               "window._pigeon_vip_theme = vip_mode",
               'vip_dock = is_vip_mode(state.get("cash_game_mode", RUSH_MODE))',
+              'size_actions.configure(height=28 if vip_mode else 30)',
+              'situation_actions.configure(height=18 if vip_mode else 20)',
+              '("size_actions", "situation_actions", 28 if vip_dock else 30)',
+              '("situation_actions", "utility_actions", 18 if vip_dock else 20)',
               "#71172c",
               "#e2bd69",
               "dock_row.winfo_children()",
@@ -451,6 +455,7 @@ jobs:
           meta["vip_range_equity_sample_multiplier_verified"] = 1.5
           meta["vip_only_action_dock_compression_verified"] = True
           meta["action_dock_empty_rows_collapsed_verified"] = True
+          meta["action_dock_compact_heights_verified"] = True
           meta["casino_game_test_count_verified"] = 14
           meta["casino_integration_test_count_verified"] = 11
           meta["casino_visual_test_count_verified"] = 16
