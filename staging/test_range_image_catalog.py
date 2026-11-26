@@ -337,6 +337,7 @@ def test_all_174_paid_ranges_survive_missing_live_raise_amounts_without_strategy
                 model.pop("source_id", None)
                 details.append({
                     "id": int(item["id"]),
+                    "history": item.get("history"),
                     "action_options": item.get("action_options"),
                     "all_in_required": list(__import__(
                         "pigeon_poker.range_scenario_resolver",
