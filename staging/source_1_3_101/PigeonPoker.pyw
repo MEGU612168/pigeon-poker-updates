@@ -3818,7 +3818,7 @@ class PigeonPokerApp(tk.Tk):
         # Nearest-node inference is never used for a paid range image.
         try:
             return resolve_range_image_for_hand(table, hand, "hero")
-        except RangeImageCatalogError:
+        except (KeyError, TypeError, ValueError):
             return None
 
     def _refresh_live_range_icons(self):
@@ -3938,8 +3938,8 @@ class PigeonPokerApp(tk.Tk):
             self._update_range_icon_state(slot, self.table_windows.get(table_id, {}), hand)
             messagebox.showinfo(
                 "Preflop range",
-                "この状況に一致する元画像レンジはありません。\n"
-                "推測画像は表示せず、レンジ料金も発生していません。",
+                "この状況に一致する174局面レンジ表はありません。\n"
+                "推測レンジは表示せず、レンジ料金も発生していません。",
             )
             return
         try:
@@ -3950,7 +3950,7 @@ class PigeonPokerApp(tk.Tk):
         except (RangeChartDataError, KeyError, TypeError, ValueError) as exc:
             messagebox.showerror(
                 "Range chart unavailable",
-                f"レンジ表の元データを読み込めませんでした。料金は発生していません。\\n{exc}",
+                f"レンジ表の元データを読み込めませんでした。料金は発生していません。\n{exc}",
             )
             return
         if not paid:
