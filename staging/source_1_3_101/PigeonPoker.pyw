@@ -391,8 +391,11 @@ class PigeonPokerApp(tk.Tk):
         self._blackjack_animation_id = 0
         self.baccarat_visible_player_cards = 0
         self.baccarat_visible_banker_cards = 0
+        self.baccarat_card_reveal_progress: dict[tuple[str, int], float] = {}
         self.baccarat_dealing = False
         self._baccarat_animation_id = 0
+        self.casino_window: tk.Toplevel | None = None
+        self._casino_window_built = False
         self.cash_drop_pool_cents = max(0, int(self.config_data.get("cash_drop_pool_cents", 0)))
         self.cash_session_id = uuid.uuid4().hex
         self.cash_hand_instance = 0
@@ -485,7 +488,6 @@ class PigeonPokerApp(tk.Tk):
         self._build_shell()
         self._build_lobby()
         self._build_cashier_page()
-        self._build_casino_page()
         self._build_table()
         self._build_placeholder_pages()
         self._build_pokercraft_page()
@@ -567,7 +569,8 @@ class PigeonPokerApp(tk.Tk):
         self.bind_all("<MouseWheel>", self._scroll_active_page, add="+")
         nav = [("LOBBY", "lobby"), ("OPEN TABLES", "table"), ("CASHIER", "cashier"), ("CASINO", "casino"), ("POKERCRAFT", "poker_craft"), ("GG CARE", "gg_care"), ("SETTINGS", "settings")]
         for label, page in nav:
-            ttk.Button(self.sidebar, text=label, command=lambda p=page: self.show_page(p)).pack(fill="x", padx=10, pady=3)
+            command = (lambda: self._open_casino_window()) if page == "casino" else (lambda p=page: self.show_page(p))
+            ttk.Button(self.sidebar, text=label, command=command).pack(fill="x", padx=10, pady=3)
         tk.Frame(self.sidebar, bg=COLORS["border"], height=1).pack(fill="x", padx=14, pady=16)
         tk.Label(self.sidebar, text="SYSTEM STATUS", bg="#0d1726", fg=COLORS["muted"], font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=17)
         self.status_label = tk.Label(self.sidebar, textvariable=self.status_var, bg="#0d1726", fg=COLORS["gold"], justify="left", wraplength=145, font=("Segoe UI", 8))
@@ -688,6 +691,9 @@ class PigeonPokerApp(tk.Tk):
         return "break"
 
     def show_page(self, key: str):
+        if key == "casino":
+            self._open_casino_window()
+            return
         for page in self.pages.values():
             page.pack_forget()
         if key not in self.pages:
@@ -1188,10 +1194,58 @@ class PigeonPokerApp(tk.Tk):
         self.cashier_status_label.pack(anchor="w", padx=24, pady=(0, 8))
         self._refresh_cashier()
 
+
+    def _open_casino_window(self):
+        window = self.casino_window
+        if window is not None:
+            try:
+                if window.winfo_exists():
+                    window.deiconify()
+                    window.lift()
+                    window.focus_force()
+                    return
+            except tk.TclError:
+                self.casino_window = None
+                self._casino_window_built = False
+        window = tk.Toplevel(self)
+        self.casino_window = window
+        window.title("Pigeon Casino  •  Blackjack & Punto Banco")
+        window.configure(bg=COLORS["bg"])
+        window.geometry("1280x880")
+        window.minsize(1040, 700)
+        _fit_toplevel_to_monitor_work_area(
+            window, max_outer_width=1320, max_outer_height=920, margin=12
+        )
+        window.protocol("WM_DELETE_WINDOW", self._hide_casino_window)
+        if not self._casino_window_built:
+            self._build_casino_page(parent=window)
+            self._casino_window_built = True
+        self._refresh_casino_display()
+        window.deiconify()
+        window.lift()
+        try:
+            window.focus_force()
+        except tk.TclError:
+            pass
+
+    def _hide_casino_window(self):
+        window = self.casino_window
+        if window is not None:
+            try:
+                if window.winfo_exists():
+                    window.withdraw()
+            except tk.TclError:
+                self.casino_window = None
+                self._casino_window_built = False
+
     # ---------- Casino ----------
 
-    def _build_casino_page(self):
-        page = self._new_page("casino")
+    def _build_casino_page(self, parent=None):
+        if parent is None:
+            page = self._new_page("casino")
+        else:
+            page = tk.Frame(parent, bg=COLORS["bg"])
+            page.pack(fill="both", expand=True)
         self._page_header(
             page, "Casino",
             "BLACKJACK & PUNTO BANCO  •  LIVE TABLE PRESENTATION  •  SIMULATED CHIPS ONLY",
@@ -1320,6 +1374,12 @@ class PigeonPokerApp(tk.Tk):
                 stretch=(column == "result"),
             )
         self.casino_history_tree.pack(fill="both", expand=True)
+        for item in self.casino_history[:100]:
+            self.casino_history_tree.insert(
+                "", "end", values=(item["time"], item["game"],
+                                   f"${item['wager']/100:,.2f}", item["result"],
+                                   f"${item['net']/100:+,.2f}"),
+            )
         if self.blackjack_state and self.blackjack_state.get("status") == "settled":
             self._casino_finish_blackjack()
         self._refresh_casino_display()
@@ -1574,6 +1634,58 @@ class PigeonPokerApp(tk.Tk):
                 fill="#b7d5c8", font=("Segoe UI", 9, "bold"),
             )
 
+
+
+    def _casino_draw_squeezed_card(self, canvas, x: float, y: float, card,
+                                   progress: float, width: int = 70, height: int = 100):
+        """Render a Baccarat card with a mandatory corner-peel squeeze reveal."""
+        amount = max(0.0, min(1.0, float(progress)))
+        self._casino_draw_card(canvas, x, y, card, face_up=True,
+                               width=width, height=height)
+        if amount >= 0.999:
+            return
+        reveal_w = width * amount
+        reveal_h = height * amount
+        # The blue back remains over the face except for a growing triangular
+        # window at the lower-right corner, mimicking a deliberate baccarat peel.
+        mask_points = (
+            x, y, x + width, y, x + width, y + height - reveal_h,
+            x + width - reveal_w, y + height, x, y + height,
+        )
+        canvas.create_polygon(
+            *mask_points, fill="#183457", outline="#e2c77c", width=2,
+        )
+        canvas.create_rectangle(
+            x + 6, y + 6, x + width - 6, y + height - 6,
+            outline="#a98d52", width=1,
+        )
+        for step in range(1, 4):
+            yy = y + 15 + step * 19
+            canvas.create_line(
+                x + 9, yy, x + width - 9, yy,
+                fill="#31577a", width=1,
+            )
+        # A small folded flap and bright crease give the peel a physical edge.
+        fold = min(width, height) * 0.18 * amount
+        if fold > 1:
+            canvas.create_polygon(
+                x + width - fold, y + height,
+                x + width, y + height - fold,
+                x + width, y + height,
+                fill="#41658c", outline="#e6d29d", width=1,
+            )
+        canvas.create_line(
+            x + width, y + height - reveal_h,
+            x + width - reveal_w, y + height,
+            fill="#f3e0ad", width=2,
+        )
+        if amount > 0.15:
+            canvas.create_text(
+                x + width - 12, y + height - 13,
+                text="SQUEEZE", anchor="se",
+                fill="#f2dfb2", font=("Segoe UI", 5, "bold"),
+            )
+
     def _casino_draw_baccarat_table(self):
         canvas = getattr(self, "baccarat_table_canvas", None)
         if canvas is None or not canvas.winfo_exists():
@@ -1584,33 +1696,52 @@ class PigeonPokerApp(tk.Tk):
         state = self.baccarat_state
         player_cards = list(state.get("player_cards", [])) if state else []
         banker_cards = list(state.get("banker_cards", [])) if state else []
-        player_visible = (
-            len(player_cards) if self.baccarat_visible_player_cards is None
-            else min(len(player_cards), max(0, int(self.baccarat_visible_player_cards)))
-        )
-        banker_visible = (
-            len(banker_cards) if self.baccarat_visible_banker_cards is None
-            else min(len(banker_cards), max(0, int(self.baccarat_visible_banker_cards)))
-        )
         player_center, banker_center = width * 0.29, width * 0.71
+        card_width, card_height, gap = 70, 100, 82
         canvas.create_text(player_center, 105, text="PLAYER", fill="#d8e9ff",
                            font=("Segoe UI", 12, "bold"))
         canvas.create_text(banker_center, 105, text="BANKER", fill="#ffd5d7",
                            font=("Segoe UI", 12, "bold"))
-        if player_cards:
-            self._casino_draw_card_row(
-                canvas, player_cards, player_visible, player_center, 124,
-            )
-        else:
-            self._casino_draw_card_row(canvas, [None, None], 2, player_center, 124)
-        if banker_cards:
-            self._casino_draw_card_row(
-                canvas, banker_cards, banker_visible, banker_center, 124,
-            )
-        else:
-            self._casino_draw_card_row(canvas, [None, None], 2, banker_center, 124)
-        player_total = str(state.get("player_total", "—")) if state else "—"
-        banker_total = str(state.get("banker_total", "—")) if state else "—"
+
+        for side, cards, center in (
+            ("player", player_cards, player_center),
+            ("banker", banker_cards, banker_center),
+        ):
+            display_cards = cards if cards else [None, None]
+            start_x = center - ((len(display_cards) - 1) * gap + card_width) / 2
+            for index, card in enumerate(display_cards):
+                card_x = start_x + index * gap
+                card_y = 124
+                if card is None:
+                    self._casino_draw_card(
+                        canvas, card_x, card_y, None, face_up=False,
+                        width=card_width, height=card_height,
+                    )
+                else:
+                    progress = float(
+                        getattr(self, "baccarat_card_reveal_progress", {}).get(
+                            (side, index), 0.0
+                        )
+                    )
+                    self._casino_draw_squeezed_card(
+                        canvas, card_x, card_y, card, progress,
+                        width=card_width, height=card_height,
+                    )
+
+        player_revealed = bool(player_cards) and all(
+            float(self.baccarat_card_reveal_progress.get(("player", index), 0.0)) >= 0.999
+            for index in range(len(player_cards))
+        )
+        banker_revealed = bool(banker_cards) and all(
+            float(self.baccarat_card_reveal_progress.get(("banker", index), 0.0)) >= 0.999
+            for index in range(len(banker_cards))
+        )
+        player_total = (
+            str(state.get("player_total", "—")) if state and player_revealed else "—"
+        )
+        banker_total = (
+            str(state.get("banker_total", "—")) if state and banker_revealed else "—"
+        )
         canvas.create_text(player_center, 240, text="TOTAL  " + player_total,
                            fill="#eff5ff", font=("Segoe UI", 11, "bold"))
         canvas.create_text(banker_center, 240, text="TOTAL  " + banker_total,
@@ -1618,7 +1749,16 @@ class PigeonPokerApp(tk.Tk):
         self._casino_draw_chip(canvas, width * 0.23, height - 61, "PLAYER", "#326fa8")
         self._casino_draw_chip(canvas, width * 0.50, height - 61, "BANKER", "#a8444b")
         self._casino_draw_chip(canvas, width * 0.77, height - 61, "TIE", "#25815c")
-        if state:
+        if self.baccarat_dealing:
+            active_progress = max(
+                self.baccarat_card_reveal_progress.values(), default=0.0
+            )
+            canvas.create_text(
+                width / 2, height - 27,
+                text=f"MANDATORY SQUEEZE  •  {int(active_progress * 100)}% REVEALED",
+                fill="#f5d987", font=("Segoe UI", 9, "bold"),
+            )
+        elif state:
             canvas.create_text(
                 width / 2, height - 27,
                 text=f"{state['result']}  •  YOUR BET: {state['bet_side'].upper()}",
@@ -1627,7 +1767,7 @@ class PigeonPokerApp(tk.Tk):
         else:
             canvas.create_text(
                 width / 2, height - 27,
-                text="PLACE A BET  •  PLAYER / BANKER / TIE",
+                text="SQUEEZE EVERY CARD  •  PLAYER / BANKER / TIE",
                 fill="#b7d5c8", font=("Segoe UI", 9, "bold"),
             )
 
@@ -1690,7 +1830,9 @@ class PigeonPokerApp(tk.Tk):
 
 
 
+
     def _casino_animate_baccarat_to_state(self):
+        """Reveal every Baccarat card with a deliberate corner-peel squeeze."""
         state = self.baccarat_state
         if not state:
             self.baccarat_dealing = False
@@ -1698,43 +1840,59 @@ class PigeonPokerApp(tk.Tk):
             return
         player_target = len(state.get("player_cards", []))
         banker_target = len(state.get("banker_cards", []))
-        player_now = int(self.baccarat_visible_player_cards or 0)
-        banker_now = int(self.baccarat_visible_banker_cards or 0)
-        steps = []
-        while player_now < player_target or banker_now < banker_target:
-            if player_now < player_target:
-                steps.append("player")
-                player_now += 1
-            if banker_now < banker_target:
-                steps.append("banker")
-                banker_now += 1
-        self.baccarat_dealing = bool(steps)
+        order = []
+        max_cards = max(player_target, banker_target)
+        for index in range(max_cards):
+            if index < player_target:
+                order.append(("player", index))
+            if index < banker_target:
+                order.append(("banker", index))
+        self.baccarat_card_reveal_progress = {
+            (side, index): 0.0 for side, cards in (
+                ("player", state.get("player_cards", [])),
+                ("banker", state.get("banker_cards", [])),
+            ) for index, _card in enumerate(cards)
+        }
+        self.baccarat_dealing = bool(order)
         token = int(getattr(self, "_baccarat_animation_id", 0)) + 1
         self._baccarat_animation_id = token
-        if not steps:
+        if not order:
+            self.baccarat_dealing = False
             self._refresh_casino_display()
             return
 
-        def advance(index: int):
+        frames = 10
+        frame_delay_ms = 42
+
+        def reveal_card(order_index: int):
             if token != self._baccarat_animation_id:
                 return
-            if index >= len(steps):
+            if order_index >= len(order):
+                for key in list(self.baccarat_card_reveal_progress):
+                    self.baccarat_card_reveal_progress[key] = 1.0
                 self.baccarat_dealing = False
                 self._refresh_casino_display()
                 return
-            if steps[index] == "player":
-                self.baccarat_visible_player_cards = min(
-                    player_target, int(self.baccarat_visible_player_cards or 0) + 1
-                )
-            else:
-                self.baccarat_visible_banker_cards = min(
-                    banker_target, int(self.baccarat_visible_banker_cards or 0) + 1
-                )
-            self._casino_draw_baccarat_table()
-            self.after(185, lambda: advance(index + 1))
+            side, card_index = order[order_index]
 
-        self._casino_draw_baccarat_table()
-        self.after(150, lambda: advance(0))
+            def squeeze_frame(frame: int):
+                if token != self._baccarat_animation_id:
+                    return
+                progress = min(1.0, max(0.0, frame / frames))
+                self.baccarat_card_reveal_progress[(side, card_index)] = progress
+                self._casino_draw_baccarat_table()
+                if frame < frames:
+                    self.after(
+                        frame_delay_ms,
+                        lambda next_frame=frame + 1: squeeze_frame(next_frame),
+                    )
+                else:
+                    self.after(110, lambda: reveal_card(order_index + 1))
+
+            squeeze_frame(0)
+
+        self._refresh_casino_display()
+        reveal_card(0)
 
     def _casino_debit_wager(self, amount_cents: int, note: str) -> bool:
         self._sync_external_wallet_balance()
@@ -1896,6 +2054,7 @@ class PigeonPokerApp(tk.Tk):
             return
         self.baccarat_visible_player_cards = 0
         self.baccarat_visible_banker_cards = 0
+        self.baccarat_card_reveal_progress = {}
         state = self.baccarat_state
         payout = int(state["payout_cents"])
         result = str(state["result"])
@@ -8369,11 +8528,11 @@ class PigeonPokerApp(tk.Tk):
         hero_index = next((i for i, player in enumerate(hand.players) if player.player_id == "hero"), 3)
         # Offset 0 is hero at bottom-centre; other seats progress clockwise around the oval.
         relative_positions = [
-            (w*.50, h*.84), (w*.205, h*.69), (w*.205, h*.29),
-            (w*.50, h*.125), (w*.795, h*.29), (w*.795, h*.69),
+            (w*.50, h*.75), (w*.205, h*.68), (w*.205, h*.32),
+            (w*.50, h*.25), (w*.795, h*.32), (w*.795, h*.68),
         ]
         if len(hand.players) == 2:
-            relative_positions = [(w*.50, h*.83), (w*.50, h*.15)]
+            relative_positions = [(w*.50, h*.75), (w*.50, h*.25)]
         positions = [relative_positions[(i-hero_index) % len(hand.players)] for i in range(len(hand.players))]
 
         # Board and pot occupy the middle, as on the reference client.
@@ -8550,8 +8709,8 @@ class PigeonPokerApp(tk.Tk):
             # badges from being hidden behind card corners.
             panel_x = x
             panel_y = y
-            box_top = panel_y - 32
-            box_bottom = panel_y + 32
+            box_top = panel_y - 41
+            box_bottom = panel_y + 43
             fill = "#1d493d" if is_hero else ("#1d3b5b" if player.hole_cards and not player.folded else "#101a28")
             if is_actor and not is_hero:
                 fill = "#254b59"
@@ -8621,33 +8780,36 @@ class PigeonPokerApp(tk.Tk):
                                font=("Segoe UI Symbol", 13, "bold"),
                                tags=("seat_avatar", seat_tag))
             text_left = panel_x-width/2+39
-            canvas.create_text(text_left, panel_y-19, text=card_label, anchor="w", fill="white",
+            canvas.create_text(text_left, panel_y-27, text=card_label, anchor="w", fill="white",
                                font=("Segoe UI", 9, "bold"), tags=("seat", seat_tag))
             if not is_hero and is_vip_mode(special_state.get("cash_game_mode", self.cash_game_mode)):
                 table_vip_roles = special_state.get("vip_cpu_roles", self.vip_cpu_roles)
                 vip_role_text = vip_cpu_role_label(table_vip_roles.get(player.player_id))
                 if vip_role_text:
-                    canvas.create_text(text_left, panel_y-5, text=vip_role_text, anchor="w",
+                    canvas.create_text(text_left, panel_y-12, text=vip_role_text, anchor="w",
                                        fill="#f0d18a" if vip_role_text.startswith("PURE") else "#b8c8e5",
                                        font=("Segoe UI", 6, "bold"), tags=("seat", seat_tag))
-            stack_tags = ("seat", seat_tag, "hero_stack_toggle") if is_hero else ("seat", seat_tag)
             stack_label = self._format_table_chips(player.stack, table.big_blind)
-            stack_text_id = canvas.create_text(
+            # The stack amount itself is the control on every seat. Keep its
+            # click tag before the seat tag so CPU-profile click handlers do
+            # not also fire when the player is trying to change units.
+            stack_tags = ("table_stack_toggle", "seat", seat_tag)
+            canvas.create_text(
                 text_left, panel_y+5, text=stack_label, anchor="w",
                 fill="#fff0ba" if is_hero else "#cbd8e6",
                 font=("Segoe UI", 8, "bold" if is_hero else "normal"), tags=stack_tags)
-            canvas.create_text(panel_x+width/2-7, panel_y+5, text=state, anchor="e",
+            canvas.create_text(
+                panel_x+width/2-16, panel_y+5, text="↔", anchor="e",
+                fill="#d4b875", font=("Segoe UI", 8, "bold"),
+                tags=("table_stack_toggle", "seat", seat_tag))
+            canvas.create_text(panel_x+width/2-7, panel_y+25, text=state, anchor="e",
                                fill="#cbd8e6", font=("Segoe UI", 7, "bold"), tags=("seat", seat_tag))
-            if is_hero:
-                canvas.create_text(panel_x-width/2+82, panel_y+5, text="↔", anchor="w",
-                                   fill="#d4b875", font=("Segoe UI", 7, "bold"),
-                                   tags=("seat", seat_tag, "hero_stack_toggle"))
-                canvas.tag_bind("hero_stack_toggle", "<Enter>",
-                                lambda _event, c=canvas: c.configure(cursor="hand2"))
-                canvas.tag_bind("hero_stack_toggle", "<Leave>",
-                                lambda _event, c=canvas: c.configure(cursor="arrow"))
-                canvas.tag_bind("hero_stack_toggle", "<Button-1>",
-                                lambda _event, tid=self.active_cash_table_id: self._toggle_table_chip_unit(tid))
+            canvas.tag_bind("table_stack_toggle", "<Enter>",
+                            lambda _event, c=canvas: c.configure(cursor="hand2"))
+            canvas.tag_bind("table_stack_toggle", "<Leave>",
+                            lambda _event, c=canvas: c.configure(cursor="arrow"))
+            canvas.tag_bind("table_stack_toggle", "<Button-1>",
+                            lambda _event, tid=table_id: self._toggle_table_chip_unit(tid))
             if not is_hero and player.player_id.startswith("cpu"):
                 profile = profiles.get(player.player_id)
                 if profile is not None:
@@ -8656,7 +8818,7 @@ class PigeonPokerApp(tk.Tk):
                            "hands": profile.hands}
                     hud_text = format_hud_line(hud, self.hud_fields)
                     if hud_text:
-                        canvas.create_text(text_left, panel_y+22, text=hud_text, anchor="w",
+                        canvas.create_text(text_left, panel_y+39, text=hud_text, anchor="w",
                                            fill="#96b8ca", font=("Segoe UI", 7), tags=("seat_hud", seat_tag))
                 canvas.tag_bind(seat_tag, "<Button-1>",
                                 lambda _event, cpu_id=player.player_id: self._show_cpu_profile_popup(cpu_id))
