@@ -108,7 +108,7 @@ def test_baccarat_natural_nine_wins_and_banker_gets_commission() -> None:
         ),
     )
     assert state["winner"] == "banker"
-    assert state["banker_total"] == 8
+    assert state["banker_total"] == 9
     assert state["payout_cents"] == 1950
 
 
