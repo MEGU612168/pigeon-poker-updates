@@ -496,7 +496,7 @@ def _filter_first_in_distribution(
     actual_history: list[dict[str, Any]],
     distribution: dict[tuple[str, float | None], float],
 ) -> dict[tuple[str, float | None], float]:
-    """Enforce the source-backed first-in invariants on inferred nodes too.
+    """Enforce the source-backed first-in invariants on measured chart nodes.
 
     UTG/HJ/CO/BTN have no open-limp branch in the 174 source charts. First-in
     opens are small raises, not oversized 20+ BB raises. SB completion remains
@@ -524,7 +524,7 @@ def _select_live_scenario(
     actor_position: str,
     actual_history: list[dict[str, Any]],
     rng: Any,
-) -> tuple[dict[str, Any], bool, float]:
+) -> tuple[dict[str, Any] | None, bool, float]:
     """Use the exact same source node as the paid range viewer when possible."""
     try:
         if str(getattr(hand, "next_to_act", "") or "") == str(player_id):
@@ -563,7 +563,7 @@ def _safe_legal_fallback(
     scenario_inferred: bool = False,
     distance: float = 0.0,
 ) -> SimpleNamespace:
-    """Take a legal safety action without losing the selected 174 source ID."""
+    """Take a legal safety action without inventing a missing 174 source ID."""
     available = _legal_actions(legal)
     to_call = max(0, int(legal.get("to_call", 0) or 0))
     if "check" in available and to_call == 0:
@@ -620,8 +620,9 @@ def choose_preflop_174_action(
 ) -> SimpleNamespace:
     """Select a legal preflop action from exact 174 source scenarios.
 
-    Every CPU uses this same chart-derived preflop policy. CPU level/archetype is not
-    consulted. Postflop behaviour remains in poker_reasoning.py and is not changed here.
+    Every CPU uses the same measured chart frequencies for exact 174 histories.
+    Unmatched histories and unmeasured hand cells are routed away from fabricated
+    chart data. Postflop behaviour remains in poker_reasoning.py.
     """
     legal = hand.legal_actions(player_id)
     if not legal.get("actions"):
