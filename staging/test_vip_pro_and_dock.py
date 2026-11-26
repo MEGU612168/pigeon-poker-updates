@@ -64,7 +64,8 @@ def test_vip_pro_and_top_pro_use_separate_simulation_budgets() -> None:
     assert 'self.vip_cpu_roles.get(profile.cpu_id) == VIP_TOP_PRO_ROLE' in join
     assert "vip_cpu._vip_top_pro_mode" in join
     assert "vip_cpu._vip_pro_mode = True" in join
-    assert '"aggressive"' in join
+    assert '"balanced" if is_vip_mode(table_mode) else profile.archetype' in join
+    assert '"aggressive"' not in join
     assert "fixed 174-scenario preflop chart" in join
     assert "Local strategy, not solver-exact GTO" in join
     assert "VIP_PRO_BASE_SAMPLES = 1024" in REASONING_TEXT
