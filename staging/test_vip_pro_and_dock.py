@@ -24,11 +24,11 @@ def source_of(name: str) -> str:
 def test_empty_bet_and_174_range_rows_are_removed_from_action_dock() -> None:
     create = source_of("_create_table_window")
     refresh = source_of("_refresh_table_windows")
-    assert 'size_actions.configure(height=28 if vip_mode else 34)' in create
-    assert 'situation_actions.configure(height=18 if vip_mode else 24)' in create
+    assert 'size_actions.configure(height=28 if vip_mode else 30)' in create
+    assert 'situation_actions.configure(height=18 if vip_mode else 20)' in create
     assert 'vip_dock = is_vip_mode(state.get("cash_game_mode", RUSH_MODE))' in refresh
-    assert '("size_actions", "situation_actions", 28 if vip_dock else 34)' in refresh
-    assert '("situation_actions", "utility_actions", 18 if vip_dock else 24)' in refresh
+    assert '("size_actions", "situation_actions", 28 if vip_dock else 30)' in refresh
+    assert '("situation_actions", "utility_actions", 18 if vip_dock else 20)' in refresh
     assert '0 if vip_dock else 1' in refresh
     assert "dock_row.winfo_children()" in refresh
     assert "dock_row.pack_forget()" in refresh
