@@ -1685,8 +1685,10 @@ class PigeonPokerApp(tk.Tk):
             self._casino_draw_blackjack_table()
             self.after(165, lambda: advance(index + 1))
 
-        self._casino_draw_blackjack_table()
+        self._refresh_casino_display()
         self.after(140, lambda: advance(0))
+
+
 
     def _casino_animate_baccarat_to_state(self):
         state = self.baccarat_state
