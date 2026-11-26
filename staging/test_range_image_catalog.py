@@ -108,6 +108,29 @@ def test_all_unambiguous_fully_sized_histories_resolve_to_their_source_id():
             assert result is None
 
 
+def test_live_resolution_does_not_depend_on_the_legacy_bitmap_catalogue():
+    import pigeon_poker.range_image_catalog as legacy_images
+    from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand
+
+    scenario = next(
+        item for item in _scenarios()
+        if not any(action.get("action") == "raise" and action.get("size_bb") is None
+                   for action in item.get("history", []))
+    )
+    table, hand, actor_id = _live_fixture_for_scenario(scenario)
+    original_loader = legacy_images._load_catalog
+    legacy_images._load_catalog = lambda: (_ for _ in ()).throw(
+        AssertionError("The live range resolver must not load bitmap assets")
+    )
+    try:
+        chart = resolve_range_image_for_hand(table, hand, actor_id)
+        assert chart is not None
+        assert int(chart["source_id"]) == int(scenario["id"])
+    finally:
+        legacy_images._load_catalog = original_loader
+
+
+
 def run_tests():
     tests = [
         test_catalog_still_contains_exactly_174_source_scenarios,
@@ -120,7 +143,7 @@ def run_tests():
         test_all_unambiguous_fully_sized_histories_resolve_to_their_source_id,
         test_all_174_live_histories_resolve_to_their_own_paid_image,
         test_live_range_signature_invalidates_when_eligibility_or_history_changes,
-        test_ambiguous_live_nodes_use_action_menu_and_all_in_state,
+        test_ambiguous_live_nodes_use_action_menu_and_all_in_state,\n        test_live_resolution_does_not_depend_on_the_legacy_bitmap_catalogue,
     ]
     for test in tests:
         test()
@@ -201,7 +224,7 @@ def _live_fixture_for_scenario(scenario: dict):
 
 
 def test_all_174_live_histories_resolve_to_their_own_paid_image():
-    from pigeon_poker.range_image_catalog import resolve_range_image_for_hand, range_image_png
+    from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand
 
     failures = []
     for scenario in _scenarios():
@@ -209,9 +232,12 @@ def test_all_174_live_histories_resolve_to_their_own_paid_image():
         chart = resolve_range_image_for_hand(table, hand, actor_id)
         expected_id = int(scenario["id"])
         actual_id = int(chart["source_id"]) if chart else None
-        expected_image = range_image_png(expected_id)
-        actual_image = range_image_png(actual_id) if actual_id is not None else None
-        if actual_image != expected_image:
+        expected_model = build_range_chart_model(expected_id)
+        actual_model = build_range_chart_model(actual_id) if actual_id is not None else None
+        if actual_model is not None:
+            expected_model = {key: value for key, value in expected_model.items() if key != "source_id"}
+            actual_model = {key: value for key, value in actual_model.items() if key != "source_id"}
+        if actual_model != expected_model:
             history = _history(scenario)
             candidates = [
                 item for item in _scenarios()
@@ -233,7 +259,7 @@ def test_all_174_live_histories_resolve_to_their_own_paid_image():
                     },
                     "overall": item.get("overall"),
                     "matrix_sha256": hashlib.sha256(matrix.encode("utf-8")).hexdigest(),
-                    "image_sha256": hashlib.sha256(range_image_png(int(item["id"]))).hexdigest(),
+                    "strategy_sha256": hashlib.sha256(json.dumps(item.get("hands", []), sort_keys=True).encode("utf-8")).hexdigest(),
                 })
             failures.append({
                 "expected_id": expected_id,
@@ -279,7 +305,7 @@ def test_live_range_signature_invalidates_when_eligibility_or_history_changes():
 
 
 def test_ambiguous_live_nodes_use_action_menu_and_all_in_state():
-    from pigeon_poker.range_image_catalog import resolve_range_image_for_hand, range_image_png
+    from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand\n    from pigeon_poker.range_chart_canvas import build_range_chart_model
 
     by_id = {int(item["id"]): item for item in _scenarios()}
     for source_id in (244, 245, 252, 253, 266, 267):
@@ -287,7 +313,7 @@ def test_ambiguous_live_nodes_use_action_menu_and_all_in_state():
         table, hand, actor_id = _live_fixture_for_scenario(scenario)
         chart = resolve_range_image_for_hand(table, hand, actor_id)
         assert chart is not None, f"Ambiguous source #{source_id} remained unavailable"
-        assert range_image_png(int(chart["source_id"])) == range_image_png(source_id)
+        actual_model = build_range_chart_model(int(chart["source_id"]))\n        expected_model = build_range_chart_model(source_id)\n        assert {k: v for k, v in actual_model.items() if k != "source_id"} == {k: v for k, v in expected_model.items() if k != "source_id"}
 
 
 def test_complete_174_situation_and_source_image_inventory():
