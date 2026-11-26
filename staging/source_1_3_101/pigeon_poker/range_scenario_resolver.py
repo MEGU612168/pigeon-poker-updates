@@ -189,6 +189,131 @@ def _history_matches_when_live_raise_size_is_missing(
     return missing_live_raise_size
 
 
+def _candidate_preflop_state_metrics(
+    scenario: dict[str, Any],
+    actual_history: list[dict[str, Any]],
+    actor_position: str,
+    bb: int,
+) -> tuple[float | None, float | None]:
+    """Rebuild source pot/to-call from forced blinds and the ordered actions.
+
+    Raise sizes in the source are total raise-to targets. Prior all-ins without
+    a source size can use a live all-in amount when the runtime provides one.
+    A metric is omitted whenever the required contribution cannot be rebuilt.
+    """
+    source_history = list(scenario.get("history", []) or [])
+    if len(source_history) != len(actual_history):
+        return None, None
+    committed = {"SB": 0.5, "BB": 1.0}
+    current_bet = 1.0
+    complete = True
+    for expected, actual in zip(source_history, actual_history):
+        position = str(expected.get("position", "")).upper()
+        action = _normalise_action(expected.get("action"))
+        if position not in {"UTG", "HJ", "CO", "BTN", "SB", "BB"}:
+            complete = False
+            break
+        if action in {"fold", "check"}:
+            continue
+        if action == "call":
+            committed[position] = max(committed.get(position, 0.0), current_bet)
+            continue
+        if action == "raise":
+            size = expected.get("size_bb")
+            if size is None:
+                size = actual.get("size_bb")
+            try:
+                target = float(size)
+            except (TypeError, ValueError, OverflowError):
+                complete = False
+                break
+            if not math.isfinite(target) or target < current_bet - 0.05:
+                complete = False
+                break
+            committed[position] = max(committed.get(position, 0.0), target)
+            current_bet = max(current_bet, target)
+            continue
+        if action == "allin":
+            size = expected.get("size_bb")
+            if size is None:
+                size = actual.get("size_bb")
+            try:
+                target = float(size)
+            except (TypeError, ValueError, OverflowError):
+                complete = False
+                break
+            if not math.isfinite(target) or target < committed.get(position, 0.0):
+                complete = False
+                break
+            committed[position] = max(committed.get(position, 0.0), target)
+            current_bet = max(current_bet, target)
+            continue
+        complete = False
+        break
+    if not complete:
+        return None, None
+    pot_bb = sum(committed.values())
+    to_call_bb = max(0.0, current_bet - committed.get(str(actor_position).upper(), 0.0))
+    return pot_bb, to_call_bb
+
+
+def _disambiguate_with_live_preflop_state(
+    candidates: list[dict[str, Any]],
+    hand: Any,
+    player_id: str,
+    actor_position: str,
+    actual_history: list[dict[str, Any]],
+    bb: int,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Use live pot and to-call only when they uniquely support source nodes."""
+    if len(candidates) <= 1:
+        return candidates, None
+
+    metrics = {
+        int(scenario["id"]): _candidate_preflop_state_metrics(
+            scenario, actual_history, actor_position, bb
+        )
+        for scenario in candidates
+    }
+
+    try:
+        legal = hand.legal_actions(player_id)
+        raw_to_call = legal.get("to_call") if isinstance(legal, dict) else None
+        observed_to_call = float(raw_to_call) / max(1, bb) if raw_to_call is not None else None
+    except (TypeError, ValueError, OverflowError, AttributeError):
+        observed_to_call = None
+
+    try:
+        raw_pot = getattr(hand, "pot", None)
+        observed_pot = float(raw_pot) / max(1, bb) if raw_pot is not None else None
+    except (TypeError, ValueError, OverflowError):
+        observed_pot = None
+
+    # Filter first by to-call. A mismatch is ignored when no candidate supports
+    # it (for example, because the live engine includes an unmodelled ante).
+    if observed_to_call is not None and math.isfinite(observed_to_call):
+        matched = [
+            scenario for scenario in candidates
+            if metrics[int(scenario["id"])][1] is not None
+            and abs(float(metrics[int(scenario["id"])][1]) - observed_to_call) <= 0.08
+        ]
+        if matched and len(matched) < len(candidates):
+            candidates = matched
+
+    if len(candidates) > 1 and observed_pot is not None and math.isfinite(observed_pot):
+        matched = [
+            scenario for scenario in candidates
+            if metrics[int(scenario["id"])][0] is not None
+            and abs(float(metrics[int(scenario["id"])][0]) - observed_pot) <= 0.08
+        ]
+        if matched and len(matched) < len(candidates):
+            candidates = matched
+
+    if len(candidates) == 1:
+        return candidates, "exact-live-pot-and-call-state"
+    return candidates, None
+
+
 def resolve_range_image_for_hand(table: Any, hand: Any, player_id: str) -> dict[str, Any] | None:
     """Resolve a 174-source node from the live action history and legal state."""
     actor_position, positions, candidates = exact_preflop_174_source_candidates(
@@ -279,6 +404,19 @@ def resolve_range_image_for_hand(table: Any, hand: Any, player_id: str) -> dict[
             candidates = compatible
             if len(candidates) == 1:
                 match_mode = resolved_mode("live-state")
+
+    if len(candidates) > 1:
+        bb = 100
+        try:
+            bb = int(getattr(hand, "big_blind", 100) or 100)
+        except (TypeError, ValueError, OverflowError):
+            bb = 100
+        candidates, live_state_mode = _disambiguate_with_live_preflop_state(
+            candidates, hand, player_id, str(actor_position or ""),
+            _actual_history(table, hand, player_id, positions), max(1, bb),
+        )
+        if live_state_mode:
+            match_mode = resolved_mode("live-pot-and-call-state")
 
     if len(candidates) > 1:
         signatures = {_scenario_signature(scenario) for scenario in candidates}
