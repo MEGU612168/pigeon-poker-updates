@@ -1501,9 +1501,12 @@ class PigeonPokerApp(tk.Tk):
                 f"VIP LINEUP: {VIP_PRO_COUNT} PRO + {VIP_TOP_PRO_COUNT} TOP PRO. No numbered aliases or weaker CPU tier."
             )
             self.cash_log_lines.append(
-                f"CPU policy: fixed 174-scenario preflop chart; PRO {VIP_PRO_SIMULATIONS:,} "
-                f"and TOP PRO {VIP_TOP_PRO_SIMULATIONS:,} postflop samples. "
-                f"TOP PRO uses stronger pressure-oriented EV selection. Local strategy, not solver-exact GTO."
+                "CPU policy: exact-history 174-source preflop chart where the full action history "
+                "and measured hand cell match; unsupported histories/cells use a separately labelled "
+                "range-aware fallback. "
+                f"PRO {VIP_PRO_SIMULATIONS:,} / TOP PRO {VIP_TOP_PRO_SIMULATIONS:,} base Monte Carlo "
+                "trials per full equity pass. Both use balanced EV reasoning; TOP PRO has deeper "
+                "sampling, not a separate solver-exact strategy."
             )
             self.cash_log_lines.append(
                 "VIP AUTO-REBUY: any seat below 80 BB is topped up to 100 BB before the next hand; "
