@@ -126,6 +126,23 @@ def test_emit_full_three_bet_four_bet_source_inventory():
         )
 
 
+def test_facing_3bet_and_4bet_ranges_have_complete_169_cell_matrices():
+    from pigeon_poker.preflop_174_policy import preflop_174_pressure_coverage_summary
+
+    summary = preflop_174_pressure_coverage_summary()
+    print("FACING 3-BET / 4-BET 169-CELL COVERAGE:", summary)
+    assert summary["facing_3bet"]["scenario_count"] > 0
+    assert summary["facing_4bet"]["scenario_count"] > 0
+    assert not summary["facing_3bet"]["incomplete_scenarios"], (
+        "Facing-3-bet range charts are missing measured 169-cell data: "
+        + repr(summary["facing_3bet"]["incomplete_scenarios"])
+    )
+    assert not summary["facing_4bet"]["incomplete_scenarios"], (
+        "Facing-4-bet range charts are missing measured 169-cell data: "
+        + repr(summary["facing_4bet"]["incomplete_scenarios"])
+    )
+
+
 def test_source_action_frequencies_and_separate_sizes():
     for scenario in _scenarios():
         for row in scenario["hands"]:
@@ -361,6 +378,7 @@ if __name__ == "__main__":
     tests = [
         test_all_174_scenarios_and_169_hand_classes_are_loaded,
         test_emit_full_three_bet_four_bet_source_inventory,
+        test_facing_3bet_and_4bet_ranges_have_complete_169_cell_matrices,
         test_source_action_frequencies_and_separate_sizes,
         test_bb_vs_btn_open_matches_source_146_and_uses_13bb,
         test_same_actor_multiple_actions_are_preserved,
