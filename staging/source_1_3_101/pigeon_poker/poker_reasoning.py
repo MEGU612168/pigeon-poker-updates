@@ -3607,7 +3607,7 @@ def _choose_range_aware_action_impl(
         f"blockers value/bluff/draw={blocker_metrics['value_call_combos_blocked']:.1%}/"
         f"{blocker_metrics['bluff_call_combos_blocked']:.1%}/"
         f"{blocker_metrics['draw_call_combos_blocked']:.1%}; "
-        f"ranges {len(ranges)}; total sampled trials {samples + made_samples + response_samples}; uncertainty {uncertainty:.2f}; "
+        f"ranges {len(ranges)}; total samples {samples + made_samples + response_samples}; uncertainty {uncertainty:.2f}; "
         f"policy penalty {guardrail_penalty}; EV≈{best_ev:.1f}; "
         f"current-made-equity={current_made_equity:.1%}; "
         f"equity-realization={equity_realization:.3f}; "
