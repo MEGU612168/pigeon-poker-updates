@@ -72,6 +72,7 @@ def test_all_174_scenarios_and_169_hand_classes_are_loaded():
         "source entries=", summary["scenario_count"],
         "unique ordered histories=", summary["unique_action_history_count"],
         "duplicate groups=", summary["duplicate_action_history_groups"],
+        "duplicate context metadata=", summary["duplicate_history_details"],
         "ambiguous duplicate matrices=", summary["ambiguous_duplicate_history_groups"],
         "unique full matrices=", summary["unique_169_cell_strategy_matrix_count"],
     )
