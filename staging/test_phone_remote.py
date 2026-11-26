@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import json
 import threading
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent / "source_1_3_101"))
 import urllib.error
 import urllib.request
 
-from source_1_3_101.pigeon_poker.phone_remote import (
+from pigeon_poker.phone_remote import (
     PHONE_HTML,
     PhoneRemoteServer,
     build_phone_snapshot,
@@ -136,12 +140,25 @@ def test_phone_remote_page_contains_mobile_controls_and_no_external_assets() -> 
     assert "localStorage" not in PHONE_HTML
 
 
+def test_desktop_app_wires_remote_actions_through_the_tk_queue() -> None:
+    source = (Path(__file__).parent / "source_1_3_101" / "PigeonPoker.pyw").read_text(encoding="utf-8")
+    assert "from pigeon_poker.phone_remote import PhoneRemoteServer" in source
+    assert "self.phone_remote_actions: queue.Queue" in source
+    assert "def _phone_remote_tick(self):" in source
+    assert "def _process_phone_remote_action(self, request:" in source
+    assert "self._phone_remote_after_id = self.after(300, self._phone_remote_tick)" in source
+    assert "self._floating_table_action(table_id, action, amount)" in source
+    assert "self.phone_remote.stop()" in source
+    assert "choose_preflop_174_action" in source
+
+
 def run_tests() -> None:
     tests = [
         test_phone_snapshot_never_exposes_opponent_hole_cards,
         test_phone_remote_requires_pairing_and_accepts_authenticated_actions,
         test_phone_remote_rejects_invalid_commands_and_bet_amounts,
         test_phone_remote_page_contains_mobile_controls_and_no_external_assets,
+        test_desktop_app_wires_remote_actions_through_the_tk_queue,
     ]
     for test in tests:
         test()
