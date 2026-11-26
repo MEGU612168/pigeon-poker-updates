@@ -67,6 +67,14 @@ def test_all_174_scenarios_and_169_hand_classes_are_loaded():
     assert summary["scenario_count"] == 174
     assert summary["hand_classes_per_scenario"] == 169
     assert summary["scenario_ids"] == list(range(128, 302))
+    print(
+        "174-CATALOG AUDIT:",
+        "source entries=", summary["scenario_count"],
+        "unique ordered histories=", summary["unique_action_history_count"],
+        "duplicate groups=", summary["duplicate_action_history_groups"],
+        "ambiguous duplicate matrices=", summary["ambiguous_duplicate_history_groups"],
+        "unique full matrices=", summary["unique_169_cell_strategy_matrix_count"],
+    )
     assert 0 < summary["unique_action_history_count"] <= 174
     assert "duplicate_action_history_groups" in summary
     assert "unique_169_cell_strategy_matrix_count" in summary
