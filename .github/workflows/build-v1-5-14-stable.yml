@@ -1,0 +1,430 @@
+name: Build verified Pigeon Poker v1.5.14 stable update
+
+on:
+  push:
+    paths:
+      - "releases/v1.5.14/payload.ready"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify-native-windows-tk-render:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Render all 174 range charts with native Windows Tk Canvas
+        shell: pwsh
+        run: |
+          python -m py_compile staging/source_1_3_101/pigeon_poker/range_chart_canvas.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/range_scenario_resolver.py
+          python staging/test_range_chart_canvas_windows.py
+
+  build-and-publish:
+    needs: verify-native-windows-tk-render
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify desktop features and legacy preflop retirement
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import hashlib
+          import pathlib
+
+          source = pathlib.Path("staging/source_1_3_101/pigeon_poker")
+          asset = (source / "range_tables_v2.bin").read_bytes()
+          digest = hashlib.sha256(asset).hexdigest()
+          if len(asset) != 848418 or digest != "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715":
+              raise SystemExit("The original 174-range bitmap failed its independent size/hash check.")
+          encoded = base64.b64encode(asset).decode("ascii")
+          module = (
+              "# Generated from range_tables_v2.bin. Kept as .py so the original 1.5.0 updater can accept it.\n"
+              "RANGE_TABLES_V2_B64 = (\n"
+              + "".join("    " + repr(encoded[i:i + 100]) + "\n" for i in range(0, len(encoded), 100))
+              + ")\n"
+          )
+          (source / "range_tables_v2_asset.py").write_text(module, encoding="utf-8")
+          print(f"Generated legacy-compatible image carrier: {len(asset)} bytes, SHA-256 {digest}")
+          PY
+          python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
+          python -m py_compile staging/source_1_3_101/pigeon_poker/range_image_catalog.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/range_chart_canvas.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/range_scenario_resolver.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/range_tables_v2_asset.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_cleanup.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_174_policy.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/poker_reasoning.py
+          python -m py_compile staging/source_1_3_101/pigeon_updater.py
+          python staging/test_pokercraft_features.py
+          python staging/test_allin_runout_presentation.py
+          python staging/test_postflop_controls.py
+          python staging/test_poker_reasoning.py
+          python staging/test_cpu_learning.py
+          python staging/test_preflop_legacy_cleanup.py
+          python staging/test_preflop_policy_removed.py
+          python staging/test_preflop_174_policy.py
+          python staging/test_preflop_size_controls.py
+          python staging/test_range_image_asset_packaging.py
+          python staging/test_real_range_bitmap_asset.py
+          python staging/test_range_chart_canvas.py
+          python staging/test_range_image_catalog.py
+
+      - name: Assemble and validate the full update package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast
+          import base64
+          import hashlib
+          import importlib.util
+          import io
+          import json
+          import pathlib
+          import tempfile
+          import zipfile
+          from datetime import datetime, timezone
+
+          root = pathlib.Path(".")
+          release_dir = root / "releases" / "v1.5.14"
+          meta_path = release_dir / "release.json"
+          source_dir = root / "staging" / "source_1_3_101"
+          if not meta_path.is_file():
+              raise SystemExit("Missing v1.5.14 release.json")
+          meta = json.loads(meta_path.read_text(encoding="utf-8"))
+          if meta.get("schema_version") != 1 or meta.get("product") != "pigeon-poker" or meta.get("channel") != "stable":
+              raise SystemExit("Invalid release metadata")
+          stable_manifest_path = root / "stable.json"
+          if stable_manifest_path.is_file():
+              stable_manifest = json.loads(stable_manifest_path.read_text(encoding="utf-8"))
+              if bool(stable_manifest.get("updates_paused", False)) and meta.get("preflop_174_policy_verified") is not True:
+                  raise SystemExit("Stable distribution is paused and this release has not passed the 174-scenario verification gate.")
+          if str(meta.get("distribution_status", "")).lower() == "withdrawn":
+              raise SystemExit("This release is withdrawn and must not be distributed.")
+          if meta.get("preflop_174_policy_verified") is not True:
+              raise SystemExit("The complete 174-scenario preflop policy has not been verified; stable publication is blocked.")
+          expected_duplicate_groups = [[195, 204], [196, 205], [238, 243]]
+          if meta.get("unique_semantic_situations_expected") != 171:
+              raise SystemExit("The audited 174-entry dataset must report 171 unique semantic situations.")
+          if meta.get("duplicate_semantic_scenario_groups") != expected_duplicate_groups:
+              raise SystemExit("The known exact duplicate scenario groups do not match the audited source.")
+          version = str(meta.get("version", "")).strip()
+          if version != "1.5.14" or release_dir.name != "v" + version:
+              raise SystemExit("Unexpected release version")
+          if not source_dir.is_dir():
+              raise SystemExit("Verified staging source directory is missing")
+
+          files = {
+              "PigeonPoker.pyw": source_dir / "PigeonPoker.pyw",
+              "pigeon_updater.py": source_dir / "pigeon_updater.py",
+          }
+          for package in ("pigeon_poker", "pigeon_gto_plus"):
+              package_dir = source_dir / package
+              if not package_dir.is_dir():
+                  raise SystemExit("Missing application module directory: " + package)
+              for path in sorted(package_dir.rglob("*.py")):
+                  if path.is_file() and "__pycache__" not in path.parts and not any(part.startswith(".") for part in path.parts):
+                      files[(pathlib.Path(package) / path.relative_to(package_dir)).as_posix()] = path
+          image_asset_path = source_dir / "pigeon_poker" / "range_tables_v2.bin"
+          if not image_asset_path.is_file():
+              raise SystemExit("The original 174 range bitmap is missing from the staged app source.")
+          image_asset = image_asset_path.read_bytes()
+          image_asset_sha256 = hashlib.sha256(image_asset).hexdigest()
+          if len(image_asset) != 848418 or image_asset_sha256 != "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715":
+              raise SystemExit("The 174 range bitmap failed its source size or SHA-256 check.")
+          asset_module_path = source_dir / "pigeon_poker" / "range_tables_v2_asset.py"
+          if not asset_module_path.is_file():
+              raise SystemExit("The legacy-compatible 174-range Python asset carrier is missing.")
+          files["pigeon_poker/range_tables_v2_asset.py"] = asset_module_path
+          required = {"PigeonPoker.pyw", "pigeon_updater.py", "pigeon_poker/range_tables_v2_asset.py"}
+          if not required.issubset(files):
+              raise SystemExit("Application root source files are incomplete")
+
+          buffer = io.BytesIO()
+          with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+              archive.writestr("VERSION.txt", version + "\n")
+              for name, path in files.items():
+                  data = path.read_bytes()
+                  if not data:
+                      raise SystemExit("Empty source file: " + name)
+                  if pathlib.PurePosixPath(name).suffix.lower() in {".py", ".pyw"}:
+                      ast.parse(data.decode("utf-8"), filename=name)
+                  archive.writestr(name, data)
+
+          payload = buffer.getvalue()
+          if not payload or len(payload) > 18 * 1024 * 1024:
+              raise SystemExit("Payload size is outside the supported range")
+          digest = hashlib.sha256(payload).hexdigest()
+
+          updater_path = source_dir / "pigeon_updater.py"
+          spec = importlib.util.spec_from_file_location("pigeon_v141_updater", updater_path)
+          if spec is None or spec.loader is None:
+              raise SystemExit("Could not load packaged updater for validation")
+          updater = importlib.util.module_from_spec(spec)
+          import sys
+          sys.modules[spec.name] = updater
+          spec.loader.exec_module(updater)
+          manifest_for_test = {
+              "version": version,
+              "payload_size": len(payload),
+              "payload_sha256": digest,
+              "package_mode": "full",
+          }
+          with tempfile.TemporaryDirectory() as tmp:
+              extracted_root = pathlib.Path(tmp) / "extract"
+              extracted = updater._validate_and_extract(payload, manifest_for_test, extracted_root)
+              carrier_path = extracted_root / "pigeon_poker" / "range_tables_v2_asset.py"
+              carrier_scope = {}
+              exec(compile(carrier_path.read_text(encoding="utf-8"), str(carrier_path), "exec"), carrier_scope)
+              extracted_asset = base64.b64decode(carrier_scope["RANGE_TABLES_V2_B64"], validate=True)
+              extracted_image_sha256 = hashlib.sha256(extracted_asset).hexdigest()
+          extracted_set = set(extracted)
+          if not {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}.issubset(extracted_set):
+              raise SystemExit("Shipped updater did not extract every required root file")
+          if "pigeon_poker/preflop_gto_strategy.py" in extracted_set:
+              raise SystemExit("Retired legacy preflop policy must not be bundled")
+          if "pigeon_poker/range_tables_v2_asset.py" not in extracted_set:
+              raise SystemExit("The 174 range bitmap carrier is missing from the validated update ZIP")
+          if "pigeon_poker/range_tables_v2.bin" in extracted_set:
+              raise SystemExit("The update ZIP must not ship the .bin path rejected by the original 1.5.0 updater")
+          if extracted_image_sha256 != "61e2ea29dade57077908b8db5c37be0cde9ade6a237f85b00770dd57a109f715":
+              raise SystemExit("The 174 range bitmap changed while packaging the update")
+          def legacy_v150_allows(name):
+              path = pathlib.PurePosixPath(name)
+              if name in {"PigeonPoker.pyw", "pigeon_updater.py", "VERSION.txt"}:
+                  return True
+              return (
+                  len(path.parts) >= 2
+                  and path.parts[0] in {"pigeon_poker", "pigeon_gto_plus"}
+                  and path.suffix.lower() == ".py"
+                  and not any(part.startswith(".") or part == "__pycache__" for part in path.parts)
+              )
+          legacy_rejected = sorted(name for name in extracted_set if not legacy_v150_allows(name))
+          if legacy_rejected:
+              raise SystemExit("The 1.5.0 updater would reject these package members: " + ", ".join(legacy_rejected))
+          if "pigeon_poker/preflop_174_policy.py" not in extracted_set:
+              raise SystemExit("The 174-scenario CPU policy is missing from the package")
+          if "pigeon_poker/preflop_174_policy_data.py" not in extracted_set:
+              raise SystemExit("The embedded 174-scenario source dataset is missing from the package")
+          reasoning_path = source_dir / "pigeon_poker" / "poker_reasoning.py"
+          reasoning_source = reasoning_path.read_text(encoding="utf-8")
+          if "def build_174_preflop_range_estimate(" not in reasoning_source:
+              raise SystemExit("The postflop policy does not build Bayesian ranges from the 174 preflop chart.")
+          required_postflop_hooks = (
+              "def _postflop_showdown_value_profile(",
+              "def _postflop_pure_bluff_allowed(",
+              "def _postflop_thin_value_size_allowed(",
+              "def _postflop_sdv_aggression_allowed(",
+              "def _postflop_raise_increment(",
+              "SDV-bet-candidates-blocked=",
+              "sdv_passive_baseline_ev",
+              "hole_suit_counts",
+              "hole_contribution_ranks",
+              "has_sdv=has_sdv",
+              "SDV-profile=",
+          )
+          missing_postflop_hooks = [
+              hook for hook in required_postflop_hooks if hook not in reasoning_source
+          ]
+          if missing_postflop_hooks:
+              raise SystemExit("The strengthened postflop policy is incomplete: " + ", ".join(missing_postflop_hooks))
+          if "sdv_candidates_blocked += 1" not in reasoning_source:
+              raise SystemExit("SDV candidates are not being counted and filtered before strategy mixing.")
+          if "def _call_realized_equity(" not in reasoning_source or "def _geometric_bet_fraction(" not in reasoning_source:
+              raise SystemExit("The postflop equity-realization or geometric-sizing theory is missing.")
+          if "pigeon_poker/preflop_cleanup.py" not in extracted_set:
+              raise SystemExit("Retired preflop cleanup module is missing from the update")
+          if ("pigeon_poker/preflop_screenshot_" + "ranges.py") in extracted_set:
+              raise SystemExit("Retired preflop implementation must not be bundled")
+          app_source = (source_dir / "PigeonPoker.pyw").read_text(encoding="utf-8")
+          required_allin_runout_hooks = (
+              "RUNOUT_REVEAL_STAGES = ((\"FLOP\", 0, 3), (\"TURN\", 3, 4), (\"RIVER\", 4, 5))",
+              "def _animate_multi_runout_reveal(",
+              "def _multi_runout_reveal_step(",
+              "def _multi_runout_reveal_frame(",
+              "def _finish_allin_runout_reveal(",
+              "cash_runout_show_hole_cards",
+              "cash_runout_reveal_pending",
+              "cash_runout_reveal_counts",
+              "cash_runout_reveal_anim",
+          )
+          missing_allin_runout_hooks = [
+              hook for hook in required_allin_runout_hooks if hook not in app_source
+          ]
+          if missing_allin_runout_hooks:
+              raise SystemExit("All-in runout presentation hooks are missing: " + ", ".join(missing_allin_runout_hooks))
+          if "postflop_range_estimator" not in app_source or app_source.count("range_estimator=postflop_range_estimator") < 2:
+              raise SystemExit("The cash CPU does not feed 174-chart Bayesian ranges into both postflop decision paths.")
+          if "preflop_gto_strategy" in app_source or "choose_preflop_action" in app_source:
+              raise SystemExit("Application still references the retired preflop policy")
+          if "_choose_preflop_legal_fallback" in app_source:
+              raise SystemExit("Temporary generic preflop fallback must not remain in the application")
+          if "from pigeon_poker.preflop_174_policy import choose_preflop_174_action" not in app_source:
+              raise SystemExit("Application does not import the 174-scenario CPU policy")
+          if app_source.count("choose_preflop_174_action(table, hand, pid, cpu)") < 2:
+              raise SystemExit("Application does not route both preflop CPU decision paths through the 174-scenario policy")
+          required_feature_hooks = (
+              "def _build_pokercraft_page(",
+              "def _tick_pokercraft_live_refresh(",
+              "def _draw_history_cards_icon(",
+              "def _open_live_hand_flow(",
+              "def _open_realtime_preflop_range(",
+              "def _historical_preflop_range_chart(",
+              "def _open_preflop_range_view(",
+              "TIME (JST)",
+          )
+          missing_hooks = [hook for hook in required_feature_hooks if hook not in app_source]
+          if missing_hooks:
+              raise SystemExit("Desktop feature hooks missing from packaged app: " + ", ".join(missing_hooks))
+          if "from pigeon_poker.range_chart_canvas import" not in app_source or "from pigeon_poker.range_scenario_resolver import" not in app_source:
+              raise SystemExit("Native Canvas range chart and bitmap-independent resolver are not wired into the app.")
+          if "create_range_photo(" in app_source or "from pigeon_poker.range_image_catalog import" in app_source:
+              raise SystemExit("Runtime preflop range display still depends on the legacy bitmap renderer.")
+          if not (source_dir / "pigeon_poker" / "range_chart_canvas.py").is_file():
+              raise SystemExit("Native Canvas range chart module is missing.")
+          if not (source_dir / "pigeon_poker" / "range_scenario_resolver.py").is_file():
+              raise SystemExit("Bitmap-independent range resolver module is missing.")
+          if "cleanup_retired_preflop_modules()" not in app_source:
+              raise SystemExit("Application does not clean up retired preflop source files")
+          if ("preflop_screenshot_" + "ranges") in app_source:
+              raise SystemExit("Application still references the retired preflop implementation")
+
+          encoded = base64.b64encode(payload).decode("ascii")
+          (release_dir / "payload-updater.zip.b64").write_text(encoded, encoding="ascii")
+          published_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+          release_notes = str(meta.get("release_notes", "Legacy preflop strategy retired; 174-scenario preflop policy integration pending."))
+          manifest = {
+              "schema_version": 1,
+              "product": "pigeon-poker",
+              "channel": "stable",
+              "version": version,
+              "published_at": published_at,
+              "release_notes": release_notes,
+              "package_mode": "full",
+              "payload_encoding": "base64",
+              "updates_paused": False,
+              "payload_url": f"https://raw.githubusercontent.com/{'MEGU612168/pigeon-poker-updates'}/main/{release_dir.as_posix()}/payload-updater.zip.b64?v={digest}",
+              "payload_sha256": digest,
+              "payload_size": len(payload),
+          }
+          (root / "stable.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          meta["published_at"] = published_at
+          meta["payload_sha256"] = digest
+          meta["payload_size"] = len(payload)
+          meta["files"] = sorted(extracted_set)
+          meta["updater_actual_extract_validation"] = "passed"
+          meta["distribution_status"] = "published"
+          meta["preflop_174_policy_verified"] = True
+          meta["postflop_theory_policy_verified"] = True
+          meta["postflop_sdv_policy_verified"] = True
+          meta["showdown_value_bluff_separation_verified"] = True
+          meta["thin_value_bet_sizing_verified"] = True
+          meta["pure_bluff_blocker_gate_verified"] = True
+          meta["postflop_raise_response_fraction_corrected_verified"] = True
+          meta["postflop_gto_size_menu_verified"] = True
+          meta["postflop_overbet_polarity_guard_verified"] = True
+          meta["postflop_multiway_bet_size_control_verified"] = True
+          meta["postflop_thin_value_size_control_verified"] = True
+          meta["postflop_polarized_range_selection_verified"] = True
+          meta["postflop_polarized_large_bluff_blockers_verified"] = True
+          meta["postflop_polarized_medium_sdv_exclusion_verified"] = True
+          meta["postflop_reasoning_test_count_verified"] = 82
+          meta["allin_runout_presentation_test_count_verified"] = 7
+          meta["allin_runout_opponent_hole_reveal_verified"] = True
+          meta["allin_runout_flop_turn_river_staging_verified"] = True
+          meta["allin_runout_table_switch_state_verified"] = True
+          meta["allin_runout_payout_after_reveal_verified"] = True
+          meta["allin_runout_future_cards_hidden_verified"] = True
+          meta["postflop_sdv_aggression_gate_verified"] = True
+          meta["postflop_sdv_passive_ev_baseline_verified"] = True
+          meta["postflop_sdv_thin_value_size_verified"] = True
+          meta["postflop_sdv_multiway_discipline_verified"] = True
+          meta["postflop_sdv_one_pair_raise_restriction_verified"] = True
+          meta["postflop_sdv_protection_bet_cap_verified"] = True
+          meta["postflop_private_draw_attribution_verified"] = True
+          meta["postflop_nut_flush_draw_quality_verified"] = True
+          meta["postflop_raise_size_post_call_pot_basis_verified"] = True
+          meta["range_chart_bot_source_id_consistency_verified"] = True
+          meta["all_174_situations_bot_mapped_verified"] = True
+          meta["bot_169_hand_frequency_integration_verified"] = True
+          meta["source_raise_sizes_visible_in_matching_menu_verified"] = True
+          meta["range_bitmap_display_retired"] = True
+          meta["native_windows_canvas_range_render_verified"] = True
+          meta["range_data_audit_verified"] = True
+          meta["range_source_entries_verified"] = 174
+          meta["unique_semantic_situations_verified"] = 171
+          meta["duplicate_semantic_scenario_groups"] = [[195, 204], [196, 205], [238, 243]]
+          meta["native_windows_canvas_range_render_verified"] = True
+          meta["range_bitmap_display_retired"] = True
+          meta["paid_range_live_resolution_verified"] = True
+          meta["paid_range_missing_raise_size_resolution_verified"] = True
+          meta["live_pot_to_call_disambiguation_verified"] = True
+          meta["known_raise_size_mismatch_rejection_verified"] = True
+          meta["live_range_button_cache_signature_verified"] = True
+          meta["windows_native_range_view_verified"] = True
+          meta["updater_required_root_files"] = "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt"
+          meta["legacy_preflop_retirement_validation"] = "passed"
+          (meta_path).write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps({
+              "version": version,
+              "payload_size": len(payload),
+              "payload_sha256": digest,
+              "file_count": len(extracted_set),
+              "required_root_files": sorted(required | {"VERSION.txt"}),
+              "legacy_preflop_strategy": "removed",
+              "preflop_cpu_runtime": "174-scenario source-backed policy",
+              "range_chart_bot_sizing_source": "same exact 174 scenario ID",
+              "bot_live_scenario_mapping": "174/174 scenarios match source 169-hand matrices, including omitted raise-size cases resolved by live pot and to-call state",
+              "bot_hand_frequency_integration": "169 hand classes across 10 scenario families passed",
+              "hero_raise_size_menu": "all source-defined raise sizes shown and disabled only when unavailable for that hand/state",
+              "retired_preflop_module": "not bundled",
+              "updater_extract_validation": "passed",
+              "postflop_sdv_policy": "verified",
+              "postflop_raise_response_sizing": "incremental raise / pot after call",
+              "postflop_gto_size_policy": "range/nut edge, street, board texture, SPR and made-hand constrained",
+              "postflop_polarized_range_policy": "large bets require polar value or blocker-qualified low-SDV bluffs",
+              "postflop_reasoning_tests": "82 passed",
+              "postflop_sdv_aggression_gate": "verified",
+              "postflop_sdv_passive_ev_baseline": "verified",
+              "postflop_sdv_thin_value_sizing": "verified",
+              "postflop_sdv_multiway_discipline": "verified",
+              "postflop_sdv_one_pair_raise_restriction": "verified",
+              "postflop_sdv_protection_bet_cap": "verified",
+              "postflop_private_draw_attribution": "verified",
+              "postflop_nut_flush_draw_quality": "verified",
+              "postflop_raise_size_basis": "incremental raise / pot after call",
+              "showdown_value_bluff_separation": "verified",
+              "thin_value_bet_sizing": "verified",
+              "pure_bluff_blocker_gate": "verified",
+          }, ensure_ascii=False))
+          PY
+
+      - name: Commit stable manifest and validated payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stable.json releases/v1.5.14/release.json releases/v1.5.14/payload-updater.zip.b64 staging/test_allin_runout_presentation.py staging/source_1_3_101/pigeon_poker/poker_reasoning.py staging/source_1_3_101/pigeon_poker/range_tables_v2.bin staging/source_1_3_101/pigeon_poker/range_tables_v2_asset.py staging/source_1_3_101/pigeon_updater.py staging/source_1_3_101/PigeonPoker.pyw staging/source_1_3_101/pigeon_poker/preflop_cleanup.py staging/source_1_3_101/pigeon_poker/preflop_174_policy.py staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py staging/source_1_3_101/pigeon_poker/range_chart_canvas.py staging/source_1_3_101/pigeon_poker/range_scenario_resolver.py staging/test_pokercraft_features.py staging/test_postflop_controls.py staging/test_poker_reasoning.py staging/test_cpu_learning.py staging/test_preflop_legacy_cleanup.py staging/test_preflop_policy_removed.py staging/test_preflop_174_policy.py staging/test_preflop_size_controls.py staging/test_range_image_asset_packaging.py staging/test_range_image_catalog.py staging/test_real_range_bitmap_asset.py staging/test_range_chart_canvas.py staging/test_range_chart_canvas_windows.py staging/source_1_3_101/pigeon_poker/range_image_catalog.py
+          git rm --ignore-unmatch releases/v1.5.14/payload.ready staging/source_1_3_101/pigeon_poker/preflop_gto_strategy.py staging/test_preflop_gto_integrity.py staging/test_preflop_gto_policy.py staging/test_preflop_user_actions.py
+          git commit -m "Publish verified Pigeon Poker v1.5.14 all-in runout update"
+          git push
