@@ -159,6 +159,39 @@ def test_preflop_policy_is_cpu_level_independent():
     assert "cpu.level" not in source and "cpu.archetype" not in source
 
 
+def test_print_first_in_174_source_action_audit():
+    # Diagnostic against the authoritative 174 source matrix, not assumptions
+    # from UI defaults. First-in means the prior action history has no voluntary
+    # call/raise/all-in; blind checks/folds are not first-in limps.
+    for position in ("UTG", "HJ", "CO", "BTN", "SB", "BB"):
+        for scenario in _scenarios():
+            if scenario["position"] != position:
+                continue
+            history = scenario.get("history", [])
+            if any(item.get("action") in {"call", "raise", "allin"}
+                   for item in history):
+                continue
+            used = {int(option_index) for row in scenario["hands"] for option_index, freq in row if float(freq) > 0}
+            options = [
+                (str(action), None if size is None else float(size))
+                for index, (action, size) in enumerate(scenario["action_options"])
+                if index in used
+            ]
+            raises = sorted({size for action, size in options if action == "raise"})
+            calls = [item for item in options if item[0] == "call"]
+            print(
+                "FIRST_IN_AUDIT",
+                "id=", scenario["id"],
+                "position=", position,
+                "history=", [(x.get("position"), x.get("action"), x.get("size_bb")) for x in history],
+                "raise_sizes=", raises,
+                "has_call=", bool(calls),
+                "options=", options,
+                "overall=", scenario.get("overall", []),
+            )
+
+
+
 if __name__ == "__main__":
     tests = [
         test_all_174_scenarios_and_169_hand_classes_are_loaded,
@@ -170,6 +203,7 @@ if __name__ == "__main__":
         test_hero_raise_size_options_match_the_174_scenario_and_stay_legal,
         test_hero_raise_size_options_are_not_offered_outside_preflop_or_out_of_turn,
         test_preflop_policy_is_cpu_level_independent,
+        test_print_first_in_174_source_action_audit,
     ]
     for test in tests:
         test()
