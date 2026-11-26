@@ -1291,15 +1291,15 @@ class PigeonPokerApp(tk.Tk):
         bc_buttons.pack(fill="x", pady=(0, 4))
         self.baccarat_bet_buttons = [
             ttk.Button(
-                bc_buttons, text="PLAYER  •  1:1", style="Accent.TButton",
+                bc_buttons, text="BET PLAYER  •  1:1", style="Accent.TButton",
                 command=lambda: self._casino_play_baccarat("player"),
             ),
             ttk.Button(
-                bc_buttons, text="BANKER  •  0.95:1",
+                bc_buttons, text="BET BANKER  •  0.95:1",
                 command=lambda: self._casino_play_baccarat("banker"),
             ),
             ttk.Button(
-                bc_buttons, text="TIE  •  8:1",
+                bc_buttons, text="BET TIE  •  8:1",
                 command=lambda: self._casino_play_baccarat("tie"),
             ),
         ]
