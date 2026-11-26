@@ -32,7 +32,7 @@ apply_1100 = namespace[METHOD_NAMES[2]]
 apply_5000 = namespace[METHOD_NAMES[3]]
 
 
-def test_existing_wallet_is_preserved_and_three_credits_are_exactly_once() -> None:
+def test_existing_wallet_is_preserved_and_four_credits_are_exactly_once() -> None
     with tempfile.TemporaryDirectory() as directory:
         db_path = Path(directory) / "wallet.sqlite3"
         with sqlite3.connect(db_path) as con:
@@ -117,10 +117,12 @@ def test_startup_applies_topup_after_existing_wallet_refund() -> None:
         if isinstance(node, ast.FunctionDef) and node.name == "__init__"
     )
     init_source = ast.get_source_segment(TEXT, init_node) or ""
-    assert init_source.index("_apply_one_time_270_dollar_casino_test_refund()") < init_source.index(
-        "_apply_one_time_1100_dollar_user_balance_topup()"
+    assert (
+        init_source.index("_apply_one_time_270_dollar_casino_test_refund()")
+        < init_source.index("_apply_one_time_1100_dollar_user_balance_topup()")
+        < init_source.index("_apply_one_time_5000_dollar_update_loss_recovery()")
+        < init_source.index("self.cash_balance_cents = self.wallet_store.get_balance(self.cash_balance_cents)")
     )
-    assert "self.cash_balance_cents = self.wallet_store.get_balance(self.cash_balance_cents)" in init_source
 
 
 if __name__ == "__main__":
