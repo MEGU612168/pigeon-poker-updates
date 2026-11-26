@@ -14,6 +14,7 @@ METHOD_NAMES = (
     "_apply_one_time_10_dollar_bonus",
     "_apply_one_time_270_dollar_casino_test_refund",
     "_apply_one_time_1100_dollar_user_balance_topup",
+    "_apply_one_time_5000_dollar_update_loss_recovery",
 )
 namespace = {"datetime": datetime, "timezone": timezone}
 for method_name in METHOD_NAMES:
@@ -28,6 +29,7 @@ for method_name in METHOD_NAMES:
 apply_10 = namespace[METHOD_NAMES[0]]
 apply_270 = namespace[METHOD_NAMES[1]]
 apply_1100 = namespace[METHOD_NAMES[2]]
+apply_5000 = namespace[METHOD_NAMES[3]]
 
 
 def test_existing_wallet_is_preserved_and_three_credits_are_exactly_once() -> None:
@@ -68,12 +70,15 @@ def test_existing_wallet_is_preserved_and_three_credits_are_exactly_once() -> No
         assert wallet.cash_balance_cents == 30575
         assert apply_1100(wallet) is True
         assert wallet.cash_balance_cents == 140575
-        assert wallet.config_data["balance"] == 1405.75
+        assert apply_5000(wallet) is True
+        assert wallet.cash_balance_cents == 640575
+        assert wallet.config_data["balance"] == 6405.75
 
         # Relaunch/re-entry cannot apply any of the same credits twice.
         assert apply_10(wallet) is False
         assert apply_270(wallet) is False
         assert apply_1100(wallet) is False
+        assert apply_5000(wallet) is False
 
         with sqlite3.connect(db_path) as con:
             balance = con.execute(
@@ -88,17 +93,21 @@ def test_existing_wallet_is_preserved_and_three_credits_are_exactly_once() -> No
             }
 
         assert balance == 140575
-        assert len(rows) == 3
+        assert len(rows) == 4
         by_id = {row[0]: row for row in rows}
         assert by_id["pigeon-poker-v1.3.106-bonus-10-usd"][1:4] == ("bonus-credit", 1000, 3575)
         assert by_id["pigeon-poker-v1.5.16-casino-test-refund-270-usd"][1:4] == ("casino-test-refund", 27000, 30575)
         topup = by_id["pigeon-poker-v1.5.19-user-balance-topup-1100-usd"]
         assert topup[1:4] == ("bonus-credit", 110000, 140575)
         assert "One-time +$1,100.00" in topup[4]
+        recovery = by_id["pigeon-poker-v1.5.25-update-open-table-loss-recovery-5000-usd"]
+        assert recovery[1:4] == ("update-recovery", 500000, 640575)
+        assert "One-time +$5,000.00" in recovery[4]
         assert {
             "pigeon_poker_v1_3_106_bonus_10_usd",
             "pigeon_poker_v1_5_16_casino_test_refund_270_usd",
             "pigeon_poker_v1_5_19_user_balance_topup_1100_usd",
+            "pigeon_poker_v1_5_25_update_open_table_loss_recovery_5000_usd",
         }.issubset(markers)
 
 
@@ -117,4 +126,4 @@ def test_startup_applies_topup_after_existing_wallet_refund() -> None:
 if __name__ == "__main__":
     test_existing_wallet_is_preserved_and_three_credits_are_exactly_once()
     test_startup_applies_topup_after_existing_wallet_refund()
-    print("PASS existing $10 bonus, $270 refund, and one-time $1,100 user top-up; no double credit")
+    print("PASS $10 bonus, $270 refund, $1,100 top-up, and one-time $5,000 update-loss recovery; no double credit")
