@@ -5696,7 +5696,7 @@ class PigeonPokerApp(tk.Tk):
         return f"{actor} {verb}"
 
     def _toggle_table_chip_unit(self, table_id: str):
-        """Clicking the BB/USD suffix beside YOU's stack toggles all table amounts."""
+        """Clicking any seat stack toggles all table amounts between USD and BB."""
         self.chip_display_unit = "BB" if self.chip_display_unit == "USD" else "USD"
         self.config_data["chip_display_unit"] = self.chip_display_unit
         if hasattr(self, "chip_display_unit_var"):
