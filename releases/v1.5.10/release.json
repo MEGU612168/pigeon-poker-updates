@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.5.10",
+  "package_mode": "full",
+  "source_version": "1.3.101",
+  "source_directory": "staging/source_1_3_101",
+  "release_notes": "Pigeon Poker 1.5.10 fixes live paid preflop range matching across all 174 source situations. When a live action history omits raise-to amounts, the resolver now matches the exact ordered actor/action history and safely disambiguates same-action nodes using the live pot and amount-to-call. Known incorrect raise sizes remain rejected, and ambiguous or mismatched source histories do not produce a paid chart. The BOT and paid range viewer continue to share the same source scenario and 169-hand matrix. Verification covers all 174 situations, all 169 hand classes, omitted raise-size histories, wrong-size rejection, Windows native Tk rendering, and updater package extraction.",
+  "distribution_status": "pending",
+  "preflop_174_policy_verified": true,
+  "postflop_theory_policy_verified": true,
+  "range_data_audit_verified": true,
+  "range_source_entries_expected": 174,
+  "unique_semantic_situations_expected": 171,
+  "duplicate_semantic_scenario_groups": [
+    [
+      195,
+      204
+    ],
+    [
+      196,
+      205
+    ],
+    [
+      238,
+      243
+    ]
+  ],
+  "range_bitmap_display_retired": true,
+  "native_windows_canvas_range_render_verified": true,
+  "paid_range_live_resolution_verified": true,
+  "paid_range_missing_raise_size_resolution_verified": true,
+  "live_pot_to_call_disambiguation_verified": true,
+  "known_raise_size_mismatch_rejection_verified": true,
+  "live_range_button_cache_signature_verified": true,
+  "preflop_raise_size_selector_verified": false,
+  "range_chart_bot_source_id_consistency_verified": true,
+  "all_174_situations_bot_mapped_verified": true,
+  "bot_169_hand_frequency_integration_verified": true,
+  "source_raise_sizes_visible_in_matching_menu_verified": true,
+  "range_source_entries_verified": 174,
+  "unique_semantic_situations_verified": 171,
+  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt"
+}
