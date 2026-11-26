@@ -67,18 +67,30 @@ def test_all_174_source_matrices_build_complete_169_hand_models():
             assert all(0.0 < action["frequency"] <= 1.0 for action in cell["actions"])
 
 
-def test_source_blank_cells_are_not_silently_converted_into_folds():
+def test_black_cells_are_labelled_out_of_range_not_missing_data_or_fold():
     scenario = next(
         item for item in load_preflop_174_data()["scenarios"]
         if any(not row for row in item["hands"])
     )
     model = build_range_chart_model(int(scenario["id"]))
-    source_blanks = sum(not row for row in scenario["hands"])
-    assert model["blank_count"] == source_blanks
+    source_out_of_range = sum(not row for row in scenario["hands"])
+    assert model["out_of_range_count"] == source_out_of_range
+    assert model["in_range_count"] + model["out_of_range_count"] == 169
     assert all(
-        not cell["measured"] and not cell["actions"]
-        for cell in model["cells"] if not cell["measured"]
+        cell["status"] == "out-of-range"
+        and not cell["in_range"]
+        and not cell["actions"]
+        for cell in model["cells"] if not cell["in_range"]
     )
+
+    canvas = FakeCanvas()
+    draw_preflop_range_canvas(canvas, model, title="3-BET RANGE")
+    rendered_text = [
+        item["options"].get("text", "")
+        for item in canvas.items if item["kind"] == "text"
+    ]
+    assert any("OUT OF RANGE" in str(value) for value in rendered_text)
+    assert not any("NO SOURCE DATA" in str(value) for value in rendered_text)
 
 
 def test_native_canvas_draws_169_cells_without_any_photoimage():
@@ -112,7 +124,7 @@ def test_each_of_the_174_source_ids_resolves_to_a_chart():
 def run_tests():
     tests = [
         test_all_174_source_matrices_build_complete_169_hand_models,
-        test_source_blank_cells_are_not_silently_converted_into_folds,
+        test_black_cells_are_labelled_out_of_range_not_missing_data_or_fold,
         test_native_canvas_draws_169_cells_without_any_photoimage,
         test_each_of_the_174_source_ids_resolves_to_a_chart,
     ]
