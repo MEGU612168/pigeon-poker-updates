@@ -565,7 +565,7 @@ jobs:
               "postflop_raise_response_sizing": "incremental raise / pot after call",
               "postflop_gto_size_policy": "range/nut edge, street, board texture, SPR and made-hand constrained",
               "postflop_polarized_range_policy": "large bets require polar value or blocker-qualified low-SDV bluffs",
-              "postflop_reasoning_tests": "82 passed",
+              "postflop_reasoning_tests": "84 passed",
               "postflop_sdv_aggression_gate": "verified",
               "postflop_sdv_passive_ev_baseline": "verified",
               "postflop_sdv_thin_value_sizing": "verified",
