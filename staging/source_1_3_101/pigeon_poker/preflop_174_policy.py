@@ -148,6 +148,13 @@ def _actual_history(table: Any, hand: Any, player_id: str, positions: dict[str, 
             continue
         amount_bb = _event_target_bb(event, bb) if action in {"raise", "allin"} else None
         output.append({"position": position, "action": action, "size_bb": amount_bb})
+
+    # The 174 first-in charts (UTG/HJ/CO/BTN/SB) encode the folded-to-me
+    # prefix implicitly as an empty history. A live hand records those folds
+    # as events. Treat a prefix made exclusively of folds as the same source
+    # state; otherwise the lookup falls through to an unrelated nearest node.
+    if output and all(item["action"] == "fold" for item in output):
+        return []
     return output
 
 
@@ -468,6 +475,61 @@ def _legal_choices(hand: Any, player_id: str, distribution: dict[tuple[str, floa
     return output
 
 
+def _filter_first_in_distribution(
+    actor_position: str,
+    actual_history: list[dict[str, Any]],
+    distribution: dict[tuple[str, float | None], float],
+) -> dict[tuple[str, float | None], float]:
+    """Enforce the source-backed first-in invariants on inferred nodes too.
+
+    UTG/HJ/CO/BTN have no open-limp branch in the 174 source charts. First-in
+    opens are small raises, not oversized 20+ BB raises. SB completion remains
+    available because the SB source node explicitly contains CALL.
+    """
+    if actual_history:
+        return distribution
+    actor = str(actor_position or "").upper()
+    output = {}
+    for (action, size_bb), frequency in distribution.items():
+        if action == "call" and actor in {"UTG", "HJ", "CO", "BTN"}:
+            continue
+        if action == "raise" and (
+            size_bb is None or float(size_bb) > 5.0
+        ):
+            continue
+        output[(action, size_bb)] = float(frequency)
+    return output
+
+
+def _select_live_scenario(
+    table: Any,
+    hand: Any,
+    player_id: str,
+    actor_position: str,
+    actual_history: list[dict[str, Any]],
+    rng: Any,
+) -> tuple[dict[str, Any], bool, float]:
+    """Use the exact same source node as the paid range viewer when possible."""
+    try:
+        if str(getattr(hand, "next_to_act", "") or "") == str(player_id):
+            # Runtime import avoids a module cycle: range_scenario_resolver
+            # itself imports this policy module's exact-history helpers.
+            from .range_scenario_resolver import resolve_range_image_for_hand
+
+            chart = resolve_range_image_for_hand(table, hand, player_id)
+            if chart is not None:
+                source_id = int(chart["source_id"])
+                selected = next(
+                    (item for item in _scenarios() if int(item["id"]) == source_id),
+                    None,
+                )
+                if selected is not None:
+                    return selected, False, 0.0
+    except (KeyError, TypeError, ValueError, AttributeError, RuntimeError):
+        pass
+    return _choose_scenario(actor_position, actual_history, rng)
+
+
 def _safe_legal_fallback(player_id: str, legal: dict[str, Any], hand_class: str, scenario_id: int) -> SimpleNamespace:
     available = _legal_actions(legal)
     to_call = max(0, int(legal.get("to_call", 0) or 0))
@@ -510,12 +572,15 @@ def choose_preflop_174_action(table: Any, hand: Any, player_id: str, cpu: Any) -
         raise RuntimeError(f"Cannot resolve six-max actor position for {player_id}")
     actual_history = _actual_history(table, hand, player_id, positions)
     rng = getattr(cpu, "rng", None) or random.Random()
-    scenario, scenario_inferred, distance = _choose_scenario(actor_position, actual_history, rng)
+    scenario, scenario_inferred, distance = _select_live_scenario(
+        table, hand, player_id, actor_position, actual_history, rng
+    )
     player = hand.player(player_id)
     hand_class = _hand_class(getattr(player, "hole_cards", ()))
     if hand_class is None:
         raise RuntimeError("CPU hole cards could not be mapped to a 169-class hand")
     distribution, hand_inferred, hand_method = _scenario_distribution(scenario, hand_class)
+    distribution = _filter_first_in_distribution(actor_position, actual_history, distribution)
     bb = _big_blind(hand, table)
     choices = _legal_choices(hand, player_id, distribution, bb)
     if not choices:
@@ -578,41 +643,52 @@ def preflop_174_raise_size_options(
         actual_history = _actual_history(table, hand, player_id, positions)
         # A fixed seed makes the displayed source scenario stable while the user
         # opens/closes the sizing menu; CPU action sampling keeps its own RNG.
-        scenario, scenario_inferred, distance = _choose_scenario(
-            actor_position, actual_history, random.Random(0)
+        scenario, scenario_inferred, distance = _select_live_scenario(
+            table, hand, player_id, actor_position, actual_history, random.Random(0)
         )
         player = hand.player(player_id)
         hand_class = _hand_class(getattr(player, "hole_cards", ()))
         if hand_class is None:
             return None
         distribution, hand_inferred, hand_method = _scenario_distribution(scenario, hand_class)
+        distribution = _filter_first_in_distribution(actor_position, actual_history, distribution)
         bb = _big_blind(hand, table)
-        legal_choices = _legal_choices(hand, player_id, distribution, bb)
-        total_frequency = sum(float(item["frequency"]) for item in legal_choices)
-        if total_frequency <= 0:
-            return None
+        min_target = int(legal.get("min_target", 0) or 0)
+        max_target = int(legal.get("max_target", 0) or 0)
 
-        by_target: dict[int, dict[str, float]] = {}
-        for item in legal_choices:
-            if item["action"] != "raise" or item.get("amount") is None:
-                continue
-            amount = int(item["amount"])
-            row = by_target.setdefault(amount, {
-                "size_bb": float(item["size_bb"]),
-                "frequency": 0.0,
-            })
-            row["frequency"] += float(item["frequency"])
-        if not by_target:
-            return None
+        # Build the size menu from the SAME scenario as the displayed chart,
+        # not from a separate fuzzy lookup of the hero's current hand.
+        # All active source sizes are visible; sizes with 0% for this hand are
+        # shown disabled rather than causing the whole selector to disappear.
+        active_sizes: set[float] = set()
+        options = list(scenario.get("action_options", []) or [])
+        for source_scenario in (scenario,):
+            for row in source_scenario.get("hands", []):
+                for option_index, frequency in row or []:
+                    if float(frequency) <= 0:
+                        continue
+                    action, size = options[int(option_index)]
+                    if str(action).lower() == "raise" and size is not None:
+                        active_sizes.add(float(size))
 
         choices = []
-        for amount, row in sorted(by_target.items()):
+        first_in = not actual_history
+        for size_bb in sorted(active_sizes):
+            if first_in and size_bb > 5.0:
+                continue
+            amount = int(round(size_bb * bb))
+            if amount < max(1, min_target) or (max_target > 0 and amount > max_target):
+                continue
+            frequency = float(distribution.get(("raise", size_bb), 0.0))
             choices.append({
                 "amount": amount,
-                "size_bb": row["size_bb"],
-                "frequency": row["frequency"],
-                "frequency_pct": 100.0 * row["frequency"] / total_frequency,
+                "size_bb": size_bb,
+                "frequency": frequency,
+                "frequency_pct": 100.0 * frequency,
+                "enabled_for_hand": frequency > 0.0,
             })
+        if not choices:
+            return None
         return {
             "scenario_id": int(scenario["id"]),
             "scenario_match_mode": "nearest-inferred" if scenario_inferred else "exact",
