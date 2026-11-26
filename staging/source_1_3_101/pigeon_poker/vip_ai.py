@@ -31,6 +31,18 @@ def assign_vip_cpu_roles(cpu_ids: Iterable[str], rng: Any = None) -> dict[str, s
     }
 
 
+def randomize_cash_seating(players: Iterable[Any], rng: Any = None) -> list[Any]:
+    """Return a shuffled copy of the six-player cash-table lineup."""
+    seating = list(players)
+    if len(seating) != 6:
+        raise ValueError("A six-max cash table requires exactly six seats")
+    if rng is None:
+        import random
+        rng = random
+    rng.shuffle(seating)
+    return seating
+
+
 def vip_cpu_role_label(role: str | None) -> str:
     """Return the only two visible VIP CPU names: PRO or TOP PRO."""
     if role == VIP_PRO_ROLE:
