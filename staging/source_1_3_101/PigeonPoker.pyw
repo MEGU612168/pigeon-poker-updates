@@ -3974,11 +3974,17 @@ class PigeonPokerApp(tk.Tk):
         if record is not None:
             record["range_paid_for_current_hand"] = True
             self._update_range_icon_state(slot, record, hand)
+        match_note = (
+            " • exact actions; live raise size unavailable"
+            if chart.get("raise_size_verified") is False else ""
+        )
         self._open_preflop_range_view(
             chart,
             title="LIVE PREFLOP RANGE",
-            charge_label=("1 BB paid for this hand • re-open free" if not paid
-                          else "Already paid this hand • re-open free"),
+            charge_label=(
+                ("1 BB paid for this hand • re-open free" if not paid
+                 else "Already paid this hand • re-open free") + match_note
+            ),
             table_id=table_id,
             model=range_model,
         )
