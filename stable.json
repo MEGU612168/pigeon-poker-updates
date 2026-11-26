@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.6",
-  "published_at": "2026-11-26T05:52:33Z",
-  "release_notes": "Pigeon Poker 1.5.6 fixes paid preflop range availability and stale bitmap handling. A paid-range icon is enabled by an exact 174-catalog match; the 1 BB wallet debit remains atomic and is checked on click. A local bitmap is now accepted only when its size and SHA-256 match the verified source; otherwise the verified embedded image asset is used. The 174 original range images and exact live-state matching are preserved.",
+  "version": "1.5.7",
+  "published_at": "2026-11-26T07:44:20Z",
+  "release_notes": "Pigeon Poker 1.5.7 replaces the paid preflop range display architecture. The 174 scenario charts are now rendered directly from their authoritative 169-hand action-frequency matrices using native Tk Canvas. Runtime range lookup no longer loads the legacy bitmap catalogue or creates PhotoImage objects. Source-empty cells remain explicitly blank; the 1 BB charge is still checked atomically and only after the selected matrix has been fully validated.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.6/payload-updater.zip.b64?v=b44802ec78f8180f37c1375b93de82a7d502e12ffd900df8c7a4fc3812c6c8da",
-  "payload_sha256": "b44802ec78f8180f37c1375b93de82a7d502e12ffd900df8c7a4fc3812c6c8da",
-  "payload_size": 1184204
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.7/payload-updater.zip.b64?v=81fb1358f3fde7c0be4d61a2d6144b7de9a3a9f25ce5fc9787ca89219c335c9f",
+  "payload_sha256": "81fb1358f3fde7c0be4d61a2d6144b7de9a3a9f25ce5fc9787ca89219c335c9f",
+  "payload_size": 1191560
 }
