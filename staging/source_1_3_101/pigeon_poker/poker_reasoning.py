@@ -2199,6 +2199,10 @@ def _postflop_polarized_candidate_role(
         return "merged"
 
     current_street = str(street or "").lower()
+    # Preflop is governed by the immutable 174-situation chart. Never apply
+    # postflop range-polarity gates to its sizing/action frequencies.
+    if current_street == "preflop":
+        return "preflop-chart"
     callers = max(0.0, float(expected_callers))
     category = max(0, min(8, int(made_category)))
     equity = max(0.0, min(1.0, float(current_equity)))
