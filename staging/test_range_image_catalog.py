@@ -228,6 +228,7 @@ def _live_fixture_for_scenario(scenario: dict):
 
 def test_all_174_live_histories_resolve_to_their_own_paid_image():
     from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand
+    from pigeon_poker.range_chart_canvas import build_range_chart_model
 
     failures = []
     for scenario in _scenarios():
@@ -277,7 +278,7 @@ def test_all_174_live_histories_resolve_to_their_own_paid_image():
 
 
 def test_live_range_signature_invalidates_when_eligibility_or_history_changes():
-    from pigeon_poker.range_image_catalog import live_range_lookup_signature
+    from pigeon_poker.range_scenario_resolver import live_range_lookup_signature
 
     table, hand, _actor_id = _live_fixture_for_scenario(_scenarios()[18])
     busy = live_range_lookup_signature(
