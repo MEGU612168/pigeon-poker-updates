@@ -159,6 +159,33 @@ def test_preflop_policy_is_cpu_level_independent():
     assert "cpu.level" not in source and "cpu.archetype" not in source
 
 
+
+def test_export_174_situations_in_readable_source_order():
+    import json
+    for scenario in _scenarios():
+        payload = {
+            "id": int(scenario["id"]),
+            "decision_position": str(scenario.get("position", "")),
+            "source_title": str(scenario.get("history_text", "")),
+            "source_parse": str(scenario.get("history_parse_source", "")),
+            "source_confidence": str(scenario.get("history_confidence", "")),
+            "history": [
+                {
+                    "position": str(item.get("position", "")),
+                    "action": str(item.get("action", "")),
+                    "size_bb": item.get("size_bb"),
+                }
+                for item in (scenario.get("history", []) or [])
+            ],
+            "action_options": [
+                [str(action), size]
+                for action, size in (scenario.get("action_options", []) or [])
+            ],
+            "overall": scenario.get("overall", []),
+        }
+        print("SCENARIO_174 " + json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+
+
 if __name__ == "__main__":
     tests = [
         test_all_174_scenarios_and_169_hand_classes_are_loaded,
@@ -170,6 +197,7 @@ if __name__ == "__main__":
         test_hero_raise_size_options_match_the_174_scenario_and_stay_legal,
         test_hero_raise_size_options_are_not_offered_outside_preflop_or_out_of_turn,
         test_preflop_policy_is_cpu_level_independent,
+        test_export_174_situations_in_readable_source_order,
     ]
     for test in tests:
         test()
