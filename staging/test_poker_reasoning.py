@@ -2062,12 +2062,16 @@ def test_cash_cpu_connects_174_chart_ranges_and_learned_profiles_to_postflop():
 
 
 
-def test_vip_pro_flag_boosts_only_tagged_equity_sampling():
+def test_vip_pro_and_top_pro_use_separate_equity_sample_depths():
     standard_cpu = FakeCPU()
-    vip_cpu = FakeCPU()
-    vip_cpu._vip_pro_mode = True
+    pro_cpu = FakeCPU()
+    top_pro_cpu = FakeCPU()
+    pro_cpu._vip_pro_mode = True
+    top_pro_cpu._vip_pro_mode = True
+    top_pro_cpu._vip_top_pro_mode = True
     assert module._vip_pro_sample_multiplier(standard_cpu) == 1.0
-    assert module._vip_pro_sample_multiplier(vip_cpu) == 1.5
+    assert module._vip_pro_sample_multiplier(pro_cpu) == 1.5
+    assert module._vip_pro_sample_multiplier(top_pro_cpu) == 4.0
 
 
 def test_flush_and_straight_draws_require_private_hand_contribution():
