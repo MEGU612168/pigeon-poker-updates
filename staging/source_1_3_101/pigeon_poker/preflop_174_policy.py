@@ -900,3 +900,53 @@ def preflop_174_catalog_summary() -> dict[str, Any]:
         "multi_raise_size_scenarios": [int(item["id"]) for item in scenarios
             if len({tuple(option) for option in item["action_options"] if option[0] == "raise"}) > 1],
     }
+
+
+def preflop_174_pressure_coverage_summary() -> dict[str, Any]:
+    """Measure complete 169-cell coverage for facing 3-bet and 4-bet states.
+
+    A source screenshot's dark/empty matrix cells are not fold frequencies:
+    fold is a measured action with its own frequency. Empty rows therefore
+    remain unmeasured and must not be counted as a complete chart.
+    """
+    scenarios = _scenarios()
+    aggressive_actions = {"raise", "allin"}
+    output: dict[str, Any] = {}
+    for label, expected_prior_aggressions in (
+        ("facing_3bet", 2),  # open + 3-bet
+        ("facing_4bet", 3),  # open + 3-bet + 4-bet
+    ):
+        selected = []
+        for scenario in scenarios:
+            history = list(scenario.get("history", []) or [])
+            prior_aggressions = sum(
+                1 for event in history
+                if _normalise_action(event.get("action")) in aggressive_actions
+            )
+            if prior_aggressions != expected_prior_aggressions:
+                continue
+            rows = list(scenario.get("hands", []) or [])
+            measured = sum(1 for row in rows if row)
+            selected.append({
+                "scenario_id": int(scenario["id"]),
+                "actor_position": str(scenario.get("position", "")).upper(),
+                "measured_hand_cells": measured,
+                "missing_hand_cells": max(0, 169 - measured),
+                "history": history,
+            })
+        incomplete = [
+            item for item in selected if item["measured_hand_cells"] != 169
+        ]
+        output[label] = {
+            "scenario_count": len(selected),
+            "complete_169_cell_count": len(selected) - len(incomplete),
+            "incomplete_count": len(incomplete),
+            "measured_hand_cells_total": sum(
+                item["measured_hand_cells"] for item in selected
+            ),
+            "missing_hand_cells_total": sum(
+                item["missing_hand_cells"] for item in selected
+            ),
+            "incomplete_scenarios": incomplete,
+        }
+    return output
