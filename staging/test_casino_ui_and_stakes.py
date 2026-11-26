@@ -42,9 +42,9 @@ def test_pokercraft_filter_labels_and_bb100_maps_include_new_stakes() -> None:
     assert '"NL500": "$2.50 / $5"' in labels
     assert '"NL1000": "$5 / $10"' in labels
     breakdown = source_of("_refresh_pokercraft_breakdowns")
-    replay = source_of("_open_live_hand_flow")
+    historical = source_of("_historical_preflop_range_chart")
     assert '"NL500": 500' in breakdown and '"NL1000": 1000' in breakdown
-    assert '"NL500": 500' in replay and '"NL1000": 1000' in replay
+    assert '"NL500": 500' in historical and '"NL1000": 1000' in historical
 
 
 def test_casino_page_is_navigable_and_built_at_startup() -> None:
