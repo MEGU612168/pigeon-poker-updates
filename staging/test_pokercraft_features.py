@@ -82,15 +82,15 @@ def test_live_hand_flow_shows_scrollable_table_history_with_cards_winner_and_pot
     assert "pot_award" in flow and "hand_won_by_fold" in flow
 
 
-def test_range_view_displays_one_source_bitmap_without_canvas_redrawing():
+def test_range_view_uses_native_canvas_and_never_photoimage():
     view = source_of("_open_preflop_range_view")
-    assert "create_range_photo(self, source_id)" in view
-    assert "image=photo" in view
-    assert "win._range_photo = photo" in view
-    assert "tk.Label(" in view
-    assert "tk.Canvas(" not in view
-    assert "create_rectangle(" not in view
-    assert "frequency / total" not in view
+    assert "build_range_chart_model(" in view
+    assert "draw_preflop_range_canvas(" in view
+    assert "tk.Canvas(" in view
+    assert "ttk.Scrollbar(" in view
+    assert "create_range_photo" not in view
+    assert "image=photo" not in view
+    assert "PhotoImage(" not in view
     assert "top_left_of_anchor=True" in view
 
 
@@ -102,7 +102,7 @@ def test_range_icon_is_disabled_and_unbound_outside_the_174_catalogue():
     assert 'canvas.unbind("<Button-1>")' in updater
     assert 'canvas.configure(cursor="")' in updater
     assert 'canvas.configure(cursor="hand2")' in updater
-    assert "この状況に一致する元画像レンジはありません。" in opener
+    assert "この状況に一致する174局面レンジ表はありません。" in opener
     assert "レンジ料金も発生していません。" in opener
 
 
@@ -175,17 +175,16 @@ def test_main_and_table_windows_use_native_monitor_work_area_bounds():
     assert "height = max(470, min(860, screen_h - 110))" in table
 
 
-def test_paid_range_window_is_left_aligned_and_loads_original_bitmap():
+def test_paid_range_window_prevalidates_the_matrix_before_wallet_debit():
     view = source_of("_open_preflop_range_view")
     assert "_fit_toplevel_to_monitor_work_area(" in view
     assert "top_left_of_anchor=True" in view
-    assert "create_range_photo(self, source_id)" in view
-    assert "image=photo" in view
-    assert "win._range_photo = photo" in view
-    assert "tk.Canvas(" not in view
+    assert "draw_preflop_range_canvas(" in view
+    assert "tk.Canvas(" in view
+    assert "create_range_photo" not in view
     assert "if top_left_of_anchor:" in source_of("_fit_toplevel_to_monitor_work_area")
     opener = source_of("_open_realtime_preflop_range")
-    assert opener.index("create_range_photo(self, int(chart[\"source_id\"]))") < opener.index("_debit_live_range_review(")
+    assert opener.index("build_range_chart_model(") < opener.index("_debit_live_range_review(")
 
 
 def test_format_table_chips_signature_matches_every_call_site():
@@ -210,11 +209,12 @@ def test_format_table_chips_signature_matches_every_call_site():
 
 
 
-def test_range_window_is_resizable_until_native_work_area_fit_finishes():
+def test_range_canvas_window_stays_resizable_and_uses_scrollbars():
     view = source_of("_open_preflop_range_view")
     assert view.index("win.resizable(True, True)") < view.index("_fit_toplevel_to_monitor_work_area(")
-    assert view.index("_fit_toplevel_to_monitor_work_area(") < view.index("win.resizable(False, False)")
-    assert "win.minsize(360, 240)" in view
+    assert "win.resizable(False, False)" not in view
+    assert "ttk.Scrollbar(" in view
+    assert "win.minsize(560, 500)" in view
 
 
 def run_tests():
@@ -223,7 +223,7 @@ def run_tests():
         test_all_pokercraft_timestamps_use_japan_time,
         test_history_icon_draws_two_real_playing_cards_tilted_left,
         test_live_hand_flow_shows_scrollable_table_history_with_cards_winner_and_pot,
-        test_range_view_displays_one_source_bitmap_without_canvas_redrawing,
+        test_range_view_uses_native_canvas_and_never_photoimage,
         test_range_icon_is_disabled_and_unbound_outside_the_174_catalogue,
         test_live_range_button_requires_unique_exact_174_node_and_current_hero_turn,
         test_catalogued_range_icon_is_clickable_before_wallet_affordability_check,
@@ -231,10 +231,10 @@ def run_tests():
         test_historical_range_uses_only_events_before_hero_first_action,
         test_pokercraft_refreshes_live_without_blocking_table_play,
         test_main_and_table_windows_use_native_monitor_work_area_bounds,
-        test_paid_range_window_is_left_aligned_and_loads_original_bitmap,
+        test_paid_range_window_prevalidates_the_matrix_before_wallet_debit,
         test_format_table_chips_signature_matches_every_call_site,
-        test_range_window_is_resizable_until_native_work_area_fit_finishes,
-        test_live_preflop_range_is_a_bitmap_overlay_and_pauses_the_action_clock,
+        test_range_canvas_window_stays_resizable_and_uses_scrollbars,
+        test_live_preflop_range_is_a_canvas_overlay_and_pauses_the_action_clock,
     ]
     for test in tests:
         test()
@@ -242,13 +242,15 @@ def run_tests():
     print("ALL PASS", len(tests), "PokerCraft / live flow / range viewer tests")
 
 
-def test_live_preflop_range_is_a_bitmap_overlay_and_pauses_the_action_clock():
+def test_live_preflop_range_is_a_canvas_overlay_and_pauses_the_action_clock():
     view = source_of("_open_preflop_range_view")
     assert "table_canvas.winfo_toplevel()" in view
     assert "win.overrideredirect(True)" not in view
     assert 'win.attributes("-topmost", True)' not in view
-    assert "image=photo" in view
-    assert "win._range_photo = photo" in view
+    assert "draw_preflop_range_canvas(" in view
+    assert "tk.Canvas(" in view
+    assert "image=photo" not in view
+    assert "PhotoImage(" not in view
     assert "cash_squeeze_deadline_at" in view
     assert "paused_clock" in view
     assert "close_range_overlay" in view

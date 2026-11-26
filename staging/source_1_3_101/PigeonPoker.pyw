@@ -35,7 +35,12 @@ from pigeon_poker.sound_design import write_sound_wav, SOUND_ASSETS, SOUND_VARIA
 from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOError,
                           PokerRuleError, build_gto_plus_spot_table, HandHistoryStore,
                           is_gto_plus_supported_postflop_hand, CPUPoolStore, GGCareLedger, CashierLedger, bind_first_matching_tree)
-from pigeon_poker.range_image_catalog import (create_range_photo, RangeImageCatalogError, resolve_range_image_for_hand, live_range_lookup_signature)
+from pigeon_poker.range_scenario_resolver import (
+    resolve_range_image_for_hand, live_range_lookup_signature,
+)
+from pigeon_poker.range_chart_canvas import (
+    build_range_chart_model, draw_preflop_range_canvas, RangeChartDataError,
+)
 from pigeon_poker.poker_reasoning import (choose_range_aware_action, build_174_preflop_range_estimate)
 from pigeon_poker.preflop_174_policy import choose_preflop_174_action
 from pigeon_poker.preflop_174_policy import preflop_174_raise_size_options
@@ -3813,7 +3818,7 @@ class PigeonPokerApp(tk.Tk):
         # Nearest-node inference is never used for a paid range image.
         try:
             return resolve_range_image_for_hand(table, hand, "hero")
-        except RangeImageCatalogError:
+        except (KeyError, TypeError, ValueError):
             return None
 
     def _refresh_live_range_icons(self):
@@ -3933,16 +3938,19 @@ class PigeonPokerApp(tk.Tk):
             self._update_range_icon_state(slot, self.table_windows.get(table_id, {}), hand)
             messagebox.showinfo(
                 "Preflop range",
-                "この状況に一致する元画像レンジはありません。\n"
-                "推測画像は表示せず、レンジ料金も発生していません。",
+                "この状況に一致する174局面レンジ表はありません。\n"
+                "推測レンジは表示せず、レンジ料金も発生していません。",
             )
             return
         try:
-            range_photo = create_range_photo(self, int(chart["source_id"]))
-        except (RangeImageCatalogError, KeyError, TypeError, ValueError) as exc:
+            # Validate the complete 169-hand frequency matrix before charging.
+            # This path reads only the verified 174-scenario policy data; it
+            # never opens the legacy bitmap catalogue or creates a PhotoImage.
+            range_model = build_range_chart_model(int(chart["source_id"]))
+        except (RangeChartDataError, KeyError, TypeError, ValueError) as exc:
             messagebox.showerror(
-                "Range image unavailable",
-                f"元レンジ画像を読み込めませんでした。料金は発生していません。\n{exc}",
+                "Range chart unavailable",
+                f"レンジ表の元データを読み込めませんでした。料金は発生していません。\n{exc}",
             )
             return
         if not paid:
@@ -3972,7 +3980,7 @@ class PigeonPokerApp(tk.Tk):
             charge_label=("1 BB paid for this hand • re-open free" if not paid
                           else "Already paid this hand • re-open free"),
             table_id=table_id,
-            photo=range_photo,
+            model=range_model,
         )
 
     def _open_live_hand_flow(self, table_id: str):
@@ -10796,23 +10804,20 @@ class PigeonPokerApp(tk.Tk):
         title: str,
         charge_label: str,
         table_id: str | None = None,
-        photo=None,
+        model: dict[str, Any] | None = None,
     ):
-        """Display the selected original 13x13 range bitmap without redrawing it."""
+        """Render the source-backed 13x13 strategy matrix with native Tk Canvas."""
         try:
             source_id = int((chart or {}).get("source_id", 0) or 0)
             if source_id <= 0:
-                raise RangeImageCatalogError("The selected scenario has no source screenshot ID")
-            # Live review passes a prevalidated PhotoImage before the wallet is
-            # debited. Historical review creates it here, without a charge.
-            photo = photo or create_range_photo(self, source_id)
-        except (RangeImageCatalogError, KeyError, TypeError, ValueError) as exc:
-            messagebox.showerror("Range image unavailable", str(exc))
+                raise RangeChartDataError("The selected scenario has no source ID")
+            model = model or build_range_chart_model(source_id)
+            if int(model.get("source_id", -1)) != source_id:
+                raise RangeChartDataError("The range chart data does not match the selected scenario")
+        except (RangeChartDataError, KeyError, TypeError, ValueError) as exc:
+            messagebox.showerror("Range chart unavailable", str(exc))
             return
 
-        # Keep the image directly over the table's upper-left corner. The
-        # matrix itself is one native PhotoImage: no Canvas, chart recreation,
-        # browser frame, action panel, legend, or frequency recomputation.
         table_record = self.table_windows.get(table_id) if table_id else None
         table_canvas = table_record.get("canvas") if table_record else None
         parent = table_canvas.winfo_toplevel() if table_canvas and table_canvas.winfo_exists() else self
@@ -10820,22 +10825,55 @@ class PigeonPokerApp(tk.Tk):
         win.title(f"PIGEON POKER • RANGE #{source_id}")
         win.configure(bg="#0b1018")
         win.resizable(True, True)
-        win.minsize(360, 240)
-        width = int(photo.width())
-        height = int(photo.height())
+        win.minsize(560, 500)
+
+        header = tk.Frame(win, bg="#0b1018", padx=16, pady=10)
+        header.pack(fill="x")
+        tk.Label(
+            header, text=str(title).upper(), bg="#0b1018", fg="#f2f6fc",
+            font=("Segoe UI", 12, "bold"),
+        ).pack(side="left")
+        tk.Label(
+            header, text=str(charge_label), bg="#0b1018", fg="#e8c36b",
+            font=("Segoe UI", 8, "bold"),
+        ).pack(side="right")
+
+        body = tk.Frame(win, bg="#0b1018")
+        body.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        chart_canvas = tk.Canvas(
+            body, bg="#0b1018", highlightthickness=0, bd=0,
+            width=770, height=700, yscrollincrement=24,
+        )
+        vertical_scroll = ttk.Scrollbar(body, orient="vertical", command=chart_canvas.yview)
+        horizontal_scroll = ttk.Scrollbar(body, orient="horizontal", command=chart_canvas.xview)
+        chart_canvas.configure(
+            yscrollcommand=vertical_scroll.set,
+            xscrollcommand=horizontal_scroll.set,
+        )
+        chart_canvas.grid(row=0, column=0, sticky="nsew")
+        vertical_scroll.grid(row=0, column=1, sticky="ns")
+        horizontal_scroll.grid(row=1, column=0, sticky="ew")
+        body.rowconfigure(0, weight=1)
+        body.columnconfigure(0, weight=1)
+
+        # The 169 cells are drawn as native Canvas shapes and text. There is
+        # no image decoder, PhotoImage, embedded bitmap, or browser surface.
+        draw_preflop_range_canvas(
+            chart_canvas, model, title=title, charge_label=charge_label,
+        )
+
         try:
-            win.geometry(f"{width}x{height}")
+            win.geometry("790x790")
             win.update_idletasks()
             _fit_toplevel_to_monitor_work_area(
                 win,
-                max_outer_width=width + 24,
-                max_outer_height=height + 64,
+                max_outer_width=810,
+                max_outer_height=830,
                 margin=12,
                 anchor=parent,
                 top_left_of_anchor=True,
             )
             win.update_idletasks()
-            win.resizable(False, False)
             win.transient(parent)
             win.deiconify()
             win.lift()
@@ -10844,12 +10882,12 @@ class PigeonPokerApp(tk.Tk):
             try:
                 parent.update_idletasks()
                 win.geometry(
-                    f"{width}x{height}+{parent.winfo_rootx()+12}+{parent.winfo_rooty()+12}"
+                    f"790x790+{parent.winfo_rootx()+12}+{parent.winfo_rooty()+12}"
                 )
             except tk.TclError:
-                win.geometry(f"{width}x{height}")
+                win.geometry("790x790")
 
-        # Freeze only the active hero decision clock while the bitmap is open.
+        # Freeze only the active hero decision clock while the range chart is open.
         # Resume with the exact remaining time when the window is dismissed.
         paused_clock = None
         if table_id and table_id in self.multi_tables:
@@ -10897,20 +10935,8 @@ class PigeonPokerApp(tk.Tk):
             except tk.TclError:
                 pass
 
-        image_label = tk.Label(
-            win,
-            image=photo,
-            bg="#0b1018",
-            bd=0,
-            relief="flat",
-            highlightthickness=0,
-            padx=0,
-            pady=0,
-        )
-        image_label.pack(fill="both", expand=True)
-        image_label.image = photo
-        win._range_photo = photo
         win.bind("<Escape>", close_range_overlay)
+        chart_canvas.bind("<Escape>", close_range_overlay)
         win.protocol("WM_DELETE_WINDOW", close_range_overlay)
     def _open_pokercraft_replay(self):
         """Open an animated, step-based replay using only cards shown originally."""
