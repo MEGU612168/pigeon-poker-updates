@@ -13,17 +13,17 @@ from .engine import evaluate_seven, make_deck
 RANKS = "23456789TJQKA"
 SUITS = "cdhs"
 
-VIP_PRO_EQUITY_SAMPLE_MULTIPLIER = 1.5
-VIP_TOP_PRO_EQUITY_SAMPLE_MULTIPLIER = 4.0
+VIP_PRO_BASE_SAMPLES = 1024
+VIP_TOP_PRO_BASE_SAMPLES = 4096
 
 
-def _vip_pro_sample_multiplier(cpu: Any) -> float:
-    """Scale range/showdown sampling by the active VIP seat tier."""
+def _vip_base_sample_budget(cpu: Any) -> int | None:
+    """Return the actual base Monte Carlo budget used by VIP equity passes."""
     if bool(getattr(cpu, "_vip_top_pro_mode", False)):
-        return VIP_TOP_PRO_EQUITY_SAMPLE_MULTIPLIER
+        return VIP_TOP_PRO_BASE_SAMPLES
     if bool(getattr(cpu, "_vip_pro_mode", False)):
-        return VIP_PRO_EQUITY_SAMPLE_MULTIPLIER
-    return 1.0
+        return VIP_PRO_BASE_SAMPLES
+    return None
 
 
 @dataclass(frozen=True)
@@ -1160,16 +1160,19 @@ def _equity_vs_ranges(hand: Any, hero_id: str, ranges: dict[str, OpponentRange],
         return 1.0, 0
     rng = getattr(cpu, "rng", None) or random.Random()
     level = min(5, max(1, int(getattr(cpu, "level", 3) or 3)))
-    vip_multiplier = _vip_pro_sample_multiplier(cpu)
-    runs = int(
-        (220 + level * 130)
-        * max(0.20, min(1.0, simulation_multiplier))
-        * vip_multiplier
-    )
-    sample_cap = (
-        4096 if bool(getattr(cpu, "_vip_top_pro_mode", False)) else
-        1450 if vip_multiplier > 1.0 else 950
-    )
+    vip_budget = _vip_base_sample_budget(cpu)
+    if vip_budget is not None:
+        # A full-strength pass uses exactly the advertised tier budget.
+        # Smaller candidate/response passes use a documented fraction of it.
+        fraction = max(0.20, min(1.0, float(simulation_multiplier)))
+        runs = int(round(vip_budget * fraction))
+        sample_cap = vip_budget
+    else:
+        runs = int(
+            (220 + level * 130)
+            * max(0.20, min(1.0, simulation_multiplier))
+        )
+        sample_cap = 950
     runs = max(100, min(sample_cap, runs))
     deck = [str(card) for card in make_deck()]
     remaining = 5 - len(board)
@@ -1230,17 +1233,17 @@ def _current_showdown_equity(
         return 1.0, 0
     rng = getattr(cpu, "rng", None) or random.Random()
     level = min(5, max(1, int(getattr(cpu, "level", 3) or 3)))
-    vip_multiplier = _vip_pro_sample_multiplier(cpu)
-    sample_cap = (
-        4096 if bool(getattr(cpu, "_vip_top_pro_mode", False)) else
-        650 if vip_multiplier > 1.0 else 420
-    )
-    runs = max(100, min(
-        sample_cap,
-        int((120 + level * 60) * max(
+    vip_budget = _vip_base_sample_budget(cpu)
+    if vip_budget is not None:
+        fraction = max(0.25, min(1.0, float(simulation_multiplier)))
+        runs = int(round(vip_budget * fraction))
+        sample_cap = vip_budget
+    else:
+        sample_cap = 420
+        runs = int((120 + level * 60) * max(
             0.25, min(1.0, float(simulation_multiplier))
-        ) * vip_multiplier),
-    ))
+        ))
+    runs = max(100, min(sample_cap, runs))
     deck = [str(card) for card in make_deck()]
     hero_rank = evaluate_seven(hero_cards + board)
     wins = 0.0
@@ -3604,7 +3607,7 @@ def _choose_range_aware_action_impl(
         f"blockers value/bluff/draw={blocker_metrics['value_call_combos_blocked']:.1%}/"
         f"{blocker_metrics['bluff_call_combos_blocked']:.1%}/"
         f"{blocker_metrics['draw_call_combos_blocked']:.1%}; "
-        f"ranges {len(ranges)}; samples {samples + response_samples}; uncertainty {uncertainty:.2f}; "
+        f"ranges {len(ranges)}; total samples {samples + made_samples + response_samples}; uncertainty {uncertainty:.2f}; "
         f"policy penalty {guardrail_penalty}; EV≈{best_ev:.1f}; "
         f"current-made-equity={current_made_equity:.1%}; "
         f"equity-realization={equity_realization:.3f}; "

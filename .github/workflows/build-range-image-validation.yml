@@ -7,6 +7,16 @@ on:
       - "staging/source_1_3_101/pigeon_poker/range_image_catalog.py"
       - "staging/source_1_3_101/pigeon_poker/preflop_174_policy.py"
       - "staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py"
+      - "staging/source_1_3_101/pigeon_poker/range_chart_canvas.py"
+      - "staging/source_1_3_101/pigeon_poker/range_chart_canvas.py"
+      - "staging/test_range_chart_canvas.py"
+      - "staging/source_1_3_101/pigeon_poker/poker_reasoning.py"
+      - "staging/source_1_3_101/PigeonPoker.pyw"
+      - "staging/test_preflop_174_policy.py"
+      - "staging/test_poker_reasoning.py"
+      - "staging/test_cpu_learning.py"
+      - "staging/test_preflop_policy_removed.py"
+      - "staging/test_vip_pro_and_dock.py"
       - "staging/source_1_3_101/pigeon_poker/range_tables_v2.bin"
       - "staging/test_real_range_bitmap_asset.py"
       - "staging/test_range_image_catalog.py"
@@ -57,6 +67,8 @@ jobs:
           python -m py_compile staging/source_1_3_101/pigeon_poker/range_image_catalog.py
           python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_174_policy.py
           python -m py_compile staging/source_1_3_101/pigeon_poker/preflop_174_policy_data.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/range_chart_canvas.py
+          python -m py_compile staging/source_1_3_101/pigeon_poker/poker_reasoning.py
           python -m py_compile staging/source_1_3_101/pigeon_updater.py
           python staging/test_real_range_bitmap_asset.py
           python staging/test_range_image_catalog.py
@@ -68,6 +80,9 @@ jobs:
           python staging/test_preflop_legacy_cleanup.py
           python staging/test_preflop_policy_removed.py
           python staging/test_preflop_174_policy.py
+          python staging/test_range_chart_canvas.py
+          python staging/test_vip_pro_and_dock.py
+
       - name: Build and validate a full installable package without publishing stable
         run: |
           set -euo pipefail

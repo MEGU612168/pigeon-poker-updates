@@ -1126,7 +1126,7 @@ class PigeonPokerApp(tk.Tk):
         tk.Label(vip_card, text="♛  THREE PRO  •  TWO TOP PRO  •  NO NUMBERED SEAT NAMES",
                  bg="#17070d", fg="#f1cd7c",
                  font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=28, pady=(0, 6))
-        tk.Label(vip_card, text="PRO 1,024 SAMPLES  •  TOP PRO 4,096 SAMPLES  •  DEEP RANGE & SHOWDOWN ANALYSIS",
+        tk.Label(vip_card, text="PRO 1,024 BASE MC  •  TOP PRO 4,096 BASE MC  •  DEEP RANGE & SHOWDOWN ANALYSIS",
                  bg="#17070d", fg="#efb7a9", font=("Segoe UI", 9, "bold"),
                  wraplength=980, justify="left").pack(anchor="w", padx=28, pady=(0, 10))
         tk.Label(vip_card, text="Buy-in: 20–100 BB ($1,000–$5,000)  •  Default: 100 BB ($5,000)  •  No ante",
@@ -1468,9 +1468,9 @@ class PigeonPokerApp(tk.Tk):
                     if self.vip_cpu_roles.get(profile.cpu_id) == VIP_TOP_PRO_ROLE else
                     VIP_PRO_SIMULATIONS if is_vip_mode(table_mode) else 48
                 ),
+                # Skill tiers change analysis precision, not a crude
+                # aggression archetype. Both VIP tiers use the balanced model.
                 archetype=(
-                    "aggressive"
-                    if self.vip_cpu_roles.get(profile.cpu_id) == VIP_TOP_PRO_ROLE else
                     "balanced" if is_vip_mode(table_mode) else profile.archetype
                 ),
                 # Tier-specific postflop flags are applied immediately below.
@@ -1501,9 +1501,12 @@ class PigeonPokerApp(tk.Tk):
                 f"VIP LINEUP: {VIP_PRO_COUNT} PRO + {VIP_TOP_PRO_COUNT} TOP PRO. No numbered aliases or weaker CPU tier."
             )
             self.cash_log_lines.append(
-                f"CPU policy: fixed 174-scenario preflop chart; PRO {VIP_PRO_SIMULATIONS:,} "
-                f"and TOP PRO {VIP_TOP_PRO_SIMULATIONS:,} postflop samples. "
-                f"TOP PRO uses stronger pressure-oriented EV selection. Local strategy, not solver-exact GTO."
+                "CPU policy: exact-history 174-source preflop chart where the full action history "
+                "and measured hand cell match; unsupported histories/cells use a separately labelled "
+                "range-aware fallback. "
+                f"PRO {VIP_PRO_SIMULATIONS:,} / TOP PRO {VIP_TOP_PRO_SIMULATIONS:,} base Monte Carlo "
+                "trials per full equity pass. Both use balanced EV reasoning; "
+                "TOP PRO has deeper sampling, not a separate solver-exact strategy."
             )
             self.cash_log_lines.append(
                 "VIP AUTO-REBUY: any seat below 80 BB is topped up to 100 BB before the next hand; "
@@ -4416,8 +4419,12 @@ class PigeonPokerApp(tk.Tk):
                     # move almost immediately; postflop keeps natural thinking time.
                     fallback_decision = None
                     if hand.street == "preflop":
-                        # All CPUs use the same 174-scenario preflop policy.
-                        fallback_decision = choose_preflop_174_action(table, hand, pid, cpu)
+                        # Use an exact 174 chart only when the full action history matches.
+                        # Uncovered states are sent to the separate range-aware policy.
+                        fallback_decision = choose_preflop_174_action(
+                            table, hand, pid, cpu,
+                            range_estimator=postflop_range_estimator,
+                        )
                     elif not (session is not None and session.hand_token == id(hand) and session.context is not None):
                         # The same opponent-range engine handles postflop decisions.
                         fallback_decision = choose_range_aware_action(table, hand, pid, cpu, range_estimator=postflop_range_estimator)
@@ -4518,7 +4525,10 @@ class PigeonPokerApp(tk.Tk):
                         decision = fallback_decision
                         if decision is None:
                             if hand.street == "preflop":
-                                decision = choose_preflop_174_action(table, hand, pid, cpu)
+                                decision = choose_preflop_174_action(
+                                    table, hand, pid, cpu,
+                                    range_estimator=postflop_range_estimator,
+                                )
                             else:
                                 decision = choose_range_aware_action(table, hand, pid, cpu, range_estimator=postflop_range_estimator)
                         if decision is None:
@@ -4538,7 +4548,8 @@ class PigeonPokerApp(tk.Tk):
                             "preflop-174-scenario-policy", "preflop-174-legal-guardrail"
                         }
                         range_policy_used = decision_source in {
-                            "range-aware-policy", "range-aware-guardrail"
+                            "range-aware-policy", "range-aware-guardrail",
+                            "preflop-uncovered-range-aware-fallback",
                         }
                         if preflop_policy_used:
                             source_image_no = getattr(decision, "source_image_no", None)

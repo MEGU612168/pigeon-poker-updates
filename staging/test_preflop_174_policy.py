@@ -67,8 +67,55 @@ def test_all_174_scenarios_and_169_hand_classes_are_loaded():
     assert summary["scenario_count"] == 174
     assert summary["hand_classes_per_scenario"] == 169
     assert summary["scenario_ids"] == list(range(128, 302))
+    print(
+        "174-CATALOG AUDIT:",
+        "source entries=", summary["scenario_count"],
+        "unique ordered histories=", summary["unique_action_history_count"],
+        "duplicate groups=", summary["duplicate_action_history_groups"],
+        "duplicate context metadata=", summary["duplicate_history_details"],
+        "ambiguous duplicate matrices=", summary["ambiguous_duplicate_history_groups"],
+        "unique full matrices=", summary["unique_169_cell_strategy_matrix_count"],
+    )
+    assert 0 < summary["unique_action_history_count"] <= 174
+    assert "duplicate_action_history_groups" in summary
+    assert "unique_169_cell_strategy_matrix_count" in summary
+    assert "ambiguous_duplicate_history_groups" in summary
     assert len(_HAND_INDEX) == 169
     assert all(len(item["hands"]) == 169 for item in _scenarios())
+
+
+def test_emit_full_three_bet_four_bet_source_inventory():
+    for label, aggressive_count in (("FACING_3BET", 2), ("FACING_4BET", 3)):
+        selected = []
+        for scenario in _scenarios():
+            history = list(scenario.get("history", []) or [])
+            count = sum(
+                1 for item in history
+                if str(item.get("action", "")).lower() in {"raise", "allin"}
+            )
+            if count != aggressive_count:
+                continue
+            in_range = sum(1 for row in scenario.get("hands", []) if row)
+            selected.append((int(scenario["id"]), str(scenario["position"]), in_range))
+        print(
+            f"{label}_RANGE_OCCUPANCY count={len(selected)} "
+            f"entries={selected}"
+        )
+
+
+def test_facing_3bet_and_4bet_nodes_are_in_the_174_catalog():
+    scenarios = _scenarios()
+    counts = {}
+    for label, aggressive_count in (("facing_3bet", 2), ("facing_4bet", 3)):
+        counts[label] = sum(
+            1 for scenario in scenarios
+            if sum(
+                1 for item in (scenario.get("history", []) or [])
+                if str(item.get("action", "")).lower() in {"raise", "allin"}
+            ) == aggressive_count
+        )
+    assert counts == {"facing_3bet": 45, "facing_4bet": 57}
+
 
 
 def test_source_action_frequencies_and_separate_sizes():
@@ -116,12 +163,58 @@ def test_scenario_251_actor_is_btn():
     assert scenario["id"] == 251 and not inferred and distance == 0.0
 
 
-def test_unclassified_cell_is_inferred_not_folded():
+def test_out_of_range_hand_uses_the_exact_node_guardrail_not_generic_ranges():
     scenario = next(item for item in _scenarios() if item["id"] == 153)
     distribution, inferred, method = _scenario_distribution(scenario, "K4s")
-    assert inferred and method == "same-scenario-hand-neighbours"
-    assert distribution and sum(distribution.values()) > 0.999
+    assert inferred and method == "out-of-range-at-node"
+    assert distribution == {}
 
+    # Exact #153: UTG opens 2 BB, HJ 3-bets to 6.5 BB, all others fold,
+    # and UTG acts again. K4s is black/out of range at this conditional node.
+    events = [
+        event("utg", "raise", 200),
+        event("hj", "raise", 650),
+        event("co", "fold"),
+        event("btn", "fold"),
+        event("sb", "fold"),
+        event("bb", "fold"),
+    ]
+    hand = FakeHand(events, "utg", ("Ks", "4s"), {
+        "actions": ["call", "fold"],
+        "to_call": 450,
+        "raise_allowed": False,
+        "min_target": 0,
+        "max_target": 10000,
+    })
+    decision = choose_preflop_174_action(FakeTable(), hand, "utg", FakeCPU())
+    assert decision.source == "preflop-174-out-of-range-guardrail"
+    assert decision.source_image_no == 153
+    assert decision.scenario_match_mode == "exact"
+    assert decision.action == "fold"
+    assert decision.action_frequency == 0.0
+    assert "OUT OF RANGE" in decision.note
+
+
+
+def test_unmatched_preflop_history_never_borrows_a_nearest_chart():
+    import math
+    scenario, inferred, distance = _choose_scenario(
+        "CO", [event("utg", "raise", 7700)], FakeCPU().rng
+    )
+    assert scenario is None
+    assert inferred
+    assert math.isinf(distance)
+
+    hand = FakeHand([event("utg", "raise", 7700)], "co", ("As", "Ah"))
+    decision = choose_preflop_174_action(FakeTable(), hand, "co", FakeCPU())
+    assert decision.source == "preflop-uncovered-legal-guardrail"
+    assert decision.source_image_no is None
+    assert decision.node_id == "UNMAPPED_PREFLOP_HISTORY"
+
+
+def test_paid_raise_size_menu_is_hidden_for_unmatched_history():
+    hand = FakeHand([event("utg", "raise", 7700)], "co", ("As", "Ah"))
+    assert preflop_174_raise_size_options(FakeTable(), hand, "co") is None
 
 def test_hero_raise_size_options_match_the_174_scenario_and_stay_legal():
     events = [event("utg", "fold"), event("hj", "fold"), event("co", "fold"),
@@ -284,11 +377,15 @@ def test_situation_size_stays_visible_but_disabled_when_current_hand_never_raise
 if __name__ == "__main__":
     tests = [
         test_all_174_scenarios_and_169_hand_classes_are_loaded,
+        test_emit_full_three_bet_four_bet_source_inventory,
+        test_facing_3bet_and_4bet_nodes_are_in_the_174_catalog,
         test_source_action_frequencies_and_separate_sizes,
         test_bb_vs_btn_open_matches_source_146_and_uses_13bb,
         test_same_actor_multiple_actions_are_preserved,
         test_scenario_251_actor_is_btn,
-        test_unclassified_cell_is_inferred_not_folded,
+        test_out_of_range_hand_uses_the_exact_node_guardrail_not_generic_ranges,
+        test_unmatched_preflop_history_never_borrows_a_nearest_chart,
+        test_paid_raise_size_menu_is_hidden_for_unmatched_history,
         test_hero_raise_size_options_match_the_174_scenario_and_stay_legal,
         test_hero_raise_size_options_are_not_offered_outside_preflop_or_out_of_turn,
         test_preflop_policy_is_cpu_level_independent,

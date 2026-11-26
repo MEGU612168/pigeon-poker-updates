@@ -19,7 +19,8 @@ def test_application_routes_preflop_cpu_actions_to_the_174_policy() -> None:
     source = APP.read_text(encoding="utf-8")
     ast.parse(source, filename=str(APP))
     assert "from pigeon_poker.preflop_174_policy import choose_preflop_174_action" in source
-    assert source.count("choose_preflop_174_action(table, hand, pid, cpu)") >= 2
+    assert source.count("choose_preflop_174_action(") >= 2
+    assert "range_estimator=postflop_range_estimator" in source
     assert "_choose_preflop_legal_fallback" not in source
     assert "174_POLICY_PENDING" not in source
     assert "TEMPORARY SAFE FALLBACK" not in source
@@ -42,8 +43,10 @@ def test_174_policy_is_packaged_and_is_cpu_level_independent() -> None:
     assert "cpu.level" not in policy
     assert "cpu.archetype" not in policy
     assert "preflop-174-scenario-policy" in policy
-    assert "same-scenario-hand-neighbours" in policy
-    assert "_history_distance" in policy
+    assert "out-of-range-at-node" in policy
+    assert "preflop-174-out-of-range-guardrail" in policy
+    assert "No exact 174-scenario action history" in policy
+    assert "ranked = [(_history_distance" not in policy
 
 
 def test_old_hero_sizing_controls_are_removed_but_manual_bet_controls_remain() -> None:

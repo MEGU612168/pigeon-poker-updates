@@ -6,6 +6,8 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 SOURCE = ROOT / "source_1_3_101" / "PigeonPoker.pyw"
 VIP_SOURCE = ROOT / "source_1_3_101" / "pigeon_poker" / "vip_ai.py"
+REASONING_SOURCE = ROOT / "source_1_3_101" / "pigeon_poker" / "poker_reasoning.py"
+REASONING_TEXT = REASONING_SOURCE.read_text(encoding="utf-8")
 TEXT = SOURCE.read_text(encoding="utf-8")
 TREE = ast.parse(TEXT, filename=str(SOURCE))
 
@@ -62,9 +64,17 @@ def test_vip_pro_and_top_pro_use_separate_simulation_budgets() -> None:
     assert 'self.vip_cpu_roles.get(profile.cpu_id) == VIP_TOP_PRO_ROLE' in join
     assert "vip_cpu._vip_top_pro_mode" in join
     assert "vip_cpu._vip_pro_mode = True" in join
-    assert '"aggressive"' in join
-    assert "fixed 174-scenario preflop chart" in join
-    assert "Local strategy, not solver-exact GTO" in join
+    assert '"balanced" if is_vip_mode(table_mode) else profile.archetype' in join
+    assert '"aggressive"' not in join
+    assert "exact-history 174-source preflop chart" in join
+    assert "separately labelled" in join
+    assert "not a separate solver-exact strategy" in join
+    assert "deeper sampling" in join
+    assert "not a separate solver-exact strategy" in join
+    assert "VIP_PRO_BASE_SAMPLES = 1024" in REASONING_TEXT
+    assert "VIP_TOP_PRO_BASE_SAMPLES = 4096" in REASONING_TEXT
+    assert "def _vip_base_sample_budget(" in REASONING_TEXT
+    assert REASONING_TEXT.count("_vip_base_sample_budget(cpu)") >= 2
 
 
 def test_vip_has_distinct_private_club_window_and_table_surface() -> None:
@@ -81,8 +91,8 @@ def test_vip_has_distinct_private_club_window_and_table_surface() -> None:
     assert 'text=vip_role_text' in draw
     assert '"TOP PRO"' in draw
     assert "THREE PRO  •  TWO TOP PRO" in lobby
-    assert "PRO 1,024 SAMPLES" in lobby
-    assert "TOP PRO 4,096 SAMPLES" in lobby
+    assert "PRO 1,024 BASE MC" in lobby
+    assert "TOP PRO 4,096 BASE MC" in lobby
     assert "#71172c" in draw
     assert "#e2bd69" in draw
     assert "window._pigeon_vip_theme = vip_mode" in create

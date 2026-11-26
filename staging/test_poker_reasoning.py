@@ -149,6 +149,39 @@ class FakeTable:
     dealer_index = 0
 
 
+def test_vip_sample_counts_match_the_advertised_actual_loop_budgets():
+    hand = FakeHand(
+        [FakePlayer("hero", ("As", "Ah")), FakePlayer("villain")],
+        board=("2c", "3d", "4h", "5s", "8c"),
+        street="river", to_call=0, actions=("check",),
+    )
+    opponent = module.OpponentRange(
+        player_id="villain",
+        combos=((("Ks", "Kh"), 1.0),),
+        source="test-fixed-range",
+        confidence=1.0,
+    )
+    ranges = {"villain": opponent}
+    original_evaluate = module.evaluate_seven
+    original_sample = module._sample_joint_opponent_hands
+    module.evaluate_seven = lambda cards: (1,)
+    module._sample_joint_opponent_hands = lambda opponents, blocked, deck, rng: [("Ks", "Kh")]
+    try:
+        for flag, expected in (("_vip_pro_mode", 1024), ("_vip_top_pro_mode", 4096)):
+            cpu = FakeCPU()
+            setattr(cpu, "_vip_pro_mode", flag == "_vip_pro_mode")
+            setattr(cpu, "_vip_top_pro_mode", flag == "_vip_top_pro_mode")
+            _, equity_samples = module._equity_vs_ranges(hand, "hero", ranges, cpu)
+            _, made_samples = module._current_showdown_equity(
+                hand, "hero", ranges, cpu, simulation_multiplier=1.0
+            )
+            assert equity_samples == expected
+            assert made_samples == expected
+    finally:
+        module.evaluate_seven = original_evaluate
+        module._sample_joint_opponent_hands = original_sample
+
+
 def sample_estimator(*, table, hand, exclude_player_id):
     rows = {
         "UTG": {
@@ -2050,9 +2083,12 @@ def test_cash_cpu_connects_174_chart_ranges_and_learned_profiles_to_postflop():
     assert "learned_profiles=opponent_learning" in app_source
     assert "player_profiles=profiles" in app_source
     assert "def postflop_range_estimator(" in app_source
-    assert app_source.count("range_estimator=postflop_range_estimator") == 2
+    assert app_source.count("choose_preflop_174_action(") == 2
+    # Both preflop uncovered-state paths and both postflop decisions use
+    # the same range estimator; preflop chart misses never borrow nearby nodes.
+    assert app_source.count("range_estimator=postflop_range_estimator") == 4
     # The 174 preflop policy remains a separate, immutable CPU decision path.
-    assert "choose_preflop_174_action(table, hand, pid, cpu)" in app_source
+    assert app_source.count("choose_preflop_174_action(") == 2
     reasoning_source = MODULE_PATH.read_text(encoding="utf-8")
     assert "def _postflop_polarized_candidate_role(" in reasoning_source
     assert "polar-role={selected_polar_role}" in reasoning_source
@@ -2069,9 +2105,9 @@ def test_vip_pro_and_top_pro_use_separate_equity_sample_depths():
     pro_cpu._vip_pro_mode = True
     top_pro_cpu._vip_pro_mode = True
     top_pro_cpu._vip_top_pro_mode = True
-    assert module._vip_pro_sample_multiplier(standard_cpu) == 1.0
-    assert module._vip_pro_sample_multiplier(pro_cpu) == 1.5
-    assert module._vip_pro_sample_multiplier(top_pro_cpu) == 4.0
+    assert module._vip_base_sample_budget(standard_cpu) is None
+    assert module._vip_base_sample_budget(pro_cpu) == 1024
+    assert module._vip_base_sample_budget(top_pro_cpu) == 4096
 
 
 def test_flush_and_straight_draws_require_private_hand_contribution():

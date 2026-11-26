@@ -271,6 +271,27 @@ def test_bot_uses_the_169_hand_frequencies_for_each_first_in_and_response_family
                 table, hand, actor_id,
                 SimpleNamespace(rng=random.Random(1000 + source_id), level=1, archetype="balanced"),
             )
+            # A black source cell is outside the conditional range at this
+            # exact node, not missing data. The BOT must keep the exact source
+            # ID and must not use the generic range-aware fallback.
+            if not distribution:
+                if getattr(decision, "source", "") != "preflop-174-out-of-range-guardrail":
+                    failures.append((
+                        source_id, hand_class, "out-of-range hand did not use exact-node guardrail",
+                        getattr(decision, "source", ""),
+                    ))
+                if int(getattr(decision, "source_image_no", -1)) != int(chart["source_id"]):
+                    failures.append((
+                        source_id, hand_class, "out-of-range hand lost exact source image",
+                        getattr(decision, "source_image_no", None), chart["source_id"],
+                    ))
+                if float(getattr(decision, "action_frequency", -1.0)) != 0.0:
+                    failures.append((
+                        source_id, hand_class, "out-of-range hand was assigned a fabricated frequency",
+                        getattr(decision, "action_frequency", None),
+                    ))
+                continue
+
             action = _normalise_action(decision.action)
             if action == "raise":
                 matching = [

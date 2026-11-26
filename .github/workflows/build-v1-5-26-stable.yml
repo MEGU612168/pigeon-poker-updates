@@ -109,6 +109,7 @@ jobs:
           import io
           import json
           import pathlib
+          import sys
           import tempfile
           import zipfile
           from datetime import datetime, timezone
@@ -131,11 +132,24 @@ jobs:
               raise SystemExit("This release is withdrawn and must not be distributed.")
           if meta.get("preflop_174_policy_verified") is not True:
               raise SystemExit("The complete 174-scenario preflop policy has not been verified; stable publication is blocked.")
-          expected_duplicate_groups = [[195, 204], [196, 205], [238, 243]]
-          if meta.get("unique_semantic_situations_expected") != 171:
-              raise SystemExit("The audited 174-entry dataset must report 171 unique semantic situations.")
-          if meta.get("duplicate_semantic_scenario_groups") != expected_duplicate_groups:
-              raise SystemExit("The known exact duplicate scenario groups do not match the audited source.")
+          sys.path.insert(0, str(source_dir))
+          from pigeon_poker.preflop_174_policy import preflop_174_catalog_summary
+          catalog_audit = preflop_174_catalog_summary()
+          print("LIVE 174-SCENARIO CATALOG AUDIT:", json.dumps(catalog_audit, ensure_ascii=False))
+          if catalog_audit.get("scenario_count") != 174:
+              raise SystemExit("The source catalog must contain all 174 original scenario entries.")
+          if catalog_audit.get("unique_action_history_count") != 174:
+              duplicates = catalog_audit.get("duplicate_action_history_groups", [])
+              raise SystemExit(
+                  "Stable publication blocked: expected 174 distinct ordered action histories, "
+                  f"found {catalog_audit.get('unique_action_history_count')}; duplicate groups={duplicates}"
+              )
+          if catalog_audit.get("ambiguous_duplicate_history_groups"):
+              raise SystemExit(
+                  "Stable publication blocked: duplicate action histories contain different 169-cell matrices: "
+                  + json.dumps(catalog_audit["ambiguous_duplicate_history_groups"])
+              )
+
           version = str(meta.get("version", "")).strip()
           if version != "1.5.26" or release_dir.name != "v" + version:
               raise SystemExit("Unexpected release version")
@@ -256,9 +270,11 @@ jobs:
           ]
           if missing_postflop_hooks:
               raise SystemExit("The strengthened postflop policy is incomplete: " + ", ".join(missing_postflop_hooks))
-          if ("VIP_PRO_EQUITY_SAMPLE_MULTIPLIER = 1.5" not in reasoning_source
-                  or "def _vip_pro_sample_multiplier(" not in reasoning_source):
-              raise SystemExit("VIP PRO equity sample boost is missing from the postflop reasoning engine.")
+          if ("VIP_PRO_BASE_SAMPLES = 1024" not in reasoning_source
+                  or "VIP_TOP_PRO_BASE_SAMPLES = 4096" not in reasoning_source
+                  or "def _vip_base_sample_budget(" not in reasoning_source
+                  or reasoning_source.count("_vip_base_sample_budget(cpu)") < 2):
+              raise SystemExit("VIP base sample budgets are not wired into both actual equity sampling loops.")
           if "sdv_candidates_blocked += 1" not in reasoning_source:
               raise SystemExit("SDV candidates are not being counted and filtered before strategy mixing.")
           if "def _call_realized_equity(" not in reasoning_source or "def _geometric_bet_fraction(" not in reasoning_source:
@@ -375,6 +391,7 @@ jobs:
               "VIP_TOP_PRO_SIMULATIONS = 4096",
               "simulations=(",
               "VIP_TOP_PRO_ROLE",
+              '"balanced" if is_vip_mode(table_mode) else profile.archetype',
               "vip_cpu._vip_top_pro_mode",
               "make_vip_auto_rebuy_plan(",
               'is_top_pro = (vip_role_text == "TOP PRO")',
@@ -386,8 +403,8 @@ jobs:
               'situation_actions.configure(height=18 if vip_mode else 20)',
               '("size_actions", "situation_actions", 28 if vip_dock else 30)',
               '("situation_actions", "utility_actions", 18 if vip_dock else 20)',
-              "PRO 1,024 SAMPLES",
-              "TOP PRO 4,096 SAMPLES",
+              "PRO 1,024 BASE MC",
+              "TOP PRO 4,096 BASE MC",
               "#71172c",
               "#e2bd69",
               "dock_row.winfo_children()",
@@ -420,8 +437,15 @@ jobs:
               raise SystemExit("Temporary generic preflop fallback must not remain in the application")
           if "from pigeon_poker.preflop_174_policy import choose_preflop_174_action" not in app_source:
               raise SystemExit("Application does not import the 174-scenario CPU policy")
-          if app_source.count("choose_preflop_174_action(table, hand, pid, cpu)") < 2:
-              raise SystemExit("Application does not route both preflop CPU decision paths through the 174-scenario policy")
+          if app_source.count("choose_preflop_174_action(") < 2:
+              raise SystemExit("Application does not route both preflop CPU decision paths through the strict 174-scenario policy")
+          preflop_policy_source = (source_dir / "pigeon_poker" / "preflop_174_policy.py").read_text(encoding="utf-8")
+          if "No exact 174-scenario action history" not in preflop_policy_source:
+              raise SystemExit("Unmatched preflop states are not explicitly routed away from chart data.")
+          if "unmeasured-image-cell" not in preflop_policy_source:
+              raise SystemExit("Unmeasured 169-cell entries are still being inferred as chart data.")
+          if "ranked = [(_history_distance" in preflop_policy_source:
+              raise SystemExit("Fuzzy nearest-node preflop chart selection must remain disabled.")
           required_feature_hooks = (
               "def _build_pokercraft_page(",
               "def _tick_pokercraft_live_refresh(",
@@ -591,8 +615,8 @@ jobs:
               "legacy_preflop_strategy": "removed",
               "preflop_cpu_runtime": "174-scenario source-backed policy",
               "range_chart_bot_sizing_source": "same exact 174 scenario ID",
-              "bot_live_scenario_mapping": "174/174 scenarios match source 169-hand matrices, including omitted raise-size cases resolved by live pot and to-call state",
-              "bot_hand_frequency_integration": "169 hand classes across 10 scenario families passed",
+              "bot_live_scenario_mapping": "174 source-image entries retained; CPU and paid-range sizing require an exact ordered history and verified raise sizes; unmatched states do not borrow a nearby chart",
+              "bot_hand_frequency_integration": "Measured 169-cell frequencies are used as transcribed; blank cells are marked unmeasured and routed to a separate fallback",
               "hero_raise_size_menu": "all source-defined raise sizes shown and disabled only when unavailable for that hand/state",
               "retired_preflop_module": "not bundled",
               "updater_extract_validation": "passed",
