@@ -300,9 +300,10 @@ def _scenario_distribution(scenario: dict[str, Any], hand_class: str) -> tuple[d
     index = _HAND_INDEX[hand_class]
     if scenario["hands"][index]:
         return _normalise_distribution(_decode_hand_actions(scenario, index)), False, "measured-image-cell"
-    # A blank/grey source cell is not a measured frequency distribution.
-    # Never fabricate a hand strategy from neighbouring cells or scenario totals.
-    return {}, True, "unmeasured-image-cell"
+    # A black cell in the source matrix is outside this player's conditional
+    # range at this exact node (no reach from the earlier line). It is not a
+    # missing Fold frequency and must not trigger a broad range fallback.
+    return {}, True, "out-of-range-at-node"
 
 
 def _scenario_strategy_signature(scenario: dict[str, Any]) -> tuple[Any, ...]:
@@ -562,8 +563,9 @@ def _safe_legal_fallback(
     *,
     scenario_inferred: bool = False,
     distance: float = 0.0,
+    out_of_range: bool = False,
 ) -> SimpleNamespace:
-    """Take a legal safety action without inventing a missing 174 source ID."""
+    """Take a legal action for an unsupported state or a hand outside a matched node range."""
     available = _legal_actions(legal)
     to_call = max(0, int(legal.get("to_call", 0) or 0))
     if "check" in available and to_call == 0:
@@ -583,7 +585,9 @@ def _safe_legal_fallback(
     return SimpleNamespace(
         player_id=str(player_id), action=action, amount=amount,
         source=(
-            "preflop-174-legal-guardrail" if scenario_id is not None
+            "preflop-174-out-of-range-guardrail"
+            if scenario_id is not None and out_of_range
+            else "preflop-174-legal-guardrail" if scenario_id is not None
             else "preflop-uncovered-legal-guardrail"
         ),
         node_id=(
@@ -591,7 +595,7 @@ def _safe_legal_fallback(
             else "UNMAPPED_PREFLOP_HISTORY"
         ),
         source_image_no=None if scenario_id is None else int(scenario_id),
-        hand_class=hand_class, action_frequency=1.0,
+        hand_class=hand_class, action_frequency=0.0 if out_of_range else 1.0,
         inferred=bool(scenario_inferred), scenario_match_mode=(
             "unmatched" if scenario_id is None
             else "exact" if not scenario_inferred
@@ -601,8 +605,14 @@ def _safe_legal_fallback(
         action_size_bb=None, size_source="legal-guardrail",
         note=(
             (
-                f"174-scenario #{int(scenario_id)}; no measured action was available "
-                "for this hand in the matched source cell; legal guardrail used."
+                f"174-scenario #{int(scenario_id)}: this hand is OUT OF RANGE at the exact "
+                "matched node because it has no reach from the earlier action line. "
+                "A conservative legal-action guardrail was used; this is not a measured "
+                "100% Fold frequency."
+            ) if scenario_id is not None and out_of_range else
+            (
+                f"174-scenario #{int(scenario_id)}; the measured action could not be applied "
+                "to the current legal-action set; legal guardrail used."
             ) if scenario_id is not None else
             "No exact 174-scenario action history matched; no unrelated range was borrowed. "
             "A conservative legal-action guardrail was used."
@@ -621,8 +631,10 @@ def choose_preflop_174_action(
     """Select a legal preflop action from exact 174 source scenarios.
 
     Every CPU uses the same measured chart frequencies for exact 174 histories.
-    Unmatched histories and unmeasured hand cells are routed away from fabricated
-    chart data. Postflop behaviour remains in poker_reasoning.py.
+    Unmatched histories use the independent range-aware fallback. A black hand
+    cell at an exact node means the hand is outside that node's conditional range;
+    it receives a conservative legal-action guardrail, not a generic range fallback.
+    Postflop behaviour remains in poker_reasoning.py.
     """
     legal = hand.legal_actions(player_id)
     if not legal.get("actions"):
@@ -684,8 +696,10 @@ def choose_preflop_174_action(
 
     distribution, hand_inferred, hand_method = _scenario_distribution(scenario, hand_class)
     if not distribution:
-        return uncovered_fallback(
-            f"174-scenario #{int(scenario['id'])} has no measured cell for {hand_class}"
+        return _safe_legal_fallback(
+            player_id, legal, hand_class, int(scenario["id"]),
+            scenario_inferred=scenario_inferred, distance=distance,
+            out_of_range=(hand_method == "out-of-range-at-node"),
         )
     distribution = _filter_first_in_distribution(actor_position, actual_history, distribution)
     bb = _big_blind(hand, table)
@@ -900,53 +914,3 @@ def preflop_174_catalog_summary() -> dict[str, Any]:
         "multi_raise_size_scenarios": [int(item["id"]) for item in scenarios
             if len({tuple(option) for option in item["action_options"] if option[0] == "raise"}) > 1],
     }
-
-
-def preflop_174_pressure_coverage_summary() -> dict[str, Any]:
-    """Measure complete 169-cell coverage for facing 3-bet and 4-bet states.
-
-    A source screenshot's dark/empty matrix cells are not fold frequencies:
-    fold is a measured action with its own frequency. Empty rows therefore
-    remain unmeasured and must not be counted as a complete chart.
-    """
-    scenarios = _scenarios()
-    aggressive_actions = {"raise", "allin"}
-    output: dict[str, Any] = {}
-    for label, expected_prior_aggressions in (
-        ("facing_3bet", 2),  # open + 3-bet
-        ("facing_4bet", 3),  # open + 3-bet + 4-bet
-    ):
-        selected = []
-        for scenario in scenarios:
-            history = list(scenario.get("history", []) or [])
-            prior_aggressions = sum(
-                1 for event in history
-                if _normalise_action(event.get("action")) in aggressive_actions
-            )
-            if prior_aggressions != expected_prior_aggressions:
-                continue
-            rows = list(scenario.get("hands", []) or [])
-            measured = sum(1 for row in rows if row)
-            selected.append({
-                "scenario_id": int(scenario["id"]),
-                "actor_position": str(scenario.get("position", "")).upper(),
-                "measured_hand_cells": measured,
-                "missing_hand_cells": max(0, 169 - measured),
-                "history": history,
-            })
-        incomplete = [
-            item for item in selected if item["measured_hand_cells"] != 169
-        ]
-        output[label] = {
-            "scenario_count": len(selected),
-            "complete_169_cell_count": len(selected) - len(incomplete),
-            "incomplete_count": len(incomplete),
-            "measured_hand_cells_total": sum(
-                item["measured_hand_cells"] for item in selected
-            ),
-            "missing_hand_cells_total": sum(
-                item["missing_hand_cells"] for item in selected
-            ),
-            "incomplete_scenarios": incomplete,
-        }
-    return output
