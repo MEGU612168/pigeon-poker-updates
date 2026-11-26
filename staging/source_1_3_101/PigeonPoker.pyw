@@ -1468,9 +1468,9 @@ class PigeonPokerApp(tk.Tk):
                     if self.vip_cpu_roles.get(profile.cpu_id) == VIP_TOP_PRO_ROLE else
                     VIP_PRO_SIMULATIONS if is_vip_mode(table_mode) else 48
                 ),
+                # Skill tiers change analysis precision, not a crude
+                # aggression archetype. Both VIP tiers use the balanced model.
                 archetype=(
-                    "aggressive"
-                    if self.vip_cpu_roles.get(profile.cpu_id) == VIP_TOP_PRO_ROLE else
                     "balanced" if is_vip_mode(table_mode) else profile.archetype
                 ),
                 # Tier-specific postflop flags are applied immediately below.
