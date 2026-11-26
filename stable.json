@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.10",
-  "published_at": "2026-11-26T09:26:11Z",
-  "release_notes": "Pigeon Poker 1.5.10 fixes live paid preflop range matching across all 174 source situations. When a live action history omits raise-to amounts, the resolver now matches the exact ordered actor/action history and safely disambiguates same-action nodes using the live pot and amount-to-call. Known incorrect raise sizes remain rejected, and ambiguous or mismatched source histories do not produce a paid chart. The BOT and paid range viewer continue to share the same source scenario and 169-hand matrix. Verification covers all 174 situations, all 169 hand classes, omitted raise-size histories, wrong-size rejection, Windows native Tk rendering, and updater package extraction.",
+  "version": "1.5.11",
+  "published_at": "2026-11-26T10:11:08Z",
+  "release_notes": "Pigeon Poker 1.5.11 improves postflop BOT bet sizing with GTO-style size selection. It corrects raise sizing in the opponent response model so the call amount is not counted as part of the raise, reducing distorted fold-equity and EV estimates. Routine flop bets and multiway bets use smaller size menus; overbets require strong nut advantage and polar made-hand strength, with only rare low-SPR stack-offs retained. Turn and river can still use larger sizes when the board, ranges, SPR and hand strength support them. Thin one-pair value is more consistently capped. The full 174-scenario preflop policy remains unchanged.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.10/payload-updater.zip.b64?v=85302e25de438edfb5535464bf420429cb6c9e8659aea1f88680dc3e3eab443b",
-  "payload_sha256": "85302e25de438edfb5535464bf420429cb6c9e8659aea1f88680dc3e3eab443b",
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.11/payload-updater.zip.b64?v=c7be0e8f5d9a5ac9a0d4622c63737b0c724a1a5c4c9a7541009554e36d9f6c71",
+  "payload_sha256": "c7be0e8f5d9a5ac9a0d4622c63737b0c724a1a5c4c9a7541009554e36d9f6c71",
   "payload_size": 1196376
 }
