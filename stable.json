@@ -3,12 +3,12 @@
   "product": "pigeon-poker",
   "channel": "stable",
   "version": "1.5.23",
-  "published_at": "2026-11-26T16:05:37Z",
-  "release_notes": "Pigeon Poker 1.5.23 tightens the table action dock to reclaim vertical space while preserving standard-table sizing. VIP is rebuilt as a lavish ruby-red and gold Private Club: double gold rails, ruby felt, crowned crest, dedicated lobby and buy-in flow, and gold/red controls. All five seats remain PRO ONLY at CPU level 5; the VIP simulation budget doubles from 256 to 512, and VIP-only postflop range/showdown equity sampling increases by 50% with finer EV comparison. The immutable 174-scenario preflop policy and normal Rush CPU settings are unchanged. This remains a stronger local strategy, not solver-exact GTO.",
+  "published_at": "2026-11-26T16:08:24Z",
+  "release_notes": "Pigeon Poker 1.5.23 tightens the bottom action dock on every table (smaller action-button padding, shorter sizing/spot rows, and less outer spacing) so the table felt gains vertical room. VIP is rebuilt as a lavish ruby-red and gold Private Club: double gold rails, ruby felt, crowned crest, dedicated lobby and buy-in flow, and gold/red controls. All five seats remain PRO ONLY at CPU level 5; the VIP simulation budget doubles from 256 to 512, and VIP-only postflop range/showdown equity sampling increases by 50% with finer EV comparison. The immutable 174-scenario preflop policy and normal Rush CPU strategy settings are unchanged. This remains a stronger local strategy, not solver-exact GTO.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.23/payload-updater.zip.b64?v=a0f74f581dd7f6e9ccabafc8c67661989e5ddbf457d8439bed57de102e7d4279",
-  "payload_sha256": "a0f74f581dd7f6e9ccabafc8c67661989e5ddbf457d8439bed57de102e7d4279",
-  "payload_size": 1221144
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.23/payload-updater.zip.b64?v=161f0e3c8b0c7873aa53d73df98db86601318150ac7143911b9333ded9c520d4",
+  "payload_sha256": "161f0e3c8b0c7873aa53d73df98db86601318150ac7143911b9333ded9c520d4",
+  "payload_size": 1221128
 }
