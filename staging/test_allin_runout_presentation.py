@@ -184,6 +184,37 @@ def test_suspense_state_survives_table_switch_and_resets_on_the_next_hand() -> N
         assert f'active_state["{field}"]' in start
 
 
+
+def test_already_dealt_flop_or_turn_is_preserved_and_reveal_starts_next_street() -> None:
+    helper = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "initial_allin_runout_reveal_count"
+    )
+    isolated = ast.Module(body=[helper], type_ignores=[])
+    namespace: dict[str, object] = {}
+    exec(compile(isolated, str(SOURCE), "exec"), namespace)
+    count_fn = namespace["initial_allin_runout_reveal_count"]
+    assert [count_fn(value) for value in (0, 3, 4, 5)] == [0, 3, 4, 4]
+
+    resolve = source_of("_resolve_allin_decision")
+    assert resolve.index("runout_initial_reveal_count = initial_allin_runout_reveal_count(len(hand.board))") < resolve.index(
+        "hand.resolve_allin_runout(selected)"
+    )
+    assert 'slot.state["cash_runout_initial_reveal_count"] = runout_initial_reveal_count' in resolve
+
+
+def test_every_run_it_twice_board_starts_after_the_already_visible_flop() -> None:
+    start = source_of("_animate_multi_runout_reveal")
+    step = source_of("_multi_runout_reveal_step")
+    assert "[initial_reveal_count for _ in boards]" in start
+    assert "_multi_runout_reveal_step(tid, 0, first)" in start
+    assert "state.get(\"cash_runout_initial_reveal_count\", 0)" in step
+    assert "_multi_runout_reveal_step(tid, bi, first)" in step
+    assert "cash_runout_initial_reveal_count" in source_of("_cash_state_snapshot")
+    assert 'active_state["cash_runout_initial_reveal_count"] = 0' in source_of("_start_cash_hand")
+
+
 def run_tests() -> None:
     tests = [
         test_runout_street_order_is_flop_turn_river,
@@ -200,6 +231,8 @@ def run_tests() -> None:
         test_result_banner_pot_paid_and_made_hand_rank_wait_until_runout_finishes,
         test_stacks_and_pot_remain_at_pre_showdown_values_while_cards_are_hidden,
         test_suspense_state_survives_table_switch_and_resets_on_the_next_hand,
+        test_already_dealt_flop_or_turn_is_preserved_and_reveal_starts_next_street,
+        test_every_run_it_twice_board_starts_after_the_already_visible_flop,
     ]
     for test in tests:
         test()
