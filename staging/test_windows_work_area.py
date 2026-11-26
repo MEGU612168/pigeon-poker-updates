@@ -9,7 +9,7 @@ import sys
 from ctypes import wintypes
 from pathlib import Path
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
 
 SOURCE = Path(__file__).with_name("source_1_3_101") / "PigeonPoker.pyw"
@@ -95,6 +95,11 @@ def load_full_range_view_method():
         RangeImageCatalogError,
         range_catalog_summary,
     )
+    from pigeon_poker.range_chart_canvas import (
+        build_range_chart_model,
+        draw_preflop_range_canvas,
+        RangeChartDataError,
+    )
     summary = range_catalog_summary()
     assert summary["source_image_count"] == 174
 
@@ -119,11 +124,15 @@ def load_full_range_view_method():
     ast.fix_missing_locations(module_ast)
     namespace = {
         "tk": tk,
+        "ttk": ttk,
         "time": __import__("time"),
         "messagebox": messagebox,
         "_fit_toplevel_to_monitor_work_area": load_fit_helper(),
         "create_range_photo": create_range_photo,
         "RangeImageCatalogError": RangeImageCatalogError,
+        "build_range_chart_model": build_range_chart_model,
+        "draw_preflop_range_canvas": draw_preflop_range_canvas,
+        "RangeChartDataError": RangeChartDataError,
     }
     exec(compile(module_ast, str(SOURCE), "exec"), namespace)
     display_width = (summary["image_width"] + 1) // 2 if summary["image_width"] > 700 or summary["image_height"] > 550 else summary["image_width"]
