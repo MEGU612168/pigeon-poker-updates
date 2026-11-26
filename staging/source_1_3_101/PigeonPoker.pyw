@@ -1505,8 +1505,8 @@ class PigeonPokerApp(tk.Tk):
                 "and measured hand cell match; unsupported histories/cells use a separately labelled "
                 "range-aware fallback. "
                 f"PRO {VIP_PRO_SIMULATIONS:,} / TOP PRO {VIP_TOP_PRO_SIMULATIONS:,} base Monte Carlo "
-                "trials per full equity pass. Both use balanced EV reasoning; TOP PRO has deeper "
-                "sampling, not a separate solver-exact strategy."
+                "trials per full equity pass. Both use balanced EV reasoning; "
+                "TOP PRO has deeper sampling, not a separate solver-exact strategy."
             )
             self.cash_log_lines.append(
                 "VIP AUTO-REBUY: any seat below 80 BB is topped up to 100 BB before the next hand; "
