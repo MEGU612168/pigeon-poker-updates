@@ -141,8 +141,8 @@ def load_full_range_view_method():
 
 
 def test_paid_range_full_application_flow_on_windows(root, table):
-    # Use the complete production method and the bundled screenshot-derived
-    # bitmap. This test intentionally does not construct a Canvas renderer.
+    # Exercise the production 13x13 native Canvas renderer and its real
+    # scrollable Toplevel, while separately checking archived source images.
     open_range, create_photo, expected_size = load_full_range_view_method()
 
     table_canvas = tk.Canvas(table, width=900, height=620, bg="#0a1220")
@@ -150,8 +150,8 @@ def test_paid_range_full_application_flow_on_windows(root, table):
     table.update_idletasks()
     root.update()
 
-    # Use a genuine Tk root as the application master. A plain object can
-    # hold test attributes but cannot own a native Tk PhotoImage or Toplevel.
+    # Use a genuine Tk root as the application master. A plain object cannot
+    # own a native Tk Canvas or Toplevel.
     root.table_windows = {"smoke": {"canvas": table_canvas}}
     root.multi_tables = {}
     root.active_cash_table_id = None
@@ -183,59 +183,26 @@ def test_paid_range_full_application_flow_on_windows(root, table):
 
     range_widgets = list(all_widgets(range_window))
     labels = [widget for widget in range_widgets if isinstance(widget, tk.Label)]
-    assert len(labels) == 1, f"Range window should contain only one image Label, got {len(labels)}"
-    assert not any(isinstance(widget, tk.Canvas) for widget in range_widgets), (
-        "The range window must not use a Canvas renderer"
+    assert len(labels) == 2, (
+        f"Range window should have its title and charge labels, got {len(labels)}"
     )
-    image_label = labels[0]
-    image_name = str(image_label.cget("image"))
-    assert image_name, "The range Label has no PhotoImage"
-    photo = range_window._range_photo
-    assert (photo.width(), photo.height()) == expected_size
-    root.update()
-    range_window.update()
-    image_label.update()
-    print("DEBUG range dimensions", {
-        "photo": (photo.width(), photo.height()),
-        "label": (image_label.winfo_width(), image_label.winfo_height()),
-        "window": (range_window.winfo_width(), range_window.winfo_height()),
-        "window_req": (range_window.winfo_reqwidth(), range_window.winfo_reqheight()),
-        "label_req": (image_label.winfo_reqwidth(), image_label.winfo_reqheight()),
-    })
-    assert image_label.winfo_width() >= photo.width()
-    assert image_label.winfo_height() >= photo.height()
-    print("PASS full application range method shows one native PhotoImage with no Canvas")
-
-    # Confirm the actual Windows child-window pixels contain the range bitmap,
-    # not a black rectangle or retained/offscreen drawing commands.
-    gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
-    user32.GetDC.argtypes = [wintypes.HWND]
-    user32.GetDC.restype = wintypes.HDC
-    user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
-    user32.ReleaseDC.restype = ctypes.c_int
-    gdi32.GetPixel.argtypes = [wintypes.HDC, ctypes.c_int, ctypes.c_int]
-    gdi32.GetPixel.restype = wintypes.COLORREF
-
-    px, py = 30, 80
-    expected = photo.get(px, py)
-    assert isinstance(expected, tuple) and len(expected) == 3, expected
-    image_offset_x = (image_label.winfo_width() - photo.width()) // 2
-    image_offset_y = (image_label.winfo_height() - photo.height()) // 2
-    hdc = user32.GetDC(image_label.winfo_id())
-    if not hdc:
-        raise ctypes.WinError(ctypes.get_last_error())
-    try:
-        pixel = int(gdi32.GetPixel(hdc, image_offset_x + px, image_offset_y + py))
-        actual = (pixel & 0xFF, (pixel >> 8) & 0xFF, (pixel >> 16) & 0xFF)
-        wanted = tuple(int(channel) for channel in expected)
-        assert all(abs(a - b) <= 4 for a, b in zip(actual, wanted)), {
-            "point": (px, py), "actual_rgb": actual, "expected_rgb": wanted,
-        }
-        assert actual != (0, 0, 0), actual
-    finally:
-        user32.ReleaseDC(image_label.winfo_id(), hdc)
-    print("PASS Windows label client pixels visibly contain the original range-table image")
+    assert all(not str(widget.cget("image")) for widget in labels), (
+        "The native Canvas range view must not depend on a PhotoImage Label"
+    )
+    canvases = [widget for widget in range_widgets if isinstance(widget, tk.Canvas)]
+    assert len(canvases) == 1, f"Range window should contain one Canvas, got {len(canvases)}"
+    chart_canvas = canvases[0]
+    cells = chart_canvas.find_withtag("range-cell")
+    assert len(cells) == 169, f"Expected 169 hand-class cells, got {len(cells)}"
+    frequency_bars = chart_canvas.find_withtag("range-frequency")
+    assert frequency_bars, "The Canvas contains no action-frequency segments"
+    first_cell_fill = chart_canvas.itemcget(cells[0], "fill")
+    assert first_cell_fill.startswith("#"), first_cell_fill
+    scrollregion = tuple(float(value) for value in chart_canvas.cget("scrollregion").split())
+    assert len(scrollregion) == 4 and scrollregion[2] >= 700 and scrollregion[3] >= 770
+    assert chart_canvas.winfo_width() >= 600
+    assert chart_canvas.winfo_height() >= 500
+    print("PASS live range Toplevel renders all 169 cells and action-frequency bars on native Canvas")
 
     table_rect, _ = native_bounds(table)
     range_rect, _ = native_bounds(range_window)
@@ -244,15 +211,15 @@ def test_paid_range_full_application_flow_on_windows(root, table):
         table_rect, range_rect
     )
     assert_inside_work_area(range_window, margin=11)
-    print("PASS actual range bitmap window opens at table upper-left and stays inside work area")
+    print("PASS native Canvas range window opens at table upper-left and stays inside work area")
 
-    # Also load the first, middle, and last source images through the production
-    # asset loader to verify image IDs beyond this one live scenario.
+    # Keep the archived source-asset loader smoke test separate from the live
+    # Canvas view, which intentionally does not use images.
     for source_id in (128, 146, 174, 225, 258, 286, 301):
         extra = create_photo(root, source_id)
         assert (extra.width(), extra.height()) == expected_size, source_id
         del extra
-    print("PASS selected source bitmaps load for multiple archive IDs")
+    print("PASS selected source archive images load for multiple source IDs")
 
 
 def main():
