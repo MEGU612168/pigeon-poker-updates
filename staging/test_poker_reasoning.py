@@ -2140,7 +2140,7 @@ def test_sdv_thin_and_medium_value_bets_need_equity_edge_and_size_discipline():
 def test_sdv_river_thin_value_is_smaller_and_multiway_is_stricter():
     river = dict(
         has_sdv=True, classification="thin", street="river", to_call=0,
-        made_category=1, called_current_equity=0.74,
+        made_category=1, called_current_equity=0.70,
         value_threshold=0.52, expected_callers=1.0, value_gate=True,
         protection_gate=False, candidate_ev=1100, passive_ev=1000, pot=1000,
     )
