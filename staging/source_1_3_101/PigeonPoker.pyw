@@ -465,6 +465,8 @@ class PigeonPokerApp(tk.Tk):
         self._apply_one_time_10_dollar_bonus()
         # Refund the casino UI test wager once, without resetting the existing wallet.
         self._apply_one_time_270_dollar_casino_test_refund()
+        # User-requested one-time $1,100 top-up; existing wallet funds are preserved.
+        self._apply_one_time_1100_dollar_user_balance_topup()
         self.cash_balance_cents = self.wallet_store.get_balance(self.cash_balance_cents)
         self.balance_var.set(f"${self.cash_balance_cents / 100:,.2f}")
         self.config_data["balance"] = self.cash_balance_cents / 100
@@ -2551,6 +2553,53 @@ class PigeonPokerApp(tk.Tk):
                 (
                     transaction_id, now, "casino-test-refund", amount_cents,
                     new_balance, "", "One-time +$270.00 refund for the initial casino UI test (v1.5.16)",
+                ),
+            )
+            con.execute(
+                "INSERT INTO wallet_meta(key,value) VALUES(?,?)",
+                (marker_key, now),
+            )
+            con.execute("COMMIT")
+        self.cash_balance_cents = new_balance
+        self.config_data["balance"] = new_balance / 100
+        return True
+
+
+    def _apply_one_time_1100_dollar_user_balance_topup(self) -> bool:
+        """Atomically credit the user-requested $1,100.00 to the existing wallet once."""
+        import sqlite3
+        amount_cents = 110_000
+        marker_key = "pigeon_poker_v1_5_19_user_balance_topup_1100_usd"
+        transaction_id = "pigeon-poker-v1.5.19-user-balance-topup-1100-usd"
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with sqlite3.connect(str(self.wallet_store.db_path), timeout=20) as con:
+            con.row_factory = sqlite3.Row
+            con.execute("PRAGMA busy_timeout=20000")
+            con.execute("BEGIN IMMEDIATE")
+            already = con.execute(
+                "SELECT value FROM wallet_meta WHERE key=?", (marker_key,)
+            ).fetchone()
+            if already is not None:
+                con.execute("ROLLBACK")
+                return False
+            row = con.execute(
+                "SELECT balance_cents FROM wallet_account WHERE account_id=1"
+            ).fetchone()
+            if row is None:
+                con.execute("ROLLBACK")
+                raise RuntimeError("Wallet account was not initialized; $1,100 top-up not applied.")
+            new_balance = int(row["balance_cents"]) + amount_cents
+            con.execute(
+                "UPDATE wallet_account SET balance_cents=?,updated_at=? WHERE account_id=1",
+                (new_balance, now),
+            )
+            con.execute(
+                "INSERT INTO cashier_transactions "
+                "(transaction_id,played_at,kind,delta_cents,balance_after_cents,recipient,note) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (
+                    transaction_id, now, "bonus-credit", amount_cents,
+                    new_balance, "", "One-time +$1,100.00 user-requested balance top-up (v1.5.19)",
                 ),
             )
             con.execute(
