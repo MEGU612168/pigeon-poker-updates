@@ -135,12 +135,14 @@ def resolve_range_image_for_situation(spot: dict[str, Any]) -> dict[str, Any] | 
 
 
 def _scenario_signature(scenario: dict[str, Any]) -> str:
-    # The few duplicate histories may share a source ID only when their
-    # complete strategy matrices and menu metadata are identical.
-    value = {
-        key: scenario.get(key)
-        for key in ("position", "history", "action_options", "overall", "hands")
-    }
+    # Some separately indexed source records have different explanatory
+    # metadata (or a zero-frequency action in "overall") but the exact same
+    # 169-cell range. An alias is safe only when the fully rendered matrix,
+    # including all frequencies and action sizes, is identical.
+    from .range_chart_canvas import build_range_chart_model
+
+    value = build_range_chart_model(int(scenario["id"]))
+    value.pop("source_id", None)
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
