@@ -118,7 +118,7 @@ COLORS = {
     "felt2": "#084d38", "seat": "#14243a", "white": "#ffffff",
 }
 
-VIP_PRO_SIMULATIONS = 256
+VIP_PRO_SIMULATIONS = 512
 
 # Each all-in board must be shown in Hold'em street order. The flop is a
 # three-card reveal; turn and river are separate card events.
@@ -804,29 +804,54 @@ class PigeonPokerApp(tk.Tk):
 
         vip_outer = tk.Frame(vip_tab, bg=COLORS["bg"])
         vip_outer.pack(fill="both", expand=True, padx=18, pady=18)
-        vip_card = tk.Frame(vip_outer, bg="#171d2b", highlightbackground="#a98647", highlightthickness=2)
+        vip_card = tk.Frame(vip_outer, bg="#17070d", highlightbackground="#e0bd70",
+                            highlightthickness=3, bd=0)
         vip_card.pack(fill="x", anchor="n")
-        ribbon = tk.Frame(vip_card, bg="#3a2b18")
+        tk.Frame(vip_card, bg="#a51d3a", height=4).pack(fill="x")
+        ribbon = tk.Frame(vip_card, bg="#581022")
         ribbon.pack(fill="x")
-        tk.Label(ribbon, text="PRIVATE TABLE  •  EXCLUSIVE STYLE", bg="#3a2b18", fg="#f1cf86",
-                 font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=18, pady=7)
-        tk.Label(vip_card, text="VIP NLH", bg="#171d2b", fg="#f1cf86",
-                 font=("Segoe UI", 26, "bold")).pack(anchor="w", padx=20, pady=(17, 2))
-        tk.Label(vip_card, text="$25 / $50", bg="#171d2b", fg=COLORS["text"],
-                 font=("Segoe UI", 18, "bold")).pack(anchor="w", padx=20)
-        tk.Label(vip_card, text="NO-LIMIT HOLD’EM  •  6-MAX RING GAME  •  NO RUSH FOLD  •  SAME OPPONENTS BETWEEN HANDS",
-                 bg="#171d2b", fg="#b7c6d8", font=("Segoe UI", 9, "bold"), wraplength=980,
-                 justify="left").pack(anchor="w", padx=20, pady=(9, 5))
-        tk.Label(vip_card, text="PRO ONLY  •  FIVE LEVEL-5 OPPONENTS  •  256 POSTFLOP SAMPLES PER DECISION",
-                 bg="#171d2b", fg="#f1cf86", font=("Segoe UI", 9, "bold"),
-                 wraplength=980, justify="left").pack(anchor="w", padx=20, pady=(0, 8))
+        tk.Label(ribbon, text="♛  THE PIGEON PRIVATE CLUB  •  INVITATION-ONLY TABLE",
+                 bg="#581022", fg="#f5d78a",
+                 font=("Segoe UI Symbol", 10, "bold")).pack(anchor="center", pady=9)
+        hero_panel = tk.Frame(vip_card, bg="#17070d")
+        hero_panel.pack(fill="x", padx=24, pady=(20, 10))
+        crest = tk.Canvas(hero_panel, width=94, height=94, bg="#17070d",
+                          highlightthickness=0, bd=0)
+        crest.pack(side="left", padx=(0, 18))
+        crest.create_oval(5, 5, 89, 89, outline="#d9b866", width=3)
+        crest.create_oval(11, 11, 83, 83, outline="#8d1d36", width=2)
+        crest.create_text(47, 45, text="♛", fill="#f0d18a",
+                          font=("Segoe UI Symbol", 39, "bold"))
+        title_panel = tk.Frame(hero_panel, bg="#17070d")
+        title_panel.pack(side="left", fill="x", expand=True)
+        tk.Label(title_panel, text="VIP NLH  /  PRIVATE HIGH-STAKES",
+                 bg="#17070d", fg="#f4d28a",
+                 font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(3, 0))
+        tk.Label(title_panel, text="$25 / $50",
+                 bg="#17070d", fg="#fff0d2",
+                 font=("Segoe UI", 30, "bold")).pack(anchor="w")
+        tk.Label(title_panel, text="SIX-MAX  •  NO-LIMIT HOLD’EM  •  PRIVATE RING GAME",
+                 bg="#17070d", fg="#d9b9a0",
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(2, 0))
+        tk.Frame(vip_card, bg="#d9b866", height=1).pack(fill="x", padx=24, pady=(2, 12))
+        tk.Label(vip_card, text="PRO ONLY  •  FIVE LEVEL-5 PROFESSIONAL OPPONENTS",
+                 bg="#17070d", fg="#f1cd7c",
+                 font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=28, pady=(0, 6))
+        tk.Label(vip_card, text="512 POSTFLOP ENGINE SAMPLES  •  ENHANCED RANGE & SHOWDOWN ANALYSIS",
+                 bg="#17070d", fg="#efb7a9", font=("Segoe UI", 9, "bold"),
+                 wraplength=980, justify="left").pack(anchor="w", padx=28, pady=(0, 10))
         tk.Label(vip_card, text="Buy-in: 20–100 BB ($1,000–$5,000)  •  Default: 100 BB ($5,000)  •  No ante",
-                 bg="#171d2b", fg=COLORS["muted"], font=("Segoe UI", 9)).pack(anchor="w", padx=20, pady=(0, 7))
-        tk.Label(vip_card, text="Separate from Rush & Cash. The button rotates and CPU seats keep their identities and remaining stacks.",
-                 bg="#171d2b", fg=COLORS["muted"], font=("Segoe UI", 9), wraplength=980,
-                 justify="left").pack(anchor="w", padx=20, pady=(0, 16))
-        ttk.Button(vip_card, text="OPEN VIP TABLE", style="Accent.TButton",
-                   command=self._open_vip_buyin_dialog).pack(anchor="w", padx=20, pady=(0, 20))
+                 bg="#17070d", fg="#c8b7aa", font=("Segoe UI", 9)).pack(anchor="w", padx=28, pady=(0, 7))
+        tk.Label(vip_card, text="A fixed six-max lineup: opponents keep their identities and remaining stacks between hands. No weaker seat or standard CPU tier is admitted.",
+                 bg="#17070d", fg="#c8b7aa", font=("Segoe UI", 9), wraplength=980,
+                 justify="left").pack(anchor="w", padx=28, pady=(0, 14))
+        tk.Frame(vip_card, bg="#7b1830", height=2).pack(fill="x", padx=24, pady=(0, 12))
+        tk.Button(vip_card, text="ENTER THE PRIVATE CLUB",
+                  command=self._open_vip_buyin_dialog,
+                  bg="#d7b361", fg="#241016", activebackground="#f0d18a",
+                  activeforeground="#241016", relief="flat", bd=0,
+                  padx=24, pady=10, cursor="hand2",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=28, pady=(0, 20))
         tk.Label(vip_tab, text="GGPOKERのVIP / Exclusive系高額ゲームを参考にしたローカル専用テーブルです。実際のGGPOKERへの接続や招待機能はありません。",
                  bg=COLORS["bg"], fg=COLORS["muted"], font=("Segoe UI", 8), wraplength=980,
                  justify="left").pack(anchor="w", padx=22, pady=(0, 10))
@@ -834,26 +859,31 @@ class PigeonPokerApp(tk.Tk):
     def _open_vip_buyin_dialog(self):
         """Choose a standard VIP stack in the 20–100 BB range before seating."""
         window = tk.Toplevel(self)
-        window.title("VIP NLH • Buy-in")
-        window.geometry("420x260")
+        window.title("THE PRIVATE CLUB  •  BUY-IN")
+        window.geometry("460x290")
         window.resizable(False, False)
-        window.configure(bg=COLORS["panel"])
+        vip_bg = "#19070d"
+        window.configure(bg=vip_bg)
         window.transient(self)
         window.grab_set()
-        tk.Label(window, text="VIP PRIVATE CLUB  •  $25 / $50", bg=COLORS["panel"], fg="#f1cf86",
-                 font=("Segoe UI", 16, "bold")).pack(anchor="w", padx=20, pady=(18, 4))
-        tk.Label(window, text="PRO ONLY  •  FIVE ELITE LOCAL OPPONENTS",
-                 bg=COLORS["panel"], fg="#d7bd85", font=("Segoe UI", 8, "bold")
+        panel = tk.Frame(window, bg=vip_bg, highlightbackground="#d8b566",
+                         highlightthickness=2, bd=0)
+        panel.pack(fill="both", expand=True, padx=3, pady=3)
+        tk.Frame(panel, bg="#891a35", height=3).pack(fill="x")
+        tk.Label(panel, text="♛  VIP PRIVATE CLUB  •  $25 / $50", bg=vip_bg, fg="#f1d18b",
+                 font=("Segoe UI Symbol", 16, "bold")).pack(anchor="w", padx=20, pady=(16, 4))
+        tk.Label(panel, text="PRO ONLY  •  FIVE LEVEL-5 PROFESSIONAL OPPONENTS",
+                 bg=vip_bg, fg="#e9b5a8", font=("Segoe UI", 8, "bold")
                  ).pack(anchor="w", padx=20, pady=(0, 8))
-        tk.Label(window, text="Choose your starting stack (20–100 BB)", bg=COLORS["panel"],
-                 fg=COLORS["muted"], font=("Segoe UI", 9)).pack(anchor="w", padx=20)
+        tk.Label(panel, text="Choose your starting stack (20–100 BB)", bg=vip_bg,
+                 fg="#d4c1b1", font=("Segoe UI", 9)).pack(anchor="w", padx=20)
         buyin_var = tk.StringVar(value=str(VIP_DEFAULT_BUYIN_BB))
-        row = tk.Frame(window, bg=COLORS["panel"])
+        row = tk.Frame(panel, bg=vip_bg)
         row.pack(fill="x", padx=20, pady=15)
         ttk.Combobox(row, textvariable=buyin_var, state="readonly", width=10,
                      values=("20", "40", "60", "80", "100")).pack(side="left")
         amount_label = tk.StringVar(value="$5,000.00")
-        tk.Label(row, textvariable=amount_label, bg=COLORS["panel"], fg=COLORS["text"],
+        tk.Label(row, textvariable=amount_label, bg=vip_bg, fg="#fff0d2",
                  font=("Segoe UI", 12, "bold")).pack(side="left", padx=14)
         def update_amount(*_):
             try:
@@ -862,9 +892,12 @@ class PigeonPokerApp(tk.Tk):
             except (TypeError, ValueError):
                 amount_label.set("—")
         buyin_var.trace_add("write", update_amount)
-        buttons = tk.Frame(window, bg=COLORS["panel"])
+        buttons = tk.Frame(panel, bg=vip_bg)
         buttons.pack(fill="x", padx=20, pady=(4, 18))
-        ttk.Button(buttons, text="CANCEL", command=window.destroy).pack(side="right", padx=(6, 0))
+        tk.Button(buttons, text="CANCEL", command=window.destroy,
+                  bg="#4a1020", fg="#f7dfc3", activebackground="#701a31",
+                  activeforeground="#fff0d2", relief="flat", bd=0,
+                  padx=14, pady=7, font=("Segoe UI", 8, "bold")).pack(side="right", padx=(6, 0))
         def join():
             try:
                 bb = int(buyin_var.get())
@@ -875,7 +908,10 @@ class PigeonPokerApp(tk.Tk):
                 return
             window.destroy()
             self._join_table(VIP_STAKE_KEY, table_mode=VIP_MODE, buyin_bb=bb)
-        ttk.Button(buttons, text="TAKE A SEAT", style="Accent.TButton", command=join).pack(side="right")
+        tk.Button(buttons, text="TAKE A SEAT", command=join,
+                  bg="#d7b361", fg="#241016", activebackground="#f0d18a",
+                  activeforeground="#241016", relief="flat", bd=0,
+                  padx=18, pady=7, font=("Segoe UI", 9, "bold")).pack(side="right")
 
 
     def _cash_state_snapshot(self) -> dict[str, Any]:
@@ -1130,6 +1166,11 @@ class PigeonPokerApp(tk.Tk):
             )
             for profile in profiles
         }
+        if is_vip_mode(table_mode):
+            # Mark only VIP CPUs for deeper range/equity sampling; Rush opponents
+            # retain their original runtime and response-time profile.
+            for vip_cpu in self.cash_cpus.values():
+                vip_cpu._vip_pro_mode = True
         self.cash_gto_session = None
         self.cash_gto_spot_mode = False
         self.cash_busy = False
@@ -5637,6 +5678,7 @@ class PigeonPokerApp(tk.Tk):
 
         vip_mode = is_vip_mode(slot.state.get("cash_game_mode", RUSH_MODE))
         window = tk.Toplevel(self)
+        window._pigeon_vip_theme = vip_mode
         window.title(
             f"Pigeon Poker • VIP PRIVATE CLUB • {slot.rate} • PRO ONLY"
             if vip_mode else f"Pigeon Poker • {table_mode_label(slot.state.get('cash_game_mode'))} • {slot.rate}"
@@ -5659,10 +5701,10 @@ class PigeonPokerApp(tk.Tk):
             y = max(12, min(60, (screen_h - height - 60) // 2))
             window.geometry(f"{width}x{height}+{x}+{y}")
             window.minsize(min(760, width), min(470, height))
-        window.configure(bg=COLORS["bg"])
+        window.configure(bg=("#12060b" if vip_mode else COLORS["bg"]))
 
         # Compact top bar: table identity, turn state and wallet only.
-        header_bg = "#090b10" if vip_mode else "#080e19"
+        header_bg = "#19070d" if vip_mode else "#080e19"
         header = tk.Frame(window, bg=header_bg, height=(42 if vip_mode else 38))
         header.pack(fill="x")
         header.pack_propagate(False)
@@ -5680,12 +5722,12 @@ class PigeonPokerApp(tk.Tk):
         tk.Label(header, text=("PRIVATE CLUB" if vip_mode else "POKER"), bg=header_bg,
                  fg=("#e5c47d" if vip_mode else COLORS["green"]),
                  font=("Segoe UI", 12, "bold")).pack(side="left")
-        history_icon = tk.Canvas(header, width=40, height=34, bg="#080e19",
+        history_icon = tk.Canvas(header, width=40, height=34, bg=header_bg,
                                  highlightthickness=0, bd=0, cursor="hand2")
         history_icon.pack(side="left", padx=(9, 2))
         self._draw_history_cards_icon(history_icon)
         history_icon.bind("<Button-1>", lambda _e, tid=table_id: self._open_live_hand_flow(tid))
-        range_icon = tk.Canvas(header, width=34, height=34, bg="#080e19",
+        range_icon = tk.Canvas(header, width=34, height=34, bg=header_bg,
                                highlightthickness=0, bd=0, cursor="hand2")
         range_icon.pack(side="left", padx=(1, 7))
         self._draw_range_grid_icon(range_icon, enabled=False)
@@ -5694,12 +5736,12 @@ class PigeonPokerApp(tk.Tk):
         tk.Label(header, textvariable=title_var, bg=header_bg, fg=COLORS["gold"],
                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=12)
         if vip_mode:
-            tk.Label(header, text="PRO ONLY", bg="#392c18", fg="#f5dda0",
+            tk.Label(header, text="PRO ONLY", bg="#6b1428", fg="#f7d98a",
                      font=("Segoe UI", 8, "bold"), padx=8, pady=3
                      ).pack(side="left", padx=(3, 4))
-        tk.Label(header, textvariable=status_var, bg="#080e19", fg=COLORS["text"],
+        tk.Label(header, textvariable=status_var, bg=header_bg, fg=("#f4d38a" if vip_mode else COLORS["text"]),
                  font=("Segoe UI", 8, "bold")).pack(side="left", padx=4)
-        event_label = tk.Label(header, textvariable=event_var, bg=header_bg, fg="#9fc6b7",
+        event_label = tk.Label(header, textvariable=event_var, bg=header_bg, fg=("#f0c9a0" if vip_mode else "#9fc6b7"),
                                font=("Segoe UI", 8), anchor="w", width=34)
         event_label.pack(side="left", padx=(8, 2), fill="x", expand=True)
         timer_label = tk.Label(header, textvariable=timer_var, bg=header_bg, fg="#f6d982",
@@ -5711,10 +5753,11 @@ class PigeonPokerApp(tk.Tk):
         self._compact_action_button(header, "テーブル退出", lambda tid=table_id: self._leave_floating_table(tid), "danger").pack(side="right", padx=3)
 
         if vip_mode:
-            tk.Frame(window, bg="#caa45f", height=2).pack(fill="x")
-        table_area = tk.Frame(window, bg=("#11100e" if vip_mode else COLORS["bg"]))
-        table_area.pack(fill="both", expand=True, padx=4, pady=(2, 1))
-        canvas = tk.Canvas(table_area, bg="#0a1220", highlightthickness=0,
+            tk.Frame(window, bg="#d9b96d", height=3).pack(fill="x")
+            tk.Frame(window, bg="#7b1830", height=2).pack(fill="x")
+        table_area = tk.Frame(window, bg=("#10050a" if vip_mode else COLORS["bg"]))
+        table_area.pack(fill="both", expand=True, padx=3 if vip_mode else 4, pady=(1, 0 if vip_mode else 1))
+        canvas = tk.Canvas(table_area, bg=("#10050a" if vip_mode else "#0a1220"), highlightthickness=0,
                            cursor="arrow", bd=0)
         canvas.pack(fill="both", expand=True)
         canvas.bind("<Configure>", lambda _e, tid=table_id: self._redraw_floating_table(tid))
@@ -5729,27 +5772,29 @@ class PigeonPokerApp(tk.Tk):
         # Compact action dock. Utility toggles remain visible at all times.
         # Line 1: Fold / Check / Call / one contextual Bet-Raise-All-in submit button.
         # Line 2: slider + amount field + four pot-size buttons (selection only).
-        action_outer = tk.Frame(window, bg=COLORS["panel"],
-                                highlightbackground=COLORS["border"], highlightthickness=1)
-        action_outer.pack(fill="x", padx=6, pady=(0, 2))
-        actions = tk.Frame(action_outer, bg=COLORS["panel"])
-        actions.pack(fill="x", padx=4, pady=(2, 0))
+        dock_bg = "#19070d" if vip_mode else COLORS["panel"]
+        dock_border = "#d4b264" if vip_mode else COLORS["border"]
+        action_outer = tk.Frame(window, bg=dock_bg,
+                                highlightbackground=dock_border, highlightthickness=1)
+        action_outer.pack(fill="x", padx=5 if vip_mode else 6, pady=(0, 1 if vip_mode else 2))
+        actions = tk.Frame(action_outer, bg=dock_bg)
+        actions.pack(fill="x", padx=4, pady=(1 if vip_mode else 2, 0))
         fold_button = self._compact_action_button(
             actions, "FOLD",
             lambda tid=table_id: self._handle_table_fold(tid), "danger")
         fold_button.pack_forget()
-        size_actions = tk.Frame(action_outer, bg=COLORS["panel"])
-        size_actions.pack(fill="x", padx=5, pady=(0, 1))
-        size_actions.configure(height=34)
+        size_actions = tk.Frame(action_outer, bg=dock_bg)
+        size_actions.pack(fill="x", padx=5, pady=(0, 0))
+        size_actions.configure(height=28 if vip_mode else 34)
         size_actions.pack_propagate(False)
         # Dedicated row keeps the situation-size control visible even when the
         # slider, amount entry and pot presets consume the full width.
-        situation_actions = tk.Frame(action_outer, bg=COLORS["panel"])
-        situation_actions.pack(fill="x", padx=5, pady=(0, 1))
-        situation_actions.configure(height=24)
+        situation_actions = tk.Frame(action_outer, bg=dock_bg)
+        situation_actions.pack(fill="x", padx=5, pady=(0, 0))
+        situation_actions.configure(height=18 if vip_mode else 24)
         situation_actions.pack_propagate(False)
-        utility_actions = tk.Frame(action_outer, bg=COLORS["panel"])
-        utility_actions.pack(fill="x", padx=5, pady=(0, 2))
+        utility_actions = tk.Frame(action_outer, bg=dock_bg)
+        utility_actions.pack(fill="x", padx=5, pady=(0, 0 if vip_mode else 2))
         quick_leave_button = self._compact_action_button(
             utility_actions, "テーブル退出",
             lambda tid=table_id: self._leave_floating_table(tid), "danger")
@@ -5764,9 +5809,9 @@ class PigeonPokerApp(tk.Tk):
         rabbit_hunt_button.pack_forget()
         auto_rebuy_check = tk.Checkbutton(
             utility_actions, text="常に補充", variable=self.cash_auto_rebuy_var,
-            command=self._save_auto_rebuy, bg=COLORS["panel"], fg=COLORS["muted"],
-            activebackground=COLORS["panel"], activeforeground=COLORS["text"],
-            selectcolor="#0b1727", font=("Segoe UI", 8), bd=0, padx=4,
+            command=self._save_auto_rebuy, bg=dock_bg, fg=("#f0d9a6" if vip_mode else COLORS["muted"]),
+            activebackground=dock_bg, activeforeground=COLORS["text"],
+            selectcolor=("#4b1020" if vip_mode else "#0b1727"), font=("Segoe UI", 8), bd=0, padx=(2 if vip_mode else 4),
             cursor="hand2")
         auto_rebuy_check.pack(side="left", padx=(1, 12))
         sitout_before_bb_var = tk.BooleanVar(value=bool(slot.state.get("cash_sitout_before_bb", False)))
@@ -5774,9 +5819,9 @@ class PigeonPokerApp(tk.Tk):
             utility_actions, text="次のBB前に一時離席", variable=sitout_before_bb_var,
             command=lambda tid=table_id, var=sitout_before_bb_var:
                 self._toggle_sitout_before_bb_for_table(tid, var),
-            bg=COLORS["panel"], fg=COLORS["muted"],
-            activebackground=COLORS["panel"], activeforeground=COLORS["text"],
-            selectcolor="#0b1727", font=("Segoe UI", 8), bd=0, padx=4,
+            bg=dock_bg, fg=("#f0d9a6" if vip_mode else COLORS["muted"]),
+            activebackground=dock_bg, activeforeground=COLORS["text"],
+            selectcolor=("#4b1020" if vip_mode else "#0b1727"), font=("Segoe UI", 8), bd=0, padx=(2 if vip_mode else 4),
             cursor="hand2")
         sitout_check.pack(side="left")
         auto_fold_gto_size_button = self._compact_action_button(
@@ -5795,8 +5840,8 @@ class PigeonPokerApp(tk.Tk):
             utility_actions, "CELEBRATE",
             lambda tid=table_id: self._trigger_big_pot_celebration(tid), "accent")
         celebrate_button.pack_forget()
-        timebank_actions = tk.Frame(action_outer, bg=COLORS["panel"])
-        timebank_actions.pack(fill="x", padx=5, pady=(0, 2))
+        timebank_actions = tk.Frame(action_outer, bg=dock_bg)
+        timebank_actions.pack(fill="x", padx=5, pady=(0, 0 if vip_mode else 2))
         timebank_button = self._compact_action_button(
             timebank_actions, "TIME BANK CARD +30s",
             lambda tid=table_id: self._toggle_free_timebank(tid), "normal")
@@ -5810,8 +5855,8 @@ class PigeonPokerApp(tk.Tk):
             timebank_actions, text="POSTFLOP AUTO-FOLD", variable=postflop_auto_fold_var,
             command=lambda tid=table_id, var=postflop_auto_fold_var:
                 self._set_postflop_auto_fold(tid, bool(var.get())),
-            bg=COLORS["panel"], fg=COLORS["gold"], activebackground=COLORS["panel"],
-            activeforeground=COLORS["text"], selectcolor="#0b1727",
+            bg=dock_bg, fg=("#f2d18a" if vip_mode else COLORS["gold"]), activebackground=dock_bg,
+            activeforeground=COLORS["text"], selectcolor=("#4b1020" if vip_mode else "#0b1727"),
             font=("Segoe UI", 8, "bold"), bd=0, padx=5, cursor="hand2")
         bet_target_var = tk.StringVar(value="")
         bet_target_cents_var = tk.IntVar(value=0)
@@ -7983,17 +8028,30 @@ class PigeonPokerApp(tk.Tk):
 
     def _compact_action_button(self, parent, text: str, command, kind: str = "normal"):
         """Small, flat controls that preserve canvas space for the cards and board."""
+        vip_theme = False
+        ancestor = parent
+        while ancestor is not None:
+            if bool(getattr(ancestor, "_pigeon_vip_theme", False)):
+                vip_theme = True
+                break
+            ancestor = getattr(ancestor, "master", None)
         palette = {
             "normal": ("#25374c", "#f0f4fa", "#344d68"),
             "accent": ("#1ca878", "#071b14", "#31c58b"),
             "danger": ("#c94e55", "#ffffff", "#e56b72"),
         }
+        if vip_theme:
+            palette = {
+                "normal": ("#4a1020", "#f9e9c6", "#701a31"),
+                "accent": ("#d7b361", "#241016", "#f0d18a"),
+                "danger": ("#a91e38", "#fff2dd", "#cf3450"),
+            }
         bg, fg, active = palette.get(kind, palette["normal"])
         return tk.Button(
             parent, text=text, command=command, bg=bg, fg=fg,
             activebackground=active, activeforeground=fg,
             relief="flat", bd=0, highlightthickness=0,
-            padx=8, pady=3, font=("Segoe UI", 8, "bold"),
+            padx=8, pady=(2 if vip_theme else 3), font=("Segoe UI", 8, "bold"),
             cursor="hand2", takefocus=True,
         )
 
@@ -8563,8 +8621,8 @@ class PigeonPokerApp(tk.Tk):
             # The sizing and 174-range rows are conditional. Remove empty
             # frames completely so the felt/canvas expands into that space.
             for frame_key, before_key, row_height in (
-                ("size_actions", "situation_actions", 34),
-                ("situation_actions", "utility_actions", 24),
+                ("size_actions", "situation_actions", 28),
+                ("situation_actions", "utility_actions", 18),
             ):
                 dock_row = record.get(frame_key)
                 before_row = record.get(before_key)
@@ -8643,20 +8701,20 @@ class PigeonPokerApp(tk.Tk):
         canvas.create_oval(w * .024, h * .080, w * .976, h * .956,
                            fill="#020609", outline="#06090b", width=2)
         canvas.create_oval(w * .030, h * .086, w * .970, h * .948,
-                           fill=("#100e0c" if vip_mode else "#17130f"),
-                           outline=("#b28d4d" if vip_mode else "#725a35"), width=(15 if vip_mode else 13))
+                           fill=("#1d080f" if vip_mode else "#17130f"),
+                           outline=("#d5ad5d" if vip_mode else "#725a35"), width=(17 if vip_mode else 13))
         canvas.create_oval(w * .038, h * .098, w * .962, h * .936,
-                           fill=("#282015" if vip_mode else "#30271d"),
-                           outline=("#f0d69b" if vip_mode else "#c8a45e"), width=(3 if vip_mode else 2))
+                           fill=("#310b17" if vip_mode else "#30271d"),
+                           outline=("#f6d98d" if vip_mode else "#c8a45e"), width=(4 if vip_mode else 2))
         canvas.create_arc(w * .045, h * .105, w * .955, h * .928,
                           start=18, extent=145, style="arc", outline="#f1dba7",
                           width=2, tags=("table_rail_highlight",))
         canvas.create_oval(w * .048, h * .112, w * .952, h * .920,
-                           fill=("#0c2c29" if vip_mode else "#12231e"),
-                           outline=("#d5b66f" if vip_mode else "#6f5734"), width=(5 if vip_mode else 4))
+                           fill=("#4c0e20" if vip_mode else "#12231e"),
+                           outline=("#e6be68" if vip_mode else "#6f5734"), width=(6 if vip_mode else 4))
         felt, felt_inner, felt_edge = FELT_THEMES.get(str(self.appearance.get("felt_theme", "Emerald")), FELT_THEMES["Emerald"])
         if vip_mode:
-            felt, felt_inner, felt_edge = ("#0d4038", "#092e2b", "#d3b36e")
+            felt, felt_inner, felt_edge = ("#71172c", "#450e1d", "#e2bd69")
         if drop_live:
             felt, felt_inner, felt_edge = ("#b75b1d", "#874014", "#e6a04d")
         canvas.create_oval(w * .056, h * .126, w * .944, h * .906,
@@ -8666,8 +8724,12 @@ class PigeonPokerApp(tk.Tk):
                                fill="", outline="#f0d99e", width=2,
                                tags=("vip_rail_double_line",))
             canvas.create_oval(w * .064, h * .137, w * .936, h * .895,
-                               fill="", outline="#9e8049", width=1,
+                               fill="", outline="#e0bd70", width=2,
                                tags=("vip_felt_gold_pinstripe",))
+            canvas.create_text(w * .5, h * .485, text="♛",
+                               fill="#f1d28a",
+                               font=("Segoe UI Symbol", max(10, int(h * .027)), "bold"),
+                               tags=("vip_crest",))
         canvas.create_oval(w * .17, h * .24, w * .83, h * .77,
                            fill=felt_inner, outline=felt_edge, width=1)
         canvas.create_oval(w * .176, h * .248, w * .824, h * .762,
@@ -8683,11 +8745,11 @@ class PigeonPokerApp(tk.Tk):
                            stipple="gray75", tags=("felt_medallion",))
         if vip_mode:
             canvas.create_text(w * .5, h * .555, text="P I G E O N   P R I V A T E   C L U B",
-                               fill="#ecd49b", stipple="gray50",
+                               fill="#f5d98d", stipple="gray50",
                                font=("Segoe UI", max(8, int(h * .018)), "bold"),
                                tags=("felt_wordmark", "vip_wordmark"))
             canvas.create_text(w * .5, h * .585, text="PRO ONLY  •  $25 / $50",
-                               fill="#c9ad73", stipple="gray75",
+                               fill="#f0c76f", stipple="gray75",
                                font=("Segoe UI", max(7, int(h * .011)), "bold"),
                                tags=("vip_pro_only_mark",))
         else:
@@ -8729,9 +8791,10 @@ class PigeonPokerApp(tk.Tk):
             return
         # Sparse, theme-matched felt grain catches light without turning into
         # a noisy texture or adding hundreds of canvas objects per animation.
-        grain = {"Emerald": "#176b50", "Blue": "#1b6b91",
-                 "Red": "#873542", "Charcoal": "#4a5960"}.get(
-                     str(self.appearance.get("felt_theme", "Emerald")), "#176b50")
+        grain = ("#a02d49" if vip_mode else
+                 {"Emerald": "#176b50", "Blue": "#1b6b91",
+                  "Red": "#873542", "Charcoal": "#4a5960"}.get(
+                      str(self.appearance.get("felt_theme", "Emerald")), "#176b50"))
         felt_cx, felt_cy = w * .50, h * .505
         felt_rx, felt_ry = w * .315, h * .255
         for row, v in enumerate((.30, .40, .60, .70)):
