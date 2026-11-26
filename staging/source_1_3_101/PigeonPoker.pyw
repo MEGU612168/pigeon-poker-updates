@@ -1265,7 +1265,7 @@ class PigeonPokerApp(tk.Tk):
         bc_panel, bc = self._panel(baccarat, "PUNTO BANCO BACCARAT  •  PLAYER / BANKER / TIE")
         bc_panel.pack(fill="both", expand=True, pady=(2, 10))
         tk.Label(
-            bc, text="Player 1:1  •  Banker 0.95:1 after 5% commission  •  Tie 8:1",
+            bc, text="Player pays 1:1  •  Banker pays 0.95:1 after 5% commission  •  Tie pays 8:1",
             bg=COLORS["panel"], fg=COLORS["muted"], font=("Segoe UI", 9),
         ).pack(anchor="w", pady=(0, 10))
         bc_bet_row = tk.Frame(bc, bg=COLORS["panel"])
