@@ -120,6 +120,53 @@ def test_refund_is_applied_once_during_startup_without_changing_poker_pnl() -> N
     assert '"casino-test-refund"' not in poker_pnl
 
 
+def test_casino_opens_in_a_separate_reusable_window() -> None:
+    opener = source_of("_open_casino_window")
+    hide = source_of("_hide_casino_window")
+    builder = source_of("_build_casino_page")
+    init = source_of("__init__")
+    shell = source_of("_build_shell")
+    assert "tk.Toplevel(self)" in opener
+    assert 'self._build_casino_page(parent=window)' in opener
+    assert 'window.protocol("WM_DELETE_WINDOW", self._hide_casino_window)' in opener
+    assert "window.withdraw()" in hide
+    assert "parent=None" in builder
+    assert "self._build_casino_page()" not in init
+    assert 'page == "casino"' in shell and "self._open_casino_window()" in shell
+    assert 'if key == "casino":' in source_of("show_page")
+
+
+def test_baccarat_cards_use_a_corner_peel_squeeze_mask() -> None:
+    draw = source_of("_casino_draw_squeezed_card")
+    assert "progress" in draw
+    assert "canvas.create_polygon" in draw
+    assert "reveal_w" in draw and "reveal_h" in draw
+    assert "fold" in draw and "SQUEEZE" in draw
+
+
+def test_baccarat_every_card_is_squeezed_before_the_result_is_shown() -> None:
+    draw = source_of("_casino_draw_baccarat_table")
+    animate = source_of("_casino_animate_baccarat_to_state")
+    assert "self._casino_draw_squeezed_card(" in draw
+    assert 'get(("player", index)' in draw or 'get(\n                            ("player", index)' in draw
+    assert 'get(("banker", index)' in draw or 'get(\n                            ("banker", index)' in draw
+    assert 'order.append(("player", index))' in animate
+    assert 'order.append(("banker", index))' in animate
+    assert "frames = 10" in animate
+    assert "frame_delay_ms = 42" in animate
+    assert "self.after(" in animate
+    assert "self.baccarat_dealing = False" in animate
+    assert "state['result']" in draw
+    assert "MANDATORY SQUEEZE" in draw
+
+
+def test_baccarat_result_and_total_are_hidden_until_the_squeeze_finishes() -> None:
+    draw = source_of("_casino_draw_baccarat_table")
+    assert "player_revealed" in draw and "banker_revealed" in draw
+    assert 'if self.baccarat_dealing:' in draw
+    assert "player_total = (" in draw and "banker_total = (" in draw
+
+
 TESTS = [
     test_casino_pages_use_real_graphical_canvases,
     test_playing_cards_have_front_and_back_artwork,
@@ -133,6 +180,10 @@ TESTS = [
     test_baccarat_betting_is_locked_during_the_deal_animation,
     test_270_dollar_refund_is_atomic_and_audited_once,
     test_refund_is_applied_once_during_startup_without_changing_poker_pnl,
+    test_casino_opens_in_a_separate_reusable_window,
+    test_baccarat_cards_use_a_corner_peel_squeeze_mask,
+    test_baccarat_every_card_is_squeezed_before_the_result_is_shown,
+    test_baccarat_result_and_total_are_hidden_until_the_squeeze_finishes,
 ]
 
 
@@ -140,4 +191,4 @@ if __name__ == "__main__":
     for test in TESTS:
         test()
         print("PASS", test.__name__)
-    print("ALL PASS", len(TESTS), "casino visual UI tests")
+    print("ALL PASS", len(TESTS), "casino visual and Baccarat squeeze tests")
