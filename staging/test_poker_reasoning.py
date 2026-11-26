@@ -2056,6 +2056,9 @@ def test_cash_cpu_connects_174_chart_ranges_and_learned_profiles_to_postflop():
     reasoning_source = MODULE_PATH.read_text(encoding="utf-8")
     assert "def _postflop_polarized_candidate_role(" in reasoning_source
     assert "polar-role={selected_polar_role}" in reasoning_source
+    assert "def _postflop_sdv_aggression_allowed(" in reasoning_source
+    assert "SDV-bet-candidates-blocked={sdv_candidates_blocked}" in reasoning_source
+    assert "sdv_passive_baseline_ev" in reasoning_source
 
 
 
@@ -2100,6 +2103,98 @@ def test_postflop_raise_size_fraction_uses_the_post_call_pot_consistently():
     assert actual_fraction == 0.50
     # A lead bet continues to use the uncalled current pot as its denominator.
     assert module._postflop_raise_increment(1600, 0, 0.50) == 800
+
+
+
+
+def test_sdv_thin_and_medium_value_bets_need_equity_edge_and_size_discipline():
+    common = dict(
+        has_sdv=True, street="flop", to_call=0, made_category=1,
+        called_current_equity=0.70, value_threshold=0.56,
+        expected_callers=1.0, value_gate=True, protection_gate=False,
+        candidate_ev=1060, passive_ev=1000, pot=1000,
+    )
+    thin_small = module._postflop_sdv_aggression_allowed(
+        classification="thin", bet_fraction=0.33, **common
+    )
+    thin_large = module._postflop_sdv_aggression_allowed(
+        classification="thin", bet_fraction=0.50, **common
+    )
+    thin_low_ev = module._postflop_sdv_aggression_allowed(
+        classification="thin", bet_fraction=0.25,
+        **{**common, "candidate_ev": 1020},
+    )
+    medium_half_pot = module._postflop_sdv_aggression_allowed(
+        classification="medium", bet_fraction=0.50, **common
+    )
+    medium_over_size = module._postflop_sdv_aggression_allowed(
+        classification="medium", bet_fraction=0.75, **common
+    )
+    assert thin_small is True
+    assert thin_large is False
+    assert thin_low_ev is False
+    assert medium_half_pot is True
+    assert medium_over_size is False
+
+
+def test_sdv_river_thin_value_is_smaller_and_multiway_is_stricter():
+    river = dict(
+        has_sdv=True, classification="thin", street="river", to_call=0,
+        made_category=1, called_current_equity=0.70,
+        value_threshold=0.52, expected_callers=1.0, value_gate=True,
+        protection_gate=False, candidate_ev=1100, passive_ev=1000, pot=1000,
+    )
+    small_river = module._postflop_sdv_aggression_allowed(
+        bet_fraction=0.25, **river
+    )
+    third_pot_river = module._postflop_sdv_aggression_allowed(
+        bet_fraction=0.33, **river
+    )
+    multiway = module._postflop_sdv_aggression_allowed(
+        bet_fraction=0.25, **{**river, "expected_callers": 2.0}
+    )
+    assert small_river is True
+    assert third_pot_river is False
+    assert multiway is False
+
+
+def test_sdv_one_pair_raises_require_exceptional_calling_range_equity():
+    base = dict(
+        has_sdv=True, classification="medium", street="turn", to_call=500,
+        bet_fraction=0.50, made_category=1, value_threshold=0.56,
+        expected_callers=1.0, value_gate=True, protection_gate=False,
+        candidate_ev=1200, passive_ev=1000, pot=1000,
+    )
+    ordinary_top_pair = module._postflop_sdv_aggression_allowed(
+        called_current_equity=0.74, **base
+    )
+    near_exceptional_top_pair = module._postflop_sdv_aggression_allowed(
+        called_current_equity=0.87, **{**base, "classification": "strong"},
+    )
+    assert ordinary_top_pair is False
+    assert near_exceptional_top_pair is True
+
+
+def test_sdv_protection_bets_are_small_and_must_not_sacrifice_check_ev():
+    base = dict(
+        has_sdv=True, classification="thin", street="flop", to_call=0,
+        made_category=1, called_current_equity=0.50, value_threshold=0.56,
+        expected_callers=1.0, value_gate=True, protection_gate=True,
+        candidate_ev=1020, passive_ev=1000, pot=1000,
+    )
+    small_protection = module._postflop_sdv_aggression_allowed(
+        bet_fraction=0.25, **base
+    )
+    half_pot_protection = module._postflop_sdv_aggression_allowed(
+        bet_fraction=0.50, **base
+    )
+    ev_losing_protection = module._postflop_sdv_aggression_allowed(
+        bet_fraction=0.20, **{**base, "candidate_ev": 990}
+    )
+    assert small_protection is True
+    assert half_pot_protection is False
+    assert ev_losing_protection is False
+
 
 
 if __name__ == "__main__":
