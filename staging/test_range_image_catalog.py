@@ -298,6 +298,44 @@ def test_bot_uses_the_169_hand_frequencies_for_each_first_in_and_response_family
     )
 
 
+def test_all_174_paid_ranges_survive_missing_live_raise_amounts_without_strategy_drift():
+    from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand
+    from pigeon_poker.range_chart_canvas import build_range_chart_model
+
+    failures = []
+    action_only_matches = 0
+    for scenario in _scenarios():
+        table, hand, actor_id = _live_fixture_for_scenario(scenario)
+        for event in hand.events:
+            if str(event.get("action", "")).lower() == "raise":
+                event.pop("target", None)
+
+        chart = resolve_range_image_for_hand(table, hand, actor_id)
+        if chart is None:
+            failures.append((int(scenario["id"]), "no chart returned"))
+            continue
+        actual_id = int(chart["source_id"])
+        expected_model = build_range_chart_model(int(scenario["id"]))
+        actual_model = build_range_chart_model(actual_id)
+        expected_model.pop("source_id", None)
+        actual_model.pop("source_id", None)
+        if actual_model != expected_model:
+            failures.append((int(scenario["id"]), "different 169-hand strategy matrix", actual_id))
+        if chart.get("raise_size_verified") is False:
+            action_only_matches += 1
+
+    print(
+        "MISSING-LIVE-RAISE-SIZE AUDIT:",
+        f"checked=174",
+        f"action-only-matches={action_only_matches}",
+        f"failures={failures}",
+    )
+    assert not failures, (
+        f"{len(failures)} / 174 paid ranges were not mapped to the correct "
+        f"169-hand strategy matrix when live raise targets were omitted: {failures}"
+    )
+
+
 def test_paid_range_resolves_when_live_raise_amount_is_omitted_but_history_is_unique():
     from pigeon_poker.preflop_174_policy import choose_preflop_174_action
     from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand
@@ -365,6 +403,7 @@ def run_tests():
         test_catalog_still_contains_exactly_174_source_scenarios,
         test_complete_174_situation_and_source_image_inventory,
         test_paid_range_lookup_never_uses_nearest_node_inference,
+        test_all_174_paid_ranges_survive_missing_live_raise_amounts_without_strategy_drift,
         test_paid_range_resolves_when_live_raise_amount_is_omitted_but_history_is_unique,
         test_paid_range_does_not_ignore_a_known_but_wrong_live_raise_amount,
         test_missing_raise_sizes_do_not_create_false_exact_matches,
