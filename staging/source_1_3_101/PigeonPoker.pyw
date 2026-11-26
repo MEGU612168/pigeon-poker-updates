@@ -1184,8 +1184,8 @@ class PigeonPokerApp(tk.Tk):
                     if self.vip_cpu_roles.get(profile.cpu_id) == VIP_TOP_PRO_ROLE else
                     "balanced" if is_vip_mode(table_mode) else profile.archetype
                 ),
-                # VIP GTO/near-GTO roles are lineup specifications at this stage.
-                # Do not apply a solver deviation to the level-5 fallback engine.
+                # Tier-specific postflop flags are applied immediately below.
+                # Both VIP tiers continue to use the same fixed 174-node preflop chart.
             )
             for profile in profiles
         }
@@ -5754,7 +5754,7 @@ class PigeonPokerApp(tk.Tk):
         window = tk.Toplevel(self)
         window._pigeon_vip_theme = vip_mode
         window.title(
-            f"Pigeon Poker • VIP PRIVATE CLUB • {slot.rate} • PRO ONLY"
+            f"Pigeon Poker • VIP PRIVATE CLUB • {slot.rate} • PRO / TOP PRO"
             if vip_mode else f"Pigeon Poker • {table_mode_label(slot.state.get('cash_game_mode'))} • {slot.rate}"
         )
         # Size by the native outer frame and this monitor's work area, not
@@ -5810,7 +5810,7 @@ class PigeonPokerApp(tk.Tk):
         tk.Label(header, textvariable=title_var, bg=header_bg, fg=COLORS["gold"],
                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=12)
         if vip_mode:
-            tk.Label(header, text="PRO ONLY", bg="#6b1428", fg="#f7d98a",
+            tk.Label(header, text="PRO / TOP PRO", bg="#6b1428", fg="#f7d98a",
                      font=("Segoe UI", 8, "bold"), padx=8, pady=3
                      ).pack(side="left", padx=(3, 4))
         tk.Label(header, textvariable=status_var, bg=header_bg, fg=("#f4d38a" if vip_mode else COLORS["text"]),
@@ -8827,7 +8827,7 @@ class PigeonPokerApp(tk.Tk):
                                fill="#f5d98d", stipple="gray50",
                                font=("Segoe UI", max(8, int(h * .018)), "bold"),
                                tags=("felt_wordmark", "vip_wordmark"))
-            canvas.create_text(w * .5, h * .585, text="PRO ONLY  •  $25 / $50",
+            canvas.create_text(w * .5, h * .585, text="PRO / TOP PRO  •  $25 / $50",
                                fill="#f0c76f", stipple="gray75",
                                font=("Segoe UI", max(7, int(h * .011)), "bold"),
                                tags=("vip_pro_only_mark",))
