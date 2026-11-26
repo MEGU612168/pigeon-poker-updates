@@ -212,8 +212,11 @@ def test_fold_only_live_prefixes_resolve_to_their_first_in_chart_and_bot():
     for position, source_id in expected.items():
         scenario = by_id[source_id]
         table, hand, actor_id = _live_fixture_for_scenario(scenario)
-        assert hand.events
-        assert all(event["action"] == "fold" for event in hand.events)
+        if position == "UTG":
+            assert hand.events == []
+        else:
+            assert hand.events
+            assert all(event["action"] == "fold" for event in hand.events)
         chart = resolve_range_image_for_hand(table, hand, actor_id)
         assert chart is not None and int(chart["source_id"]) == source_id
         decision = choose_preflop_174_action(
