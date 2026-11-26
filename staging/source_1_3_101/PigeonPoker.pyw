@@ -842,6 +842,20 @@ class PigeonPokerApp(tk.Tk):
             "cash_visible_board": list(self.cash_visible_board),
             "cash_board_target": list(self.cash_board_target),
             "cash_board_reveal_count": int(self.cash_board_reveal_count),
+            # Preserve multi-runout presentation across a switch to the other table.
+            "cash_runout_show_hole_cards": bool(slot_state.get("cash_runout_show_hole_cards", False)),
+            "cash_runout_reveal_counts": [
+                int(value) for value in slot_state.get("cash_runout_reveal_counts", [])
+            ],
+            "cash_runout_reveal_anim": (
+                dict(slot_state["cash_runout_reveal_anim"])
+                if isinstance(slot_state.get("cash_runout_reveal_anim"), dict) else None
+            ),
+            "cash_runout_boards_for_reveal": [
+                list(board) for board in slot_state.get("cash_runout_boards_for_reveal", [])
+            ],
+            "cash_runout_phase": str(slot_state.get("cash_runout_phase", "") or ""),
+            "cash_runout_reveal_pending": bool(slot_state.get("cash_runout_reveal_pending", False)),
             "cash_board_anim_index": self.cash_board_anim_index,
             "cash_board_anim_progress": float(self.cash_board_anim_progress),
             "cash_board_anim_indices": list(slot_state.get("cash_board_anim_indices", [])),
@@ -1920,6 +1934,7 @@ class PigeonPokerApp(tk.Tk):
             active_state["cash_runout_reveal_anim"] = None
             active_state["cash_runout_boards_for_reveal"] = []
             active_state["cash_runout_phase"] = ""
+            active_state["cash_runout_reveal_pending"] = False
             self.cash_board_anim_index = None
             self.cash_board_anim_progress = 1.0
             if self.active_cash_table_id and self.multi_tables.get(self.active_cash_table_id):
@@ -3727,6 +3742,7 @@ class PigeonPokerApp(tk.Tk):
                 # An all-in call is an actual showdown. Expose every live
                 # opponent's two cards before the community-card runout starts.
                 slot.state["cash_runout_show_hole_cards"] = True
+                slot.state["cash_runout_reveal_pending"] = True
                 runout_boards = [
                     list(board) for board in (getattr(hand, "runout_boards", []) or [])
                 ]
@@ -3886,6 +3902,7 @@ class PigeonPokerApp(tk.Tk):
         try:
             slot.state["cash_runout_reveal_anim"] = None
             slot.state["cash_runout_phase"] = "SHOWDOWN COMPLETE"
+            slot.state["cash_runout_reveal_pending"] = False
             slot.state["cash_busy"] = False
             self.cash_busy = False
             self._update_cash_after_action()
@@ -6961,7 +6978,8 @@ class PigeonPokerApp(tk.Tk):
             if hand is None or hand.finished:
                 if bool(state.get("postflop_auto_fold", False)):
                     self._clear_postflop_auto_fold(slot.table_id)
-                if hand is not None and not bool(state.get("cash_gto_spot_mode", False)):
+                if (hand is not None and not bool(state.get("cash_gto_spot_mode", False))
+                        and not bool(state.get("cash_runout_reveal_pending", False))):
                     self._ensure_pot_award_animation(slot.table_id, hand)
             elif (bool(state.get("postflop_auto_fold", False))
                   and state.get("postflop_auto_fold_hand_token") != id(hand)):
