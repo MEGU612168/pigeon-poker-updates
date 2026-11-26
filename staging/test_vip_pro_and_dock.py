@@ -134,7 +134,7 @@ def test_vip_auto_rebuy_is_wired_before_new_hand() -> None:
     assert 'self.cash_table.next_hand(' in start
     assert 'rebuy_stacks=(vip_rebuy_plan or {}).get("targets", {})' in start
     assert '"auto-rebuy"' in start
-    assert "HERO top-ups require sufficient wallet funds" in start
+    assert "VIP auto-rebuy needs more wallet funds" in start
 
 def run_tests() -> None:
     tests = [
