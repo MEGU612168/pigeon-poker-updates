@@ -7,7 +7,7 @@
   "source_version": "1.3.101",
   "source_directory": "staging/source_1_3_101",
   "release_notes": "Pigeon Poker 1.5.11 improves postflop BOT bet sizing with GTO-style size selection. It corrects raise sizing in the opponent response model so the call amount is not counted as part of the raise, reducing distorted fold-equity and EV estimates. Routine flop bets and multiway bets use smaller size menus; overbets require strong nut advantage and polar made-hand strength, with only rare low-SPR stack-offs retained. Turn and river can still use larger sizes when the board, ranges, SPR and hand strength support them. Thin one-pair value is more consistently capped. The full 174-scenario preflop policy remains unchanged.",
-  "distribution_status": "pending",
+  "distribution_status": "published",
   "preflop_174_policy_verified": true,
   "postflop_theory_policy_verified": true,
   "postflop_sdv_policy_verified": true,
@@ -50,5 +50,28 @@
   "source_raise_sizes_visible_in_matching_menu_verified": true,
   "range_source_entries_verified": 174,
   "unique_semantic_situations_verified": 171,
-  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt"
+  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
+  "published_at": "2026-11-26T10:12:22Z",
+  "payload_sha256": "3bcff58fcbcf19f96c90a20c0290dfd789a43261dc77889159d15b02ffacd679",
+  "payload_size": 1198082,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/cpu_learning.py",
+    "pigeon_poker/poker_reasoning.py",
+    "pigeon_poker/preflop_174_policy.py",
+    "pigeon_poker/preflop_174_policy_data.py",
+    "pigeon_poker/preflop_cleanup.py",
+    "pigeon_poker/range_chart_canvas.py",
+    "pigeon_poker/range_image_catalog.py",
+    "pigeon_poker/range_scenario_resolver.py",
+    "pigeon_poker/range_tables_v2_asset.py",
+    "pigeon_updater.py"
+  ],
+  "updater_actual_extract_validation": "passed",
+  "windows_native_range_view_verified": true,
+  "legacy_preflop_retirement_validation": "passed"
 }
