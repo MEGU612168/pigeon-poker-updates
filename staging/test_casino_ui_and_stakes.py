@@ -49,9 +49,14 @@ def test_pokercraft_filter_labels_and_bb100_maps_include_new_stakes() -> None:
 
 def test_casino_page_is_navigable_and_built_at_startup() -> None:
     assert '("CASINO", "casino")' in TEXT
-    init = TEXT[TEXT.index("self._build_shell()"):TEXT.index("self.protocol(")]
-    assert "self._build_casino_page()" in init
+    shell = source_of("_build_shell")
+    init = source_of("__init__")
+    opener = source_of("_open_casino_window")
     page = source_of("_build_casino_page")
+    assert 'page == "casino"' in shell and "self._open_casino_window()" in shell
+    assert "self._build_casino_page()" not in init
+    assert "tk.Toplevel(self)" in opener
+    assert 'self._build_casino_page(parent=window)' in opener
     assert "BLACKJACK" in page and "BACCARAT" in page
     assert "self._make_scrollable_tab" in page
     assert "self.casino_history_tree" in page
@@ -96,6 +101,26 @@ def test_casino_rejects_sub_minimum_or_fractional_cent_wagers() -> None:
     assert "cents != cents.to_integral_value()" in parser
 
 
+
+def test_every_seat_stack_is_clickable_to_toggle_usd_and_bb() -> None:
+    draw = source_of("_draw_table")
+    toggle = source_of("_toggle_table_chip_unit")
+    assert '("table_stack_toggle", "seat", seat_tag)' in draw
+    assert 'canvas.tag_bind("table_stack_toggle", "<Button-1>"' in draw
+    assert "self._toggle_table_chip_unit(tid)" in draw
+    assert 'self.chip_display_unit = "BB" if self.chip_display_unit == "USD" else "USD"' in toggle
+    assert "self._refresh_table_windows()" in toggle
+
+
+def test_hero_stack_row_is_clear_of_its_hole_cards_and_status_line() -> None:
+    draw = source_of("_draw_table")
+    assert '(w*.50, h*.75)' in draw
+    assert '(w*.50, h*.25)' in draw
+    assert "box_top = panel_y - 41" in draw
+    assert "box_bottom = panel_y + 43" in draw
+    assert 'text=stack_label, anchor="w"' in draw
+    assert 'panel_y+25, text=state' in draw
+
 def run_tests() -> None:
     tests = [
         test_nl500_and_nl1000_are_added_with_correct_blinds_and_buyins,
@@ -106,11 +131,13 @@ def run_tests() -> None:
         test_baccarat_uses_standard_punto_banco_engine_and_three_bets,
         test_casino_wagers_and_payouts_use_shared_wallet_but_not_poker_pnl,
         test_casino_rejects_sub_minimum_or_fractional_cent_wagers,
+        test_every_seat_stack_is_clickable_to_toggle_usd_and_bb,
+        test_hero_stack_row_is_clear_of_its_hole_cards_and_status_line,
     ]
     for test in tests:
         test()
         print("PASS", test.__name__)
-    print("ALL PASS", len(tests), "casino integration tests")
+    print("ALL PASS", len(tests), "casino and stack-control integration tests")
 
 
 if __name__ == "__main__":
