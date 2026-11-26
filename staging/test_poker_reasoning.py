@@ -1466,6 +1466,109 @@ def test_postflop_raise_response_fraction_excludes_the_call_amount():
     assert module._postflop_size_fraction(1600, risk=400, to_call=0) == 0.25
 
 
+def test_large_postflop_bets_polarize_to_strong_value_or_qualified_bluffs():
+    # A middle-strength one-pair hand is allowed to use a merged small size,
+    # but is kept out of the >=75% pot polarized betting range.
+    middle_small = module._postflop_polarized_candidate_role(
+        0.50, street="river", value_gate=True, bluff_gate=False,
+        has_sdv=True, made_category=1, current_equity=0.62,
+        nut_advantage=0.08, range_advantage=True, range_disadvantage=False,
+        expected_callers=1.0, fold_probability=0.30, required_success=0.33,
+        uncertainty_margin=0.02, value_combos_blocked=0.0,
+        bluff_combos_blocked=0.0, draw_strength=0.0, in_position=True,
+    )
+    middle_large = module._postflop_polarized_candidate_role(
+        0.75, street="river", value_gate=True, bluff_gate=False,
+        has_sdv=True, made_category=1, current_equity=0.62,
+        nut_advantage=0.08, range_advantage=True, range_disadvantage=False,
+        expected_callers=1.0, fold_probability=0.30, required_success=0.33,
+        uncertainty_margin=0.02, value_combos_blocked=0.0,
+        bluff_combos_blocked=0.0, draw_strength=0.0, in_position=True,
+    )
+    strong_value = module._postflop_polarized_candidate_role(
+        1.00, street="river", value_gate=True, bluff_gate=False,
+        has_sdv=True, made_category=3, current_equity=0.84,
+        nut_advantage=0.20, range_advantage=True, range_disadvantage=False,
+        expected_callers=1.0, fold_probability=0.20, required_success=0.50,
+        uncertainty_margin=0.01, value_combos_blocked=0.0,
+        bluff_combos_blocked=0.0, draw_strength=0.0, in_position=True,
+    )
+    assert middle_small == "merged"
+    assert middle_large is None
+    assert strong_value == "value"
+
+
+def test_polarized_bluffs_need_low_sdv_blockers_and_fold_equity():
+    qualified = module._postflop_polarized_candidate_role(
+        0.90, street="river", value_gate=False, bluff_gate=True,
+        has_sdv=False, made_category=0, current_equity=0.12,
+        nut_advantage=0.16, range_advantage=True, range_disadvantage=False,
+        expected_callers=1.0, fold_probability=0.72, required_success=0.45,
+        uncertainty_margin=0.01, value_combos_blocked=0.10,
+        bluff_combos_blocked=0.01, draw_strength=0.0, in_position=True,
+    )
+    no_blocker = module._postflop_polarized_candidate_role(
+        0.90, street="river", value_gate=False, bluff_gate=True,
+        has_sdv=False, made_category=0, current_equity=0.12,
+        nut_advantage=0.16, range_advantage=True, range_disadvantage=False,
+        expected_callers=1.0, fold_probability=0.72, required_success=0.45,
+        uncertainty_margin=0.01, value_combos_blocked=0.01,
+        bluff_combos_blocked=0.02, draw_strength=0.0, in_position=True,
+    )
+    showdown_hand = module._postflop_polarized_candidate_role(
+        0.90, street="river", value_gate=False, bluff_gate=True,
+        has_sdv=True, made_category=1, current_equity=0.62,
+        nut_advantage=0.16, range_advantage=True, range_disadvantage=False,
+        expected_callers=1.0, fold_probability=0.72, required_success=0.45,
+        uncertainty_margin=0.01, value_combos_blocked=0.10,
+        bluff_combos_blocked=0.01, draw_strength=0.0, in_position=True,
+    )
+    assert qualified == "bluff"
+    assert no_blocker is None
+    assert showdown_hand is None
+
+
+def test_multiway_polarization_blocks_bluffs_and_requires_near_nutted_value():
+    multiway_bluff = module._postflop_polarized_candidate_role(
+        0.90, street="turn", value_gate=False, bluff_gate=True,
+        has_sdv=False, made_category=0, current_equity=0.10,
+        nut_advantage=0.30, range_advantage=True, range_disadvantage=False,
+        expected_callers=2.0, fold_probability=0.85, required_success=0.45,
+        uncertainty_margin=0.01, value_combos_blocked=0.12,
+        bluff_combos_blocked=0.01, draw_strength=0.60, in_position=True,
+    )
+    multiway_middle = module._postflop_polarized_candidate_role(
+        0.90, street="turn", value_gate=True, bluff_gate=False,
+        has_sdv=True, made_category=2, current_equity=0.75,
+        nut_advantage=0.30, range_advantage=True, range_disadvantage=False,
+        expected_callers=2.0, fold_probability=0.20, required_success=0.50,
+        uncertainty_margin=0.01, value_combos_blocked=0.0,
+        bluff_combos_blocked=0.0, draw_strength=0.0, in_position=False,
+    )
+    multiway_nuts = module._postflop_polarized_candidate_role(
+        1.00, street="turn", value_gate=True, bluff_gate=False,
+        has_sdv=True, made_category=4, current_equity=0.90,
+        nut_advantage=0.40, range_advantage=True, range_disadvantage=False,
+        expected_callers=2.0, fold_probability=0.20, required_success=0.50,
+        uncertainty_margin=0.01, value_combos_blocked=0.0,
+        bluff_combos_blocked=0.0, draw_strength=0.0, in_position=False,
+    )
+    assert multiway_bluff is None
+    assert multiway_middle is None
+    assert multiway_nuts == "value-multiway"
+
+
+def test_preflop_174_policy_bypasses_postflop_polarization_gate():
+    assert module._postflop_polarized_candidate_role(
+        2.50, street="preflop", value_gate=False, bluff_gate=False,
+        has_sdv=False, made_category=0, current_equity=0.0,
+        nut_advantage=0.0, range_advantage=False, range_disadvantage=False,
+        expected_callers=3.0, fold_probability=0.0, required_success=0.0,
+        uncertainty_margin=0.0, value_combos_blocked=0.0,
+        bluff_combos_blocked=0.0, draw_strength=0.0, in_position=False,
+    ) == "preflop-chart"
+
+
 def test_postflop_overbets_require_a_polar_nut_edge_or_low_spr_stackoff():
     assert module._postflop_overbet_size_allowed(
         1.25, street="turn", range_advantage=True, range_disadvantage=False,
@@ -1950,6 +2053,9 @@ def test_cash_cpu_connects_174_chart_ranges_and_learned_profiles_to_postflop():
     assert app_source.count("range_estimator=postflop_range_estimator") == 2
     # The 174 preflop policy remains a separate, immutable CPU decision path.
     assert "choose_preflop_174_action(table, hand, pid, cpu)" in app_source
+    reasoning_source = MODULE_PATH.read_text(encoding="utf-8")
+    assert "def _postflop_polarized_candidate_role(" in reasoning_source
+    assert "polar-role={selected_polar_role}" in reasoning_source
 
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()

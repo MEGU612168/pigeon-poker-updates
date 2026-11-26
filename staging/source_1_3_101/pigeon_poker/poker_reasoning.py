@@ -2163,6 +2163,110 @@ def _postflop_overbet_size_allowed(
     return False
 
 
+
+def _postflop_polarized_candidate_role(
+    bet_fraction: float,
+    *,
+    street: str,
+    value_gate: bool,
+    bluff_gate: bool,
+    has_sdv: bool,
+    made_category: int,
+    current_equity: float,
+    nut_advantage: float,
+    range_advantage: bool,
+    range_disadvantage: bool,
+    expected_callers: float,
+    fold_probability: float,
+    required_success: float,
+    uncertainty_margin: float,
+    value_combos_blocked: float,
+    bluff_combos_blocked: float,
+    draw_strength: float,
+    in_position: bool,
+) -> str | None:
+    """Classify large-bet candidates as polar value, polar bluff, or middle.
+
+    Below 75% pot, merged betting remains available. At 75% pot and above,
+    the betting range is deliberately polarized: strong value hands or
+    carefully selected low-showdown-value bluffs. Medium-strength SDV hands
+    are routed to the check/call region instead of being inflated into a
+    large bet. This is a deterministic GTO-inspired heuristic, not a solver
+    frequency table.
+    """
+    size = max(0.0, float(bet_fraction))
+    if size < 0.75 - 1e-9:
+        return "merged"
+
+    current_street = str(street or "").lower()
+    # Preflop is governed by the immutable 174-situation chart. Never apply
+    # postflop range-polarity gates to its sizing/action frequencies.
+    if current_street == "preflop":
+        return "preflop-chart"
+    callers = max(0.0, float(expected_callers))
+    category = max(0, min(8, int(made_category)))
+    equity = max(0.0, min(1.0, float(current_equity)))
+    nut_edge = max(0.0, min(1.0, float(nut_advantage)))
+    value_blocked = max(0.0, float(value_combos_blocked))
+    bluff_blocked = max(0.0, float(bluff_combos_blocked))
+    blocker_edge = value_blocked - 0.75 * bluff_blocked
+
+    # In multiway pots a polar bluff has to get through several ranges. Keep
+    # large bets almost exclusively for near-nutted value; rare strong
+    # multiway overbets are independently capped by the overbet guard.
+    if callers > 1.25:
+        if (
+            value_gate and has_sdv and category >= 4
+            and equity >= 0.86 and nut_edge >= 0.30
+            and range_advantage and not range_disadvantage
+            and size <= 1.25 + 1e-9
+        ):
+            return "value-multiway"
+        return None
+
+    value_equity_floor = {
+        "flop": 0.72,
+        "turn": 0.75,
+        "river": 0.78,
+    }.get(current_street, 0.75)
+    value_category_ok = category >= 2 or (
+        current_street == "river" and category >= 1 and equity >= 0.85
+    )
+    polar_value = bool(
+        value_gate and has_sdv and value_category_ok
+        and equity >= value_equity_floor
+        and nut_edge >= 0.12
+        and (range_advantage or nut_edge >= 0.24)
+        and not range_disadvantage
+    )
+    if polar_value:
+        return "value"
+
+    # A large bluff needs a low-SDV hand, positive removal of value calls,
+    # and a fold rate with a meaningful margin over break-even. Draw equity
+    # can qualify a semi-bluff, but it cannot turn a medium SDV hand into a
+    # bluff. The helper also requires heads-up conditions and IP/range edge.
+    polar_bluff = bool(
+        bluff_gate and not has_sdv
+        and equity <= 0.52
+        and value_blocked >= 0.035
+        and blocker_edge >= 0.035
+        and _postflop_pure_bluff_allowed(
+            fold_probability,
+            required_success,
+            uncertainty_margin,
+            callers,
+            value_blocked,
+            bluff_blocked,
+            in_position=bool(in_position),
+            range_advantage=bool(range_advantage and not range_disadvantage),
+        )
+    )
+    if polar_bluff:
+        return "bluff"
+    return None
+
+
 def _range_board_strength_profile(
     row: dict[str, Any],
     board: list[str],
@@ -2879,6 +2983,7 @@ def _choose_range_aware_action_impl(
     best_action = _best_passive_action(actions)
     best_amount: int | None = None
     best_ev = -float("inf")
+    selected_polar_role = "check/call or middle-strength"
     if best_action == "fold":
         best_ev = 0.0
     elif best_action == "check":
@@ -2921,6 +3026,9 @@ def _choose_range_aware_action_impl(
     last_full_raise = max(1, int(getattr(hand, "last_full_raise", 1) or 1))
 
     if can_raise and max_target >= min_target > street_contribution:
+        # Only postflop sizing consumes a range/nut profile. Preflop remains
+        # fully controlled by the immutable 174-situation chart.
+        nut_advantage = 0.0
         if street == "preflop":
             multipliers = (2.15, 2.40, 2.70) if to_call else (2.0, 2.3)
             targets = {
@@ -3149,6 +3257,28 @@ def _choose_range_aware_action_impl(
                 candidate_thin_value, bet_fraction, street
             ):
                 continue
+            polar_role = _postflop_polarized_candidate_role(
+                bet_fraction,
+                street=street,
+                value_gate=value_gate,
+                bluff_gate=bluff_gate,
+                has_sdv=has_sdv,
+                made_category=hero_hand_category,
+                current_equity=candidate_called_current_equity,
+                nut_advantage=nut_advantage,
+                range_advantage=range_advantage,
+                range_disadvantage=range_disadvantage,
+                expected_callers=max(candidate_expected_callers, expected_opponents),
+                fold_probability=candidate_fold_probability,
+                required_success=required_success,
+                uncertainty_margin=uncertainty_margin,
+                value_combos_blocked=candidate_blockers["value_call_combos_blocked"],
+                bluff_combos_blocked=candidate_blockers["bluff_call_combos_blocked"],
+                draw_strength=candidate_draw_strength,
+                in_position=in_position,
+            )
+            if polar_role is None:
+                continue
             premium_preflop = False
             if street == "preflop":
                 try:
@@ -3181,6 +3311,7 @@ def _choose_range_aware_action_impl(
                 and raise_ev > best_ev + max(1, ev_margin)
             ):
                 best_action, best_amount, best_ev = action_name, target, raise_ev
+                selected_polar_role = polar_role
                 fold_probability = candidate_fold_probability
                 expected_callers = candidate_expected_callers
                 called_equity_estimate = candidate_called_equity
@@ -3215,6 +3346,7 @@ def _choose_range_aware_action_impl(
         )
         if mixed_name in actions:
             best_action, best_amount = mixed_name, mixed_amount
+            selected_polar_role = "mixed-near-indifference"
             chosen = next((
                 item for item in strategy_candidates
                 if item[0] == mixed_name and item[1] == mixed_amount
@@ -3226,6 +3358,12 @@ def _choose_range_aware_action_impl(
     if best_action == "allin":
         best_amount = None
 
+    selected_size_note = (
+        f"selected-size={_postflop_size_fraction(pot, best_amount - street_contribution, to_call):.0%}"
+        f"{' of post-call pot' if to_call else ' of pot'}; "
+        if best_amount is not None and best_action in {"bet", "raise"}
+        else "selected-size=none; "
+    )
     note = (
         f"{decision_name}; equity {equity:.1%}; required call {required_call:.1%}; "
         f"pure-bluff required folds {required_bluff:.1%}; estimated all-fold {fold_probability:.1%}; "
@@ -3263,13 +3401,9 @@ def _choose_range_aware_action_impl(
         f"hero-made-category={hero_hand_category}; "
         f"structural-draw={hero_draw_strength:.2f}; "
         f"range-conditioned-draw={candidate_draw_strength:.2f}; "
-        + (
-            f"selected-size={_postflop_size_fraction(pot, best_amount - street_contribution, to_call):.0%}"
-            f"{' of post-call pot' if to_call else ' of pot'}; "
-            if best_amount is not None and best_action in {"bet", "raise"}
-            else "selected-size=none; "
-        )
-        + "source=range-aware multiway response model with GTO-style sizing constraints (not solver exact)"
+        f"{selected_size_note}"
+        f"polar-role={selected_polar_role}; "
+        "source=range-aware multiway response model with GTO-style sizing and polarized-range constraints (not solver exact)"
     )
     return CPUAction(
         player_id=str(player_id),
