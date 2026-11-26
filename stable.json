@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.18",
-  "published_at": "2026-11-26T14:54:03Z",
-  "release_notes": "Pigeon Poker 1.5.18 fixes the cash-table pot display being hidden behind the upper-centre seat panel. Pot plaque, pot chips, community cards and street label now use a coordinated height-aware layout so the pot stays clear of player panels and other table elements. Existing 174-situation preflop policy, postflop reasoning, all-in runout reveal, stack USD/BB toggle, separate Casino window, mandatory Baccarat squeeze, wallet and ledger behavior, NL500/NL1000, and the one-time $270 refund marker are preserved.",
+  "version": "1.5.19",
+  "published_at": "2026-11-26T14:59:40Z",
+  "release_notes": "Pigeon Poker 1.5.19 preserves the v1.5.18 cash-table pot visibility correction and applies a one-time +$1,100.00 credit to the existing local wallet. The credit is recorded in the wallet ledger and protected by an atomic SQLite marker, so relaunches and repeated update checks cannot duplicate it. Existing balances, the prior $10 bonus, and the one-time $270 casino-test refund are preserved.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.18/payload-updater.zip.b64?v=45bfe64dd8b529be76a0efd31a6b725681cae5f414a2187dda425d5a62c2236f",
-  "payload_sha256": "45bfe64dd8b529be76a0efd31a6b725681cae5f414a2187dda425d5a62c2236f",
-  "payload_size": 1216820
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.19/payload-updater.zip.b64?v=fe936e687318ef52ec4d267b7c218b7760035533087b015a64882a15924c51c8",
+  "payload_sha256": "fe936e687318ef52ec4d267b7c218b7760035533087b015a64882a15924c51c8",
+  "payload_size": 1216999
 }

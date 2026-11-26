@@ -7,7 +7,7 @@
   "source_version": "1.3.101",
   "source_directory": "staging/source_1_3_101",
   "release_notes": "Pigeon Poker 1.5.19 preserves the v1.5.18 cash-table pot visibility correction and applies a one-time +$1,100.00 credit to the existing local wallet. The credit is recorded in the wallet ledger and protected by an atomic SQLite marker, so relaunches and repeated update checks cannot duplicate it. Existing balances, the prior $10 bonus, and the one-time $270 casino-test refund are preserved.",
-  "distribution_status": "pending",
+  "distribution_status": "published",
   "preflop_174_policy_verified": true,
   "postflop_theory_policy_verified": true,
   "postflop_sdv_policy_verified": true,
@@ -117,5 +117,8 @@
   "updater_actual_extract_validation": "passed",
   "user_requested_1100_dollar_wallet_credit_expected": true,
   "user_requested_1100_dollar_wallet_credit_cents": 110000,
-  "user_requested_1100_dollar_wallet_credit_verified": false
+  "user_requested_1100_dollar_wallet_credit_verified": true,
+  "published_at": "2026-11-26T14:59:40Z",
+  "payload_sha256": "fe936e687318ef52ec4d267b7c218b7760035533087b015a64882a15924c51c8",
+  "payload_size": 1216999
 }
