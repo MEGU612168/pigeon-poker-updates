@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.13",
-  "published_at": "2026-11-26T12:30:10Z",
-  "release_notes": "Pigeon Poker 1.5.13 makes showdown value a stronger postflop decision priority. Thin and medium SDV hands must beat the passive check/call EV baseline by a meaningful margin before a bet can enter selection or high-level mixing. Thin value sizing is capped at 33% pot on flop/turn and 25% on river; medium SDV sizing is capped at 50% pot on flop/turn and 33% on river. Multiway SDV betting has stricter equity and EV hurdles. One-pair SDV raises require exceptional equity against the call-conditioned range. Protection bets are capped at 25% pot and must beat the passive EV baseline. Diagnostics report rejected SDV aggression candidates. The immutable 174-situation preflop chart remains unchanged.",
+  "version": "1.5.14",
+  "published_at": "2026-11-26T12:45:21Z",
+  "release_notes": "Pigeon Poker 1.5.14 improves all-in showdown presentation. After an all-in runout is chosen, all live opponents' hole cards are revealed while folded hands remain hidden. Run It Twice now reveals Board 1 flop, turn and river in sequence, then Board 2 flop, turn and river, using the existing card-flip animations and street sounds. Future cards stay face-down until their street, runout progress survives switching tables, and pot payout animation waits until the runout is fully revealed. The immutable 174-situation preflop chart is unchanged.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.13/payload-updater.zip.b64?v=7f29cd3403d69b73320f02cd9714ef7245472328058eba47f0fa13223adf2f88",
-  "payload_sha256": "7f29cd3403d69b73320f02cd9714ef7245472328058eba47f0fa13223adf2f88",
-  "payload_size": 1201251
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.14/payload-updater.zip.b64?v=1b24bd4fc4bf4e8485ef93eac14001ef0ef6a457bed8c62f012661d3a246249a",
+  "payload_sha256": "1b24bd4fc4bf4e8485ef93eac14001ef0ef6a457bed8c62f012661d3a246249a",
+  "payload_size": 1203609
 }
