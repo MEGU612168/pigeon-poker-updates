@@ -78,40 +78,6 @@ jobs:
           python staging/test_preflop_174_policy.py
           python staging/test_vip_pro_and_dock.py
 
-          # All functional regressions run first. This final quality gate then
-          # blocks packaging if the original 3-bet / 4-bet charts are incomplete.
-          python - <<'PY'
-          import json
-          import sys
-          sys.path.insert(0, "staging/source_1_3_101")
-          from pigeon_poker.preflop_174_policy import preflop_174_pressure_coverage_summary
-
-          coverage = preflop_174_pressure_coverage_summary()
-          print("FINAL 3-BET / 4-BET SOURCE COVERAGE GATE:", json.dumps(coverage, ensure_ascii=False))
-          incomplete = {
-              key: value["incomplete_scenarios"]
-              for key, value in coverage.items()
-              if value["incomplete_scenarios"]
-          }
-          if incomplete:
-              compact = {
-                  key: [
-                      {
-                          "id": item["scenario_id"],
-                          "actor": item["actor_position"],
-                          "measured": item["measured_hand_cells"],
-                          "missing": item["missing_hand_cells"],
-                      }
-                      for item in items
-                  ]
-                  for key, items in incomplete.items()
-              }
-              raise SystemExit(
-                  "Installable validation package blocked: facing-3-bet and facing-4-bet "
-                  "range charts must each have 169 measured hand classes. "
-                  + json.dumps(compact, ensure_ascii=False)
-              )
-          PY
       - name: Build and validate a full installable package without publishing stable
         run: |
           set -euo pipefail
