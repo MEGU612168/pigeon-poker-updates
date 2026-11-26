@@ -2760,6 +2760,108 @@ def _postflop_thin_value_size_allowed(
     return float(bet_fraction) <= cap + 1e-9
 
 
+def _postflop_sdv_aggression_allowed(
+    has_sdv: bool,
+    classification: str,
+    *,
+    street: str,
+    to_call: int,
+    bet_fraction: float,
+    made_category: int,
+    called_current_equity: float,
+    value_threshold: float,
+    expected_callers: float,
+    value_gate: bool,
+    protection_gate: bool,
+    candidate_ev: float,
+    passive_ev: float,
+    pot: int,
+    range_disadvantage: bool = False,
+) -> bool:
+    """Require a clear reason to turn a showdown hand into an aggressive bet.
+
+    Thin and medium SDV hands should usually realise their value by checking
+    or calling. They may bet only when worse hands continue often enough to
+    support value, the size is controlled, and the candidate clears the
+    passive check/call EV by a meaningful margin. Protection bets are handled
+    separately and kept small. Raises with one-pair SDV are strongly restricted.
+    """
+    if not bool(has_sdv):
+        return True
+
+    current_street = str(street or "").lower()
+    if current_street not in {"flop", "turn", "river"}:
+        return True
+    category = max(0, min(8, int(made_category)))
+    callers = max(0.0, float(expected_callers))
+    size = max(0.0, float(bet_fraction))
+    current_equity = max(0.0, min(1.0, float(called_current_equity)))
+    threshold = max(0.0, min(1.0, float(value_threshold)))
+    pot_size = max(1, int(pot))
+    ev_edge = float(candidate_ev) - float(passive_ev)
+
+    # A protection bet is not a licence to turn a marginal SDV hand into a
+    # large value bet. It is only a small, heads-up denial bet on early streets.
+    if bool(protection_gate):
+        return bool(
+            int(to_call) <= 0
+            and current_street in {"flop", "turn"}
+            and size <= 0.25 + 1e-9
+            and callers <= 1.25
+            and current_equity >= max(0.40, threshold - 0.10)
+            and ev_edge >= 0.005 * pot_size
+        )
+
+    if not bool(value_gate):
+        return False
+
+    role = str(classification or "none").lower()
+    multiway = callers >= 1.5
+    disadvantage = bool(range_disadvantage)
+    equity_floor_extra = (0.045 if multiway else 0.0) + (0.025 if disadvantage else 0.0)
+    ev_floor_extra = (0.015 if multiway else 0.0) + (0.010 if disadvantage else 0.0)
+
+    if int(to_call) > 0:
+        # When facing a bet, an SDV hand should not turn into a thin raise.
+        # One-pair raises need exceptional equity against the calling range.
+        if category < 2 and current_equity < 0.82:
+            return False
+        if role != "strong" and current_equity < 0.86:
+            return False
+        size_cap = 0.75 if category < 3 else 1.00
+        return bool(
+            size <= size_cap + 1e-9
+            and current_equity >= max(threshold + 0.08, 0.78 + equity_floor_extra)
+            and ev_edge >= (0.025 + ev_floor_extra) * pot_size
+        )
+
+    if role == "thin":
+        size_cap = 0.25 if current_street == "river" else 0.33
+        equity_floor = max(threshold + 0.06, 0.66 + equity_floor_extra)
+        ev_floor = 0.030 + ev_floor_extra
+    elif role == "medium":
+        size_cap = 0.33 if current_street == "river" else 0.50
+        equity_floor = max(threshold + 0.04, 0.62 + equity_floor_extra)
+        ev_floor = 0.020 + ev_floor_extra
+    elif role == "strong":
+        if category >= 2:
+            size_cap = 0.75 if current_street != "river" else 1.00
+        else:
+            size_cap = 0.50 if current_street != "river" else 0.33
+        equity_floor = max(threshold + 0.02, 0.60 + equity_floor_extra)
+        ev_floor = 0.010 + ev_floor_extra
+    else:
+        return False
+
+    if multiway:
+        size_cap = min(size_cap, 0.33 if role != "strong" else 0.50)
+    return bool(
+        size <= size_cap + 1e-9
+        and current_equity >= equity_floor
+        and ev_edge >= ev_floor * pot_size
+    )
+
+
 def _postflop_aggression_gates(
     value_gate: bool,
     bluff_gate: bool,
@@ -3045,6 +3147,17 @@ def _choose_range_aware_action_impl(
         best_action, best_amount = "call", None
         best_ev = call_equity * max(0, call_pot - estimated_rake) - to_call
 
+    # Preserve the original passive check/call EV as the reference point.
+    # Candidate bets must beat this baseline before they can enter the high-level
+    # near-indifference mixer; otherwise the mixer can leak thin-SDV bets into
+    # a strategy that should simply check and realise showdown value.
+    sdv_passive_baseline_ev = best_ev
+    sdv_candidates_blocked = 0
+    selected_sdv_policy = (
+        "check/call-preserve" if bool(showdown_profile.get("has_sdv", False))
+        else "not-applicable"
+    )
+
     # Candidate actions are retained for a controlled near-indifference mix
     # at high CPU levels; lower levels continue to choose the pure best EV.
     strategy_candidates: list[tuple[str, int | None, float]] = []
@@ -3309,6 +3422,26 @@ def _choose_range_aware_action_impl(
                 candidate_thin_value, bet_fraction, street
             ):
                 continue
+            sdv_allowed = _postflop_sdv_aggression_allowed(
+                has_sdv,
+                str(showdown_profile.get("classification", "none")),
+                street=street,
+                to_call=to_call,
+                bet_fraction=bet_fraction,
+                made_category=hero_hand_category,
+                called_current_equity=candidate_called_current_equity,
+                value_threshold=value_threshold,
+                expected_callers=max(candidate_expected_callers, expected_opponents),
+                value_gate=value_gate,
+                protection_gate=protection_gate,
+                candidate_ev=raise_ev,
+                passive_ev=sdv_passive_baseline_ev,
+                pot=pot,
+                range_disadvantage=range_disadvantage,
+            )
+            if not sdv_allowed:
+                sdv_candidates_blocked += 1
+                continue
             polar_role = _postflop_polarized_candidate_role(
                 bet_fraction,
                 street=street,
@@ -3364,6 +3497,12 @@ def _choose_range_aware_action_impl(
             ):
                 best_action, best_amount, best_ev = action_name, target, raise_ev
                 selected_polar_role = polar_role
+                selected_sdv_policy = (
+                    "protection-small" if protection_gate else
+                    "thin-value" if showdown_profile.get("classification") == "thin" else
+                    "medium-value" if showdown_profile.get("classification") == "medium" else
+                    "strong-value"
+                ) if has_sdv else "not-applicable"
                 fold_probability = candidate_fold_probability
                 expected_callers = candidate_expected_callers
                 called_equity_estimate = candidate_called_equity
@@ -3449,6 +3588,8 @@ def _choose_range_aware_action_impl(
         f"SDV-current-equity={float(showdown_profile.get('current_equity', 0.0)):.1%}; "
         f"SDV-threshold={float(showdown_profile.get('threshold', 0.0)):.1%}; "
         f"SDV-supported={bool(showdown_profile.get('supported', False))}; "
+        f"SDV-aggression-policy={selected_sdv_policy}; "
+        f"SDV-bet-candidates-blocked={sdv_candidates_blocked}; "
         f"donk-lead={bool(board_role.get('donk_lead', False))}; "
         f"hero-made-category={hero_hand_category}; "
         f"structural-draw={hero_draw_strength:.2f}; "
