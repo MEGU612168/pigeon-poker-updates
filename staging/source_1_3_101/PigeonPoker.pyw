@@ -91,8 +91,9 @@ from pigeon_poker.casino_games import (
     blackjack_double, new_baccarat_round, serialize_blackjack_state, restore_blackjack_state,
 )
 from pigeon_poker.vip_ai import (
-    assign_vip_cpu_roles, vip_cpu_role_label,
-    validate_vip_cpu_roles, VIP_PURE_GTO_COUNT, VIP_NEAR_GTO_COUNT,
+    assign_vip_cpu_roles, vip_cpu_role_label, validate_vip_cpu_roles,
+    VIP_PRO_COUNT, VIP_TOP_PRO_COUNT, VIP_TOP_PRO_ROLE,
+    make_vip_auto_rebuy_plan,
     PURE_GTO_ROLE, NEAR_GTO_ROLE,
 )
 from pigeon_poker.study_time import (
@@ -118,7 +119,8 @@ COLORS = {
     "felt2": "#084d38", "seat": "#14243a", "white": "#ffffff",
 }
 
-VIP_PRO_SIMULATIONS = 512
+VIP_PRO_SIMULATIONS = 1024
+VIP_TOP_PRO_SIMULATIONS = 4096
 
 # Each all-in board must be shown in Hold'em street order. The flop is a
 # three-card reveal; turn and river are separate card events.
@@ -834,15 +836,18 @@ class PigeonPokerApp(tk.Tk):
                  bg="#17070d", fg="#d9b9a0",
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(2, 0))
         tk.Frame(vip_card, bg="#d9b866", height=1).pack(fill="x", padx=24, pady=(2, 12))
-        tk.Label(vip_card, text="PRO ONLY  •  FIVE LEVEL-5 PROFESSIONAL OPPONENTS",
+        tk.Label(vip_card, text="♛  THREE PRO  •  TWO TOP PRO  •  NO NUMBERED SEAT NAMES",
                  bg="#17070d", fg="#f1cd7c",
                  font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=28, pady=(0, 6))
-        tk.Label(vip_card, text="512 POSTFLOP ENGINE SAMPLES  •  ENHANCED RANGE & SHOWDOWN ANALYSIS",
+        tk.Label(vip_card, text="PRO 1,024 SAMPLES  •  TOP PRO 4,096 SAMPLES  •  DEEP RANGE & SHOWDOWN ANALYSIS",
                  bg="#17070d", fg="#efb7a9", font=("Segoe UI", 9, "bold"),
                  wraplength=980, justify="left").pack(anchor="w", padx=28, pady=(0, 10))
         tk.Label(vip_card, text="Buy-in: 20–100 BB ($1,000–$5,000)  •  Default: 100 BB ($5,000)  •  No ante",
                  bg="#17070d", fg="#c8b7aa", font=("Segoe UI", 9)).pack(anchor="w", padx=28, pady=(0, 7))
-        tk.Label(vip_card, text="A fixed six-max lineup: opponents keep their identities and remaining stacks between hands. No weaker seat or standard CPU tier is admitted.",
+        tk.Label(vip_card, text="STACK POLICY  •  Below 80 BB, every seat automatically reloads to 100 BB before the next hand. HERO reloads only when the wallet can cover it.",
+                 bg="#17070d", fg="#f0d0a0", font=("Segoe UI", 9, "bold"), wraplength=980,
+                 justify="left").pack(anchor="w", padx=28, pady=(0, 7))
+        tk.Label(vip_card, text="A fixed six-max lineup with five persistent professional opponents. The 174-scenario preflop chart is shared; only postflop decision depth and TOP PRO pressure policy differ.",
                  bg="#17070d", fg="#c8b7aa", font=("Segoe UI", 9), wraplength=980,
                  justify="left").pack(anchor="w", padx=28, pady=(0, 14))
         tk.Frame(vip_card, bg="#7b1830", height=2).pack(fill="x", padx=24, pady=(0, 12))
@@ -872,11 +877,13 @@ class PigeonPokerApp(tk.Tk):
         tk.Frame(panel, bg="#891a35", height=3).pack(fill="x")
         tk.Label(panel, text="♛  VIP PRIVATE CLUB  •  $25 / $50", bg=vip_bg, fg="#f1d18b",
                  font=("Segoe UI Symbol", 16, "bold")).pack(anchor="w", padx=20, pady=(16, 4))
-        tk.Label(panel, text="PRO ONLY  •  FIVE LEVEL-5 PROFESSIONAL OPPONENTS",
+        tk.Label(panel, text="THREE PRO  •  TWO TOP PRO  •  1,024 / 4,096 SAMPLES",
                  bg=vip_bg, fg="#e9b5a8", font=("Segoe UI", 8, "bold")
                  ).pack(anchor="w", padx=20, pady=(0, 8))
         tk.Label(panel, text="Choose your starting stack (20–100 BB)", bg=vip_bg,
                  fg="#d4c1b1", font=("Segoe UI", 9)).pack(anchor="w", padx=20)
+        tk.Label(panel, text="AUTO-REBUY BELOW 80 BB  →  100 BB  •  HERO REBUY USES WALLET",
+                 bg=vip_bg, fg="#f1d18b", font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=20, pady=(4, 0))
         buyin_var = tk.StringVar(value=str(VIP_DEFAULT_BUYIN_BB))
         row = tk.Frame(panel, bg=vip_bg)
         row.pack(fill="x", padx=20, pady=15)
@@ -1141,7 +1148,15 @@ class PigeonPokerApp(tk.Tk):
         self.vip_cpu_roles = (assign_vip_cpu_roles(
             [profile.cpu_id for profile in profiles], rng=self.cash_random
         ) if is_vip_mode(table_mode) else {})
-        cpu_players = [(profile.cpu_id, profile.name, self.cash_buyin) for profile in profiles]
+        cpu_players = [
+            (
+                profile.cpu_id,
+                vip_cpu_role_label(self.vip_cpu_roles.get(profile.cpu_id))
+                if is_vip_mode(table_mode) else profile.name,
+                self.cash_buyin,
+            )
+            for profile in profiles
+        ]
         players = cpu_players[:3] + [("hero", "YOU", self.cash_buyin)] + cpu_players[3:]
         if is_vip_mode(table_mode):
             # Reference profile: 5% rake with a $25 cap for the $25/$50
@@ -1159,18 +1174,29 @@ class PigeonPokerApp(tk.Tk):
             profile.cpu_id: CashGameCPU(
                 level=(5 if is_vip_mode(table_mode) else profile.level),
                 rng=random.Random(self.cash_random.randrange(2**32)),
-                simulations=(VIP_PRO_SIMULATIONS if is_vip_mode(table_mode) else 48),
-                archetype=("balanced" if is_vip_mode(table_mode) else profile.archetype),
+                simulations=(
+                    VIP_TOP_PRO_SIMULATIONS
+                    if self.vip_cpu_roles.get(profile.cpu_id) == VIP_TOP_PRO_ROLE else
+                    VIP_PRO_SIMULATIONS if is_vip_mode(table_mode) else 48
+                ),
+                archetype=(
+                    "aggressive"
+                    if self.vip_cpu_roles.get(profile.cpu_id) == VIP_TOP_PRO_ROLE else
+                    "balanced" if is_vip_mode(table_mode) else profile.archetype
+                ),
                 # VIP GTO/near-GTO roles are lineup specifications at this stage.
                 # Do not apply a solver deviation to the level-5 fallback engine.
             )
             for profile in profiles
         }
         if is_vip_mode(table_mode):
-            # Mark only VIP CPUs for deeper range/equity sampling; Rush opponents
-            # retain their original runtime and response-time profile.
-            for vip_cpu in self.cash_cpus.values():
+            # PRO and TOP PRO use separate postflop analysis depths. All VIP
+            # seats retain the same immutable 174-scenario preflop policy.
+            for cpu_id, vip_cpu in self.cash_cpus.items():
                 vip_cpu._vip_pro_mode = True
+                vip_cpu._vip_top_pro_mode = (
+                    self.vip_cpu_roles.get(cpu_id) == VIP_TOP_PRO_ROLE
+                )
         self.cash_gto_session = None
         self.cash_gto_spot_mode = False
         self.cash_busy = False
@@ -1183,12 +1209,16 @@ class PigeonPokerApp(tk.Tk):
         self.cash_log_lines = [f"Joined {mode_note}"]
         if is_vip_mode(table_mode):
             self.cash_log_lines.append(
-                f"VIP PRO ONLY: {VIP_PURE_GTO_COUNT} professional seats; "
-                f"{VIP_NEAR_GTO_COUNT} lower-tier seats. No NEAR-GTO or standard opponents."
+                f"VIP LINEUP: {VIP_PRO_COUNT} PRO + {VIP_TOP_PRO_COUNT} TOP PRO. No numbered aliases or weaker CPU tier."
             )
             self.cash_log_lines.append(
-                f"CPU policy: fixed 174-scenario preflop chart + level-5 range-aware postflop "
-                f"with {VIP_PRO_SIMULATIONS} decision samples. Local strategy, not solver-exact GTO."
+                f"CPU policy: fixed 174-scenario preflop chart; PRO {VIP_PRO_SIMULATIONS:,} "
+                f"and TOP PRO {VIP_TOP_PRO_SIMULATIONS:,} postflop samples. "
+                f"TOP PRO uses stronger pressure-oriented EV selection. Local strategy, not solver-exact GTO."
+            )
+            self.cash_log_lines.append(
+                "VIP AUTO-REBUY: any seat below 80 BB is topped up to 100 BB before the next hand; "
+                "HERO top-ups require sufficient wallet funds."
             )
         slot_state = self._cash_state_snapshot()
         slot_state.update({
@@ -3052,12 +3082,36 @@ class PigeonPokerApp(tk.Tk):
         try:
             if not self.cash_gto_spot_mode:
                 self.ggcare_candidate = None
+            vip_rebuy_plan = None
+            vip_initial_hand = bool(first or self.cash_table.hand is None)
+            if is_vip_mode(self.cash_game_mode) and not self.cash_gto_spot_mode:
+                self._sync_external_wallet_balance()
+                if self.cash_table.hand is not None and self.cash_table.hand.finished:
+                    self.cash_table.sync_external_hand_state()
+                vip_rebuy_plan = make_vip_auto_rebuy_plan(
+                    {str(seat["id"]): int(seat.get("stack", 0)) for seat in self.cash_table.seats},
+                    self.cash_bb,
+                    wallet_available_cents=self.cash_balance_cents,
+                )
+                if vip_initial_hand:
+                    for seat in self.cash_table.seats:
+                        target = vip_rebuy_plan["targets"].get(str(seat["id"]))
+                        if target is not None:
+                            seat["stack"] = int(target)
             hero_seat = next((seat for seat in self.cash_table.seats if seat["id"] == "hero"), None)
-            if not self.cash_gto_spot_mode and hero_seat is not None and int(hero_seat["stack"]) <= 0:
-                self.cash_status_var.set("Stack is empty — rebuy or leave before the next hand")
+            hero_stack_next = (
+                int(vip_rebuy_plan["targets"].get("hero", hero_seat["stack"]))
+                if vip_rebuy_plan is not None and hero_seat is not None else
+                int(hero_seat["stack"]) if hero_seat is not None else 0
+            )
+            if not self.cash_gto_spot_mode and hero_seat is not None and hero_stack_next <= 0:
+                if vip_rebuy_plan and vip_rebuy_plan["hero_skipped_cents"] > 0:
+                    self.cash_status_var.set("VIP auto-rebuy needs more wallet funds to reach 100 BB")
+                else:
+                    self.cash_status_var.set("Stack is empty — rebuy or leave before the next hand")
                 self._render_cash_actions()
                 return
-            if first or self.cash_table.hand is None:
+            if vip_initial_hand:
                 self.cash_table.start_hand()
             else:
                 if (not self.cash_gto_spot_mode
@@ -3079,15 +3133,35 @@ class PigeonPokerApp(tk.Tk):
                     self._refresh_table_windows()
                     return
                 if is_vip_mode(self.cash_game_mode):
-                    cpu_rebuys = {
-                        str(seat["id"]): self.cash_buyin
-                        for seat in self.cash_table.seats
-                        if seat["id"] != "hero" and int(seat.get("stack", 0)) <= 0
-                    }
-                    self.cash_table.next_hand(rebuy_stacks=cpu_rebuys)
+                    self.cash_table.next_hand(
+                        rebuy_stacks=(vip_rebuy_plan or {}).get("targets", {})
+                    )
                 else:
                     self._rotate_cash_opponents()
                     self.cash_table.start_hand()
+            if vip_rebuy_plan is not None:
+                hero_debit = int(vip_rebuy_plan.get("hero_debit_cents", 0))
+                if hero_debit > 0:
+                    self.cash_balance_cents -= hero_debit
+                    self._update_cash_balance()
+                    self._record_cash_transaction(
+                        "auto-rebuy", -hero_debit,
+                        note="VIP automatic top-up to 100 BB (trigger below 80 BB)",
+                    )
+                    self.cash_log_lines.append(
+                        f"VIP AUTO-REBUY • HERO +${hero_debit / 100:,.2f} to 100 BB"
+                    )
+                cpu_rebuys = vip_rebuy_plan.get("cpu_rebuys", {})
+                if cpu_rebuys:
+                    self.cash_log_lines.append(
+                        f"VIP AUTO-REBUY • {len(cpu_rebuys)} CPU seat(s) topped up to 100 BB"
+                    )
+                hero_skipped = int(vip_rebuy_plan.get("hero_skipped_cents", 0))
+                if hero_skipped > 0:
+                    self.cash_log_lines.append(
+                        f"VIP AUTO-REBUY • HERO not topped up; wallet short by "
+                        f"${max(0, hero_skipped - self.cash_balance_cents) / 100:,.2f}"
+                    )
             # Every live table hand may pause for an explicit Run It Multiple Times
             # decision after an all-in. GTO+ training spots keep their own flow.
             if not self.cash_gto_spot_mode and self.cash_table.hand is not None:
@@ -9107,9 +9181,20 @@ class PigeonPokerApp(tk.Tk):
                 table_vip_roles = special_state.get("vip_cpu_roles", self.vip_cpu_roles)
                 vip_role_text = vip_cpu_role_label(table_vip_roles.get(player.player_id))
                 if vip_role_text:
-                    canvas.create_text(text_left, panel_y-12, text="PRO ONLY", anchor="w",
-                                       fill="#f6d99a",
-                                       font=("Segoe UI", 7, "bold"), tags=("seat", seat_tag, "vip_pro_only"))
+                    is_top_pro = (vip_role_text == "TOP PRO")
+                    if is_top_pro:
+                        canvas.create_rectangle(
+                            text_left-3, panel_y-20, text_left+61, panel_y-4,
+                            fill="#6b1428", outline="#e8c66e", width=1,
+                            tags=("seat", seat_tag, "vip_top_pro_badge"),
+                        )
+                    canvas.create_text(
+                        text_left if not is_top_pro else text_left+2,
+                        panel_y-12, text=vip_role_text, anchor="w",
+                        fill="#f8e2a3" if is_top_pro else "#e7c984",
+                        font=("Segoe UI", 7, "bold"),
+                        tags=("seat", seat_tag, "vip_pro_only"),
+                    )
             pre_settlement_stacks = special_state.get("cash_runout_pre_settlement_stacks") or {}
             display_stack = (int(pre_settlement_stacks.get(player.player_id, player.stack))
                              if runout_reveal_pending else int(player.stack))
@@ -9534,14 +9619,20 @@ class PigeonPokerApp(tk.Tk):
         window.configure(bg=COLORS["bg"])
         header = tk.Frame(window, bg=COLORS["panel"], padx=16, pady=12)
         header.pack(fill="x")
-        tk.Label(header, text=f"{profile.avatar}  {profile.name}", bg=COLORS["panel"],
-                 fg=COLORS["text"], font=("Segoe UI", 16, "bold")).pack(anchor="w")
         vip_role = self.vip_cpu_roles.get(cpu_id) if is_vip_mode(self.cash_game_mode) else None
+        vip_role_label = vip_cpu_role_label(vip_role)
+        profile_display_name = vip_role_label if vip_role_label else profile.name
+        window.title(f"{profile_display_name} • CPU profile")
+        tk.Label(header, text=f"{profile.avatar}  {profile_display_name}", bg=COLORS["panel"],
+                 fg=COLORS["text"], font=("Segoe UI", 16, "bold")).pack(anchor="w")
         role_detail = (
-            f" • {vip_cpu_role_label(vip_role)} • lineup role only; strategy implementation is still in progress"
-            if vip_role else f" • {profile.archetype}"
+            f" • {vip_role_label} • {VIP_TOP_PRO_SIMULATIONS:,} postflop samples • pressure-oriented range/EV policy"
+            if vip_role == VIP_TOP_PRO_ROLE else
+            f" • {vip_role_label} • {VIP_PRO_SIMULATIONS:,} postflop samples • range-aware professional policy"
+            if vip_role_label else f" • {profile.archetype}"
         )
-        tk.Label(header, text=(f"{cpu_id} • {self.cash_rate}{role_detail} • "
+        identity_detail = f"{self.cash_rate}{role_detail}" if vip_role_label else f"{cpu_id} • {self.cash_rate}{role_detail}"
+        tk.Label(header, text=(f"{identity_detail} • "
                                f"{profile.notes or 'No notes'}"),
                  bg=COLORS["panel"], fg=COLORS["muted"], font=("Segoe UI", 9),
                  wraplength=760, justify="left").pack(anchor="w", pady=(3, 0))
