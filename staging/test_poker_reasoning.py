@@ -2105,9 +2105,9 @@ def test_vip_pro_and_top_pro_use_separate_equity_sample_depths():
     pro_cpu._vip_pro_mode = True
     top_pro_cpu._vip_pro_mode = True
     top_pro_cpu._vip_top_pro_mode = True
-    assert module._vip_pro_sample_multiplier(standard_cpu) == 1.0
-    assert module._vip_pro_sample_multiplier(pro_cpu) == 1.5
-    assert module._vip_pro_sample_multiplier(top_pro_cpu) == 4.0
+    assert module._vip_base_sample_budget(standard_cpu) is None
+    assert module._vip_base_sample_budget(pro_cpu) == 1024
+    assert module._vip_base_sample_budget(top_pro_cpu) == 4096
 
 
 def test_flush_and_straight_draws_require_private_hand_contribution():
