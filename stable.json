@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.19",
-  "published_at": "2026-11-26T14:59:40Z",
-  "release_notes": "Pigeon Poker 1.5.19 preserves the v1.5.18 cash-table pot visibility correction and applies a one-time +$1,100.00 credit to the existing local wallet. The credit is recorded in the wallet ledger and protected by an atomic SQLite marker, so relaunches and repeated update checks cannot duplicate it. Existing balances, the prior $10 bonus, and the one-time $270 casino-test refund are preserved.",
+  "version": "1.5.20",
+  "published_at": "2026-11-26T15:27:09Z",
+  "release_notes": "Pigeon Poker 1.5.20 makes all-in showdowns suspenseful and correctly ordered: reveal every live player's hole cards first, wait for an explicit Run It Once/Twice/Three Times choice (no automatic timeout), then reveal the flop, turn, and river in separate paced stages for every board. Winner banners, POT PAID, stack changes, and payout effects remain hidden until the final river is visible. The existing v1.5.18 pot visibility correction and the one-time +$1,100 wallet credit from v1.5.19 are preserved.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.19/payload-updater.zip.b64?v=fe936e687318ef52ec4d267b7c218b7760035533087b015a64882a15924c51c8",
-  "payload_sha256": "fe936e687318ef52ec4d267b7c218b7760035533087b015a64882a15924c51c8",
-  "payload_size": 1216999
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.20/payload-updater.zip.b64?v=67581cdc3adf64baa40382d418ca5b47c529bef863bdcbac28a694016b3b8d97",
+  "payload_sha256": "67581cdc3adf64baa40382d418ca5b47c529bef863bdcbac28a694016b3b8d97",
+  "payload_size": 1217733
 }
