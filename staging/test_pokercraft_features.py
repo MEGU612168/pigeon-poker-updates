@@ -102,7 +102,7 @@ def test_range_icon_is_disabled_and_unbound_outside_the_174_catalogue():
     assert 'canvas.unbind("<Button-1>")' in updater
     assert 'canvas.configure(cursor="")' in updater
     assert 'canvas.configure(cursor="hand2")' in updater
-    assert "この状況に一致する元画像レンジはありません。" in opener
+    assert "この状況に一致する174局面レンジ表はありません。" in opener
     assert "レンジ料金も発生していません。" in opener
 
 
