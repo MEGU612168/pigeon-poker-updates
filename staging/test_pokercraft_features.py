@@ -209,11 +209,12 @@ def test_format_table_chips_signature_matches_every_call_site():
 
 
 
-def test_range_window_is_resizable_until_native_work_area_fit_finishes():
+def test_range_canvas_window_stays_resizable_and_uses_scrollbars():
     view = source_of("_open_preflop_range_view")
     assert view.index("win.resizable(True, True)") < view.index("_fit_toplevel_to_monitor_work_area(")
-    assert view.index("_fit_toplevel_to_monitor_work_area(") < view.index("win.resizable(False, False)")
-    assert "win.minsize(360, 240)" in view
+    assert "win.resizable(False, False)" not in view
+    assert "ttk.Scrollbar(" in view
+    assert "win.minsize(560, 500)" in view
 
 
 def run_tests():
@@ -232,7 +233,7 @@ def run_tests():
         test_main_and_table_windows_use_native_monitor_work_area_bounds,
         test_paid_range_window_prevalidates_the_matrix_before_wallet_debit,
         test_format_table_chips_signature_matches_every_call_site,
-        test_range_window_is_resizable_until_native_work_area_fit_finishes,
+        test_range_canvas_window_stays_resizable_and_uses_scrollbars,
         test_live_preflop_range_is_a_canvas_overlay_and_pauses_the_action_clock,
     ]
     for test in tests:
