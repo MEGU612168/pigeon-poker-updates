@@ -4416,8 +4416,12 @@ class PigeonPokerApp(tk.Tk):
                     # move almost immediately; postflop keeps natural thinking time.
                     fallback_decision = None
                     if hand.street == "preflop":
-                        # All CPUs use the same 174-scenario preflop policy.
-                        fallback_decision = choose_preflop_174_action(table, hand, pid, cpu)
+                        # Use an exact 174 chart only when the full action history matches.
+                        # Uncovered states are sent to the separate range-aware policy.
+                        fallback_decision = choose_preflop_174_action(
+                            table, hand, pid, cpu,
+                            range_estimator=postflop_range_estimator,
+                        )
                     elif not (session is not None and session.hand_token == id(hand) and session.context is not None):
                         # The same opponent-range engine handles postflop decisions.
                         fallback_decision = choose_range_aware_action(table, hand, pid, cpu, range_estimator=postflop_range_estimator)
@@ -4518,7 +4522,10 @@ class PigeonPokerApp(tk.Tk):
                         decision = fallback_decision
                         if decision is None:
                             if hand.street == "preflop":
-                                decision = choose_preflop_174_action(table, hand, pid, cpu)
+                                decision = choose_preflop_174_action(
+                                    table, hand, pid, cpu,
+                                    range_estimator=postflop_range_estimator,
+                                )
                             else:
                                 decision = choose_range_aware_action(table, hand, pid, cpu, range_estimator=postflop_range_estimator)
                         if decision is None:
@@ -4538,7 +4545,8 @@ class PigeonPokerApp(tk.Tk):
                             "preflop-174-scenario-policy", "preflop-174-legal-guardrail"
                         }
                         range_policy_used = decision_source in {
-                            "range-aware-policy", "range-aware-guardrail"
+                            "range-aware-policy", "range-aware-guardrail",
+                            "preflop-uncovered-range-aware-fallback",
                         }
                         if preflop_policy_used:
                             source_image_no = getattr(decision, "source_image_no", None)
