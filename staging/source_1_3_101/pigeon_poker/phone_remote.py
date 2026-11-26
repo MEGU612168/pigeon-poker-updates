@@ -202,7 +202,7 @@ async function sendAction(action,amount){$("actionMessage").textContent="Sending
 async function submitBet(action,max){const amount=Math.round(Number($("betAmount").value)*100);if(!Number.isFinite(amount)||amount<0){$("actionMessage").textContent="Enter a valid amount";return;}await sendAction(action,amount);}
 async function poll(){
  if(!token)return;
- try{const data=await api("/api/state");render(data);$("connection").textContent="CONNECTED";}
+ try{const data=await api("/api/state");if(document.activeElement?.id!=="betAmount")render(data);$("connection").textContent="CONNECTED";}
  catch(e){$("connection").textContent="RECONNECTING";}
  timer=window.setTimeout(poll,550);
 }
