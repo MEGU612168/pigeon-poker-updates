@@ -3093,16 +3093,19 @@ def _choose_range_aware_action_impl(
                     or float(showdown_profile.get("margin", 0.0)) < 0.12
                 )
             )
-            overbet_allowed = _postflop_overbet_size_allowed(
-                bet_fraction,
-                street=street,
-                range_advantage=range_advantage,
-                range_disadvantage=range_disadvantage,
-                nut_advantage=nut_advantage,
-                expected_callers=max(candidate_expected_callers, expected_opponents),
-                made_category=hero_hand_category,
-                current_equity=candidate_called_current_equity,
-                spr=spr,
+            overbet_allowed = (
+                True if street == "preflop" else
+                _postflop_overbet_size_allowed(
+                    bet_fraction,
+                    street=street,
+                    range_advantage=range_advantage,
+                    range_disadvantage=range_disadvantage,
+                    nut_advantage=nut_advantage,
+                    expected_callers=max(candidate_expected_callers, expected_opponents),
+                    made_category=hero_hand_category,
+                    current_equity=candidate_called_current_equity,
+                    spr=spr,
+                )
             )
             if not overbet_allowed:
                 continue
