@@ -10233,7 +10233,7 @@ class PigeonPokerApp(tk.Tk):
         self.poker_include_rake_var = tk.BooleanVar(value=True)
         tk.Label(row1, text="Stake", bg=COLORS["panel"], fg=COLORS["muted"]).pack(side="left")
         ttk.Combobox(row1, textvariable=self.poker_filter_stake_var,
-                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200", "VIP25/50"],
+                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200", "NL500", "NL1000", "VIP25/50"],
                      state="readonly", width=8).pack(side="left", padx=(4, 12))
         tk.Label(row1, text="Sort", bg=COLORS["panel"], fg=COLORS["muted"]).pack(side="left")
         ttk.Combobox(row1, textvariable=self.poker_sort_var,
@@ -11345,7 +11345,7 @@ class PigeonPokerApp(tk.Tk):
             rate = str(row.get("table_rate", ""))
             bb_cents = {
                 "NL2": 2, "NL5": 5, "NL10": 10, "NL25": 25,
-                "NL50": 50, "NL100": 100, "NL200": 200, "VIP25/50": 5000,
+                "NL50": 50, "NL100": 100, "NL200": 200, "NL500": 500, "NL1000": 1000, "VIP25/50": 5000,
             }.get(rate)
             if not bb_cents:
                 return None
