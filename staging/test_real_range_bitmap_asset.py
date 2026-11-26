@@ -4,6 +4,7 @@ import base64
 import hashlib
 import struct
 import sys
+import tempfile
 import types
 import zlib
 from pathlib import Path
@@ -144,8 +145,45 @@ def test_create_range_photo_writes_real_rgb_pixels_into_native_tk_image() -> Non
 
 
 
+
+def test_corrupt_local_bitmap_falls_back_to_verified_embedded_copy() -> None:
+    data = ASSET.read_bytes()
+    stale = bytearray(data)
+    stale[-1] ^= 0x01  # Keep the expected size but deliberately break the SHA-256.
+    module_name = "pigeon_poker.range_tables_v2_asset"
+    carrier = types.ModuleType(module_name)
+    carrier.RANGE_TABLES_V2_B64 = base64.b64encode(data).decode("ascii")
+    previous = sys.modules.get(module_name)
+    original_path = range_image_catalog._ASSET_PATH
+
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            stale_path = Path(temp_dir) / "range_tables_v2.bin"
+            stale_path.write_bytes(stale)
+            sys.modules[module_name] = carrier
+            range_image_catalog._ASSET_PATH = stale_path
+            range_image_catalog._load_catalog.cache_clear()
+            range_image_catalog.range_image_png.cache_clear()
+
+            summary = range_image_catalog.range_catalog_summary()
+            assert summary["source_image_count"] == 174
+            assert summary["scenario_count"] == 174
+            assert summary["asset_sha256"] == EXPECTED_SHA256
+            assert range_image_catalog.range_image_png(136).startswith(PNG_SIGNATURE)
+    finally:
+        range_image_catalog._ASSET_PATH = original_path
+        if previous is None:
+            sys.modules.pop(module_name, None)
+        else:
+            sys.modules[module_name] = previous
+        range_image_catalog._load_catalog.cache_clear()
+        range_image_catalog.range_image_png.cache_clear()
+
+
+
 if __name__ == "__main__":
     test_real_174_bitmap_loads_and_every_source_image_renders()
     test_embedded_python_carrier_loads_without_a_binary_file()
     test_create_range_photo_writes_real_rgb_pixels_into_native_tk_image()
+    test_corrupt_local_bitmap_falls_back_to_verified_embedded_copy()
     print("PASS: 174 source PNG exports, embedded asset and native Tk RGB pixel-write path")

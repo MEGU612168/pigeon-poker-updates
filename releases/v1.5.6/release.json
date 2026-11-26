@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.5.6",
+  "package_mode": "full",
+  "source_version": "1.3.101",
+  "source_directory": "staging/source_1_3_101",
+  "release_notes": "Pigeon Poker 1.5.6 fixes paid preflop range availability and stale bitmap handling. A paid-range icon is enabled by an exact 174-catalog match; the 1 BB wallet debit remains atomic and is checked on click. A local bitmap is now accepted only when its size and SHA-256 match the verified source; otherwise the verified embedded image asset is used. The 174 original range images and exact live-state matching are preserved.",
+  "distribution_status": "prepared",
+  "preflop_174_policy_verified": true,
+  "postflop_theory_policy_verified": true,
+  "range_image_catalog_verified": false,
+  "paid_range_live_resolution_verified": false,
+  "live_range_button_cache_signature_verified": true,
+  "range_data_audit_verified": false,
+  "range_source_entries_expected": 174,
+  "unique_semantic_situations_expected": 171,
+  "duplicate_semantic_scenario_groups": [
+    [
+      195,
+      204
+    ],
+    [
+      196,
+      205
+    ],
+    [
+      238,
+      243
+    ]
+  ],
+  "native_windows_tk_range_render_verified": false,
+  "windows_native_range_view_verified": false,
+  "preflop_raise_size_selector_verified": true
+}

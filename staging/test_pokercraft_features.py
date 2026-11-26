@@ -118,6 +118,15 @@ def test_live_range_button_requires_unique_exact_174_node_and_current_hero_turn(
     assert 'canvas.unbind("<Button-1>")' in updater
     assert "_range_chart_for_table" in updater
 
+ 
+def test_catalogued_range_icon_is_clickable_before_wallet_affordability_check():
+    updater = source_of("_update_range_icon_state")
+    opener = source_of("_open_realtime_preflop_range")
+    assert "enabled = bool(chart)" in updater
+    assert "balance >= fee" not in updater
+    assert "_debit_live_range_review" in opener
+    assert "ウォレット残高が不足" in opener
+
 
 def test_live_range_charges_shared_wallet_once_per_hand_not_stack():
     opener = source_of("_open_realtime_preflop_range")
@@ -217,6 +226,7 @@ def run_tests():
         test_range_view_displays_one_source_bitmap_without_canvas_redrawing,
         test_range_icon_is_disabled_and_unbound_outside_the_174_catalogue,
         test_live_range_button_requires_unique_exact_174_node_and_current_hero_turn,
+        test_catalogued_range_icon_is_clickable_before_wallet_affordability_check,
         test_live_range_charges_shared_wallet_once_per_hand_not_stack,
         test_historical_range_uses_only_events_before_hero_first_action,
         test_pokercraft_refreshes_live_without_blocking_table_play,

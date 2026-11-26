@@ -47,7 +47,11 @@ def test_runtime_catalog_loads_all_174_images_and_renders_146_147():
         asset_path = Path(tmp) / "range_tables_v2.bin"
         asset_path.write_bytes(asset)
         original_path = range_image_catalog._ASSET_PATH
+        original_expected_size = range_image_catalog._EXPECTED_ASSET_SIZE
+        original_expected_sha256 = range_image_catalog._EXPECTED_ASSET_SHA256
         range_image_catalog._ASSET_PATH = asset_path
+        range_image_catalog._EXPECTED_ASSET_SIZE = len(asset)
+        range_image_catalog._EXPECTED_ASSET_SHA256 = hashlib.sha256(asset).hexdigest()
         range_image_catalog._load_catalog.cache_clear()
         range_image_catalog.range_image_png.cache_clear()
         try:
@@ -65,6 +69,8 @@ def test_runtime_catalog_loads_all_174_images_and_renders_146_147():
                 assert int.from_bytes(png[20:24], "big") == 2
         finally:
             range_image_catalog._ASSET_PATH = original_path
+            range_image_catalog._EXPECTED_ASSET_SIZE = original_expected_size
+            range_image_catalog._EXPECTED_ASSET_SHA256 = original_expected_sha256
             range_image_catalog._load_catalog.cache_clear()
             range_image_catalog.range_image_png.cache_clear()
 
