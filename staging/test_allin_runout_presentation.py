@@ -75,6 +75,27 @@ def test_each_new_hand_clears_previous_runout_presentation_state() -> None:
     assert 'active_state["cash_runout_phase"] = ""' in start
 
 
+
+def test_runout_progress_survives_table_switch_snapshot() -> None:
+    snapshot = source_of("_cash_state_snapshot")
+    for field in (
+        "cash_runout_show_hole_cards",
+        "cash_runout_reveal_counts",
+        "cash_runout_reveal_anim",
+        "cash_runout_boards_for_reveal",
+        "cash_runout_phase",
+        "cash_runout_reveal_pending",
+    ):
+        assert f'"{field}"' in snapshot
+
+
+def test_pot_award_waits_until_runout_animation_finishes() -> None:
+    refresh = source_of("_refresh_table_windows")
+    finish = source_of("_finish_allin_runout_reveal")
+    assert 'not bool(state.get("cash_runout_reveal_pending", False))' in refresh
+    assert 'slot.state["cash_runout_reveal_pending"] = False' in finish
+    assert "self._update_cash_after_action()" in finish
+
 def run_tests() -> None:
     tests = [
         test_runout_street_order_is_flop_turn_river,
@@ -82,6 +103,8 @@ def run_tests() -> None:
         test_runout_renderer_keeps_future_cards_hidden_until_each_street,
         test_live_opponent_hole_cards_are_revealed_for_an_allin_showdown_only,
         test_each_new_hand_clears_previous_runout_presentation_state,
+        test_runout_progress_survives_table_switch_snapshot,
+        test_pot_award_waits_until_runout_animation_finishes,
     ]
     for test in tests:
         test()
