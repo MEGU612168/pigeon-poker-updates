@@ -82,15 +82,15 @@ def test_live_hand_flow_shows_scrollable_table_history_with_cards_winner_and_pot
     assert "pot_award" in flow and "hand_won_by_fold" in flow
 
 
-def test_range_view_displays_one_source_bitmap_without_canvas_redrawing():
+def test_range_view_uses_native_canvas_and_never_photoimage():
     view = source_of("_open_preflop_range_view")
-    assert "create_range_photo(self, source_id)" in view
-    assert "image=photo" in view
-    assert "win._range_photo = photo" in view
-    assert "tk.Label(" in view
-    assert "tk.Canvas(" not in view
-    assert "create_rectangle(" not in view
-    assert "frequency / total" not in view
+    assert "build_range_chart_model(" in view
+    assert "draw_preflop_range_canvas(" in view
+    assert "tk.Canvas(" in view
+    assert "ttk.Scrollbar(" in view
+    assert "create_range_photo" not in view
+    assert "image=photo" not in view
+    assert "PhotoImage(" not in view
     assert "top_left_of_anchor=True" in view
 
 
@@ -175,17 +175,16 @@ def test_main_and_table_windows_use_native_monitor_work_area_bounds():
     assert "height = max(470, min(860, screen_h - 110))" in table
 
 
-def test_paid_range_window_is_left_aligned_and_loads_original_bitmap():
+def test_paid_range_window_prevalidates_the_matrix_before_wallet_debit():
     view = source_of("_open_preflop_range_view")
     assert "_fit_toplevel_to_monitor_work_area(" in view
     assert "top_left_of_anchor=True" in view
-    assert "create_range_photo(self, source_id)" in view
-    assert "image=photo" in view
-    assert "win._range_photo = photo" in view
-    assert "tk.Canvas(" not in view
+    assert "draw_preflop_range_canvas(" in view
+    assert "tk.Canvas(" in view
+    assert "create_range_photo" not in view
     assert "if top_left_of_anchor:" in source_of("_fit_toplevel_to_monitor_work_area")
     opener = source_of("_open_realtime_preflop_range")
-    assert opener.index("create_range_photo(self, int(chart[\"source_id\"]))") < opener.index("_debit_live_range_review(")
+    assert opener.index("build_range_chart_model(") < opener.index("_debit_live_range_review(")
 
 
 def test_format_table_chips_signature_matches_every_call_site():
