@@ -354,7 +354,7 @@ jobs:
               "VIP_TOP_PRO_ROLE",
               "vip_cpu._vip_top_pro_mode",
               "make_vip_auto_rebuy_plan(",
-              "is_top_pro = (vip_role_text == "TOP PRO")",
+              'is_top_pro = (vip_role_text == "TOP PRO")',
               "VIP PRIVATE CLUB",
               "vip_rail_double_line",
               "window._pigeon_vip_theme = vip_mode",
