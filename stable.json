@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.21",
-  "published_at": "2026-11-26T15:31:26Z",
-  "release_notes": "Pigeon Poker 1.5.21 refines the all-in suspense sequence: already-dealt community cards stay visible. A flop all-in opens both hands, asks the player to choose Run It Once/Twice/Three Times, then reveals only the turn and river with deliberate pauses; a preflop all-in reveals flop, turn, and river in order. For multiple runouts, each board starts from the already-shared street and reveals only its remaining cards. Winner banners, POT PAID, stack changes, and payouts stay hidden until the final river. The v1.5.19 one-time +$1,100 wallet credit and v1.5.18 pot visibility fix are preserved.",
+  "version": "1.5.22",
+  "published_at": "2026-11-26T15:49:31Z",
+  "release_notes": "Pigeon Poker 1.5.22 compacts the bottom action dock by removing unused bet-sizing and 174-range rows, allowing the table felt to expand. VIP becomes a distinct Private Club table with richer gold-and-emerald trim, VIP-only header and seat badges. Every VIP opponent is PRO ONLY (five level-5 local CPUs; no weaker tier), with 256 postflop decision samples instead of 48. The fixed 174-scenario preflop chart remains unchanged. This is a stronger local policy, not solver-exact GTO.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.21/payload-updater.zip.b64?v=64cbddae6f48e999ffd46e839d1903ca0f746f0c009ef7c726d15c63b367f7e1",
-  "payload_sha256": "64cbddae6f48e999ffd46e839d1903ca0f746f0c009ef7c726d15c63b367f7e1",
-  "payload_size": 1218068
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.22/payload-updater.zip.b64?v=0b67ebed1c4cf33e6fb4c702b89d37021bc2c1e5c3836e117a7fcd733a87adb9",
+  "payload_sha256": "0b67ebed1c4cf33e6fb4c702b89d37021bc2c1e5c3836e117a7fcd733a87adb9",
+  "payload_size": 1219786
 }
