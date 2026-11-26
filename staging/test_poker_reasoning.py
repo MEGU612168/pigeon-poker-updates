@@ -1441,17 +1441,77 @@ def test_postflop_size_candidates_follow_range_edge_and_donk_context():
         to_call=False, donk_lead=True, range_advantage=True,
         range_disadvantage=False, nut_advantage=0.12, expected_callers=2.0,
     )
-    assert 2.00 in polarized
-    assert max(disadvantaged) <= 0.50
+    assert 0.50 in polarized
+    assert max(polarized) <= 0.75
+    assert max(disadvantaged) <= 0.75
     assert max(donk_hu) <= 0.50
     assert max(donk_multiway) <= 0.33
     facing_bet_raise = module._postflop_bet_size_fractions(
         to_call=True, donk_lead=True, range_advantage=True,
         range_disadvantage=False, nut_advantage=0.12, expected_callers=1.0,
     )
-    # Once another player has bet, hero is raising rather than donk-leading.
-    assert 2.00 in facing_bet_raise
+    # Raise candidates stay measured; the call amount is not part of the wager
+    # passed to the opponent fold/call model.
+    assert 1.00 in facing_bet_raise
+    assert max(facing_bet_raise) <= 1.25
     assert max(facing_bet_raise) > max(donk_hu)
+
+
+def test_postflop_raise_response_fraction_excludes_the_call_amount():
+    # Pot before hero acts is 1,600; calling 500 and raising another 800
+    # costs 1,300 total. Opponents face the extra 800 into the 2,100 pot
+    # that exists after the call: 38.1%, not 81.25% or 1.0 pot.
+    fraction = module._postflop_size_fraction(1600, risk=1300, to_call=500)
+    assert abs(fraction - (800 / 2100)) < 1e-9
+    assert module._postflop_size_fraction(1600, risk=400, to_call=0) == 0.25
+
+
+def test_postflop_overbets_require_a_polar_nut_edge_or_low_spr_stackoff():
+    assert module._postflop_overbet_size_allowed(
+        1.25, street="turn", range_advantage=True, range_disadvantage=False,
+        nut_advantage=0.18, expected_callers=1.0, made_category=3,
+        current_equity=0.78, spr=3.0,
+    ) is True
+    assert module._postflop_overbet_size_allowed(
+        1.50, street="river", range_advantage=True, range_disadvantage=False,
+        nut_advantage=0.24, expected_callers=1.0, made_category=3,
+        current_equity=0.82, spr=2.0,
+    ) is True
+    assert module._postflop_overbet_size_allowed(
+        1.50, street="flop", range_advantage=True, range_disadvantage=False,
+        nut_advantage=0.20, expected_callers=1.0, made_category=3,
+        current_equity=0.90, spr=1.5,
+    ) is True
+    assert module._postflop_overbet_size_allowed(
+        1.50, street="flop", range_advantage=True, range_disadvantage=False,
+        nut_advantage=0.20, expected_callers=1.0, made_category=1,
+        current_equity=0.75, spr=8.0,
+    ) is False
+    assert module._postflop_overbet_size_allowed(
+        1.50, street="turn", range_advantage=False, range_disadvantage=False,
+        nut_advantage=0.25, expected_callers=1.0, made_category=3,
+        current_equity=0.90, spr=4.0,
+    ) is False
+    assert module._postflop_overbet_size_allowed(
+        1.50, street="river", range_advantage=True, range_disadvantage=False,
+        nut_advantage=0.20, expected_callers=2.0, made_category=2,
+        current_equity=0.80, spr=2.0,
+    ) is False
+
+
+def test_multiway_postflop_sizes_are_capped_unless_nut_advantage_is_extreme():
+    normal_multiway = module._postflop_bet_size_fractions(
+        to_call=False, donk_lead=False, range_advantage=True,
+        range_disadvantage=False, nut_advantage=0.12, expected_callers=2.0,
+        street="flop", made_category=3,
+    )
+    rare_nutted_multiway = module._postflop_bet_size_fractions(
+        to_call=False, donk_lead=False, range_advantage=True,
+        range_disadvantage=False, nut_advantage=0.35, expected_callers=2.0,
+        street="turn", made_category=4,
+    )
+    assert max(normal_multiway) <= 0.50
+    assert 1.25 in rare_nutted_multiway
 
 
 def test_verified_caller_range_edge_allows_strong_top_pair_donk():
@@ -1660,8 +1720,8 @@ def test_board_texture_changes_size_plan_for_dry_wet_and_paired_boards():
         board_texture=wet,
     )
     assert min(dry_plan) < min(wet_plan)
-    assert 2.00 in wet_plan
-    assert max(disadvantage_plan) <= 0.50
+    assert max(wet_plan) <= 0.75
+    assert max(disadvantage_plan) <= 0.75
 
 
 def test_completed_draws_are_identified_from_public_board_only():
@@ -1705,20 +1765,26 @@ def test_spr_calibrates_equity_realization_and_thin_value_threshold():
     assert shallow_threshold < deep_threshold
 
 
-def test_spr_expands_stackoff_sizes_when_nut_edge_is_real():
+def test_spr_expands_stackoff_sizes_only_for_strong_nut_hands():
     texture = module._postflop_board_texture(["As", "7d", "2c"])
     shallow = module._postflop_bet_size_fractions(
         to_call=False, donk_lead=False, range_advantage=True,
-        range_disadvantage=False, nut_advantage=0.12, expected_callers=1.0,
-        board_texture=texture, spr=1.5,
+        range_disadvantage=False, nut_advantage=0.16, expected_callers=1.0,
+        board_texture=texture, spr=1.5, street="flop", made_category=3,
+    )
+    shallow_one_pair = module._postflop_bet_size_fractions(
+        to_call=False, donk_lead=False, range_advantage=True,
+        range_disadvantage=False, nut_advantage=0.16, expected_callers=1.0,
+        board_texture=texture, spr=1.5, street="flop", made_category=1,
     )
     deep = module._postflop_bet_size_fractions(
         to_call=False, donk_lead=False, range_advantage=True,
         range_disadvantage=False, nut_advantage=0.12, expected_callers=1.0,
-        board_texture=texture, spr=12.0,
+        board_texture=texture, spr=12.0, street="flop", made_category=3,
     )
-    assert 2.50 in shallow
-    assert max(deep) <= 2.00
+    assert 1.50 in shallow
+    assert max(shallow_one_pair) <= 0.75
+    assert max(deep) <= 0.75
     assert 0.25 in deep
 
 
