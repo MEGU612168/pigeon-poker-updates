@@ -2062,6 +2062,14 @@ def test_cash_cpu_connects_174_chart_ranges_and_learned_profiles_to_postflop():
 
 
 
+def test_vip_pro_flag_boosts_only_tagged_equity_sampling():
+    standard_cpu = FakeCPU()
+    vip_cpu = FakeCPU()
+    vip_cpu._vip_pro_mode = True
+    assert module._vip_pro_sample_multiplier(standard_cpu) == 1.0
+    assert module._vip_pro_sample_multiplier(vip_cpu) == 1.5
+
+
 def test_flush_and_straight_draws_require_private_hand_contribution():
     # Four flush cards on the board alone must not be treated as every
     # opponent holding a private flush draw.
