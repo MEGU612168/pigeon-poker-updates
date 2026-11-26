@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.8",
-  "published_at": "2026-11-26T08:43:40Z",
-  "release_notes": "Pigeon Poker 1.5.8 makes the 174-scenario preflop dataset the single source for live range charts, BOT decisions, and hero raise-size choices. The live resolver normalizes fold-only first-in prefixes and the BOT uses the same resolved scenario ID as the displayed chart. All source-defined raise sizes for the selected scenario remain visible; options unavailable to the current hand or live legal state are explicitly disabled rather than silently omitted. Regression tests cover all 174 scenarios, 169-hand frequency use across ten scenario families, and exact sizing-menu source alignment.",
+  "version": "1.5.9",
+  "published_at": "2026-11-26T08:58:41Z",
+  "release_notes": "Pigeon Poker 1.5.9 strengthens postflop decision-making while preserving the immutable 174-scenario preflop policy. The BOT distinguishes current-board showdown value from future draw equity, protects showdown-capable hands from being repurposed as bluffs, sizes thin one-pair value bets more carefully, allows only narrow protection bets, and requires fold equity plus value-combo blockers and positional/range support for pure bluffs. Regression coverage includes full-decision SDV cases and all existing 174-chart, CPU, and updater checks.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.8/payload-updater.zip.b64?v=781c31d1f49e37e3ca96bbfd43c647ee83416fc30a094195b8b42797a1d7724f",
-  "payload_sha256": "781c31d1f49e37e3ca96bbfd43c647ee83416fc30a094195b8b42797a1d7724f",
-  "payload_size": 1192772
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.9/payload-updater.zip.b64?v=dce0f19dc8d5eed73c634db8c54e1d3e131acf06059621f48e39bb559f7083eb",
+  "payload_sha256": "dce0f19dc8d5eed73c634db8c54e1d3e131acf06059621f48e39bb559f7083eb",
+  "payload_size": 1194385
 }
