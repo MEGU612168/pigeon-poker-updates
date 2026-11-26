@@ -7,13 +7,13 @@
   "source_version": "1.3.101",
   "source_directory": "staging/source_1_3_101",
   "release_notes": "Pigeon Poker 1.5.5 fixes black/blank paid preflop range windows. Original range RGB pixels are written directly into native Tk PhotoImage surfaces instead of relying on the Windows PNG/PPM image decoder. Native Windows Tk verification renders and samples all 174 source images, including range #136. The full source audit confirms 174 IDs (128-301) and 174 image frames, with 171 unique semantic situations because three pairs are exact duplicate entries: 195/204, 196/205, and 238/243. The paid range remains 1BB per hand and uses exact live-state matching.",
-  "distribution_status": "prepared",
+  "distribution_status": "published",
   "preflop_174_policy_verified": true,
   "postflop_theory_policy_verified": true,
-  "range_image_catalog_verified": false,
+  "range_image_catalog_verified": true,
   "paid_range_live_resolution_verified": true,
   "live_range_button_cache_signature_verified": true,
-  "range_data_audit_verified": false,
+  "range_data_audit_verified": true,
   "range_source_entries_expected": 174,
   "unique_semantic_situations_expected": 171,
   "duplicate_semantic_scenario_groups": [
@@ -30,7 +30,30 @@
       243
     ]
   ],
-  "native_windows_tk_range_render_verified": false,
-  "windows_native_range_view_verified": false,
-  "preflop_raise_size_selector_verified": true
+  "native_windows_tk_range_render_verified": true,
+  "windows_native_range_view_verified": true,
+  "preflop_raise_size_selector_verified": true,
+  "published_at": "2026-11-26T00:02:15Z",
+  "payload_sha256": "0113a8683f32fb56a710b70dc6a5c4cbf407414319333d99dd0b6b912cf44c59",
+  "payload_size": 1184116,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/cpu_learning.py",
+    "pigeon_poker/poker_reasoning.py",
+    "pigeon_poker/preflop_174_policy.py",
+    "pigeon_poker/preflop_174_policy_data.py",
+    "pigeon_poker/preflop_cleanup.py",
+    "pigeon_poker/range_image_catalog.py",
+    "pigeon_poker/range_tables_v2_asset.py",
+    "pigeon_updater.py"
+  ],
+  "updater_actual_extract_validation": "passed",
+  "range_source_entries_verified": 174,
+  "unique_semantic_situations_verified": 171,
+  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
+  "legacy_preflop_retirement_validation": "passed"
 }
