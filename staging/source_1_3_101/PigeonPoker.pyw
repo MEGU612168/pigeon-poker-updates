@@ -38,6 +38,7 @@ from pigeon_poker import (CashTable, CashGameCPU, GTOPlusLiveSession, LiveGTOErr
 from pigeon_poker.range_scenario_resolver import (
     resolve_range_image_for_hand, live_range_lookup_signature,
 )
+from pigeon_poker.phone_remote import PhoneRemoteServer
 from pigeon_poker.range_chart_canvas import (
     build_range_chart_model, draw_preflop_range_canvas, RangeChartDataError,
 )
@@ -509,6 +510,11 @@ class PigeonPokerApp(tk.Tk):
         self.vip_cpu_roles: dict[str, str] = {}
         self.multi_tables = MultiTableRegistry(max_tables=2)
         self.active_cash_table_id: str | None = None
+        # Network inputs enter a queue and are executed only by Tk's main loop.
+        self.phone_remote_actions: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=32)
+        self.phone_remote = PhoneRemoteServer(self._queue_phone_remote_action)
+        self.phone_remote_last_message = ""
+        self.phone_remote_window: tk.Toplevel | None = None
         # CPU workers are cancellable so the bottom-bar "leave now" control can
         # cash out without waiting for the rest of a Rush & Cash hand to finish.
         self.cash_cpu_cancel_events: dict[str, threading.Event] = {}
@@ -553,6 +559,277 @@ class PigeonPokerApp(tk.Tk):
         self._pokercraft_live_refresh_job = self.after(1800, self._tick_pokercraft_live_refresh)
         self.after(1200, self._refresh_update_button_state)
         self.after(UPDATE_CHECK_INTERVAL_MS, self._periodic_update_check)
+        self._phone_remote_after_id = self.after(300, self._phone_remote_tick)
+
+    # ---------- Smartphone remote ----------
+    def _queue_phone_remote_action(self, action: dict[str, Any]) -> bool:
+        if getattr(self, "_shutdown_in_progress", False):
+            return False
+        try:
+            self.phone_remote_actions.put_nowait(dict(action))
+            return True
+        except queue.Full:
+            return False
+
+    def _phone_remote_tick(self):
+        """Publish a sanitized view and drain remote inputs on the Tk thread."""
+        try:
+            for _ in range(12):
+                try:
+                    action = self.phone_remote_actions.get_nowait()
+                except queue.Empty:
+                    break
+                self._process_phone_remote_action(action)
+            if self.phone_remote.running:
+                self._save_active_cash_slot()
+                raw_tables = []
+                for slot in self.multi_tables.list():
+                    state = slot.state
+                    table = state.get("cash_table")
+                    hand = table.hand if table is not None else None
+                    mode = normalize_table_mode(state.get("cash_game_mode", RUSH_MODE))
+                    busy = bool(state.get("cash_busy", False))
+                    sitting_out = bool(state.get("cash_sitting_out", False))
+                    hero = next((p for p in hand.players if p.player_id == "hero"), None) if hand else None
+                    if hand is not None:
+                        source_players = hand.players
+                    else:
+                        source_players = getattr(table, "seats", []) if table is not None else []
+                    players = []
+                    for player in source_players or []:
+                        if isinstance(player, dict):
+                            pid = str(player.get("id", player.get("player_id", "")))
+                            name = player.get("name", pid or "Player")
+                            stack = player.get("stack", 0)
+                            folded = player.get("folded", False)
+                            all_in = player.get("all_in", False)
+                        else:
+                            pid = str(getattr(player, "player_id", ""))
+                            name = getattr(player, "name", pid or "Player")
+                            stack = getattr(player, "stack", 0)
+                            folded = getattr(player, "folded", False)
+                            all_in = getattr(player, "all_in", False)
+                        players.append({
+                            "name": str(name), "stack_cents": int(stack or 0),
+                            "folded": bool(folded), "all_in": bool(all_in),
+                            "is_hero": pid == "hero",
+                        })
+                    rush_fold = bool(
+                        hand is not None and not hand.finished
+                        and hand.street == "preflop" and is_rush_mode(mode)
+                        and not state.get("cash_rush_fold_pending", False)
+                    )
+                    hero_turn = bool(
+                        hand is not None and not hand.finished and not busy
+                        and not sitting_out and hand.next_to_act == "hero"
+                    )
+                    legal = {}
+                    if hero_turn:
+                        try:
+                            legal = hand.legal_actions("hero")
+                        except Exception:
+                            legal = {}
+                    actions = list(legal.get("actions", [])) if legal else []
+                    if rush_fold:
+                        actions = list(dict.fromkeys([*actions, "fold"]))
+                    board_target = list(state.get("cash_board_target", []) or [])
+                    if board_target:
+                        revealed = max(0, min(len(board_target), int(
+                            state.get("cash_board_reveal_count", 0) or 0
+                        )))
+                        board = board_target[:revealed]
+                    else:
+                        board = list(state.get("cash_visible_board", []) or [])
+                    hero_cards = list(getattr(hero, "hole_cards", []) or [])[:2] if hero else []
+                    if sitting_out:
+                        status = "SITTING OUT • RESUME ON PC"
+                    elif hand is None:
+                        status = "WAITING FOR HAND"
+                    elif hand.finished:
+                        status = "HAND COMPLETE"
+                    elif busy:
+                        status = "DEALING / CPU THINKING"
+                    elif hero_turn:
+                        status = "YOUR TURN"
+                    else:
+                        actor = next((p.name for p in hand.players if p.player_id == hand.next_to_act), "CPU")
+                        status = f"{actor} TO ACT"
+                    raw_tables.append({
+                        "id": str(slot.table_id),
+                        "title": table_mode_label(mode),
+                        "rate": str(slot.rate),
+                        "mode": mode,
+                        "hand_number": int(getattr(table, "hand_number", 0) or 0) if table is not None else 0,
+                        "street": str(getattr(hand, "street", "waiting")),
+                        "status": status,
+                        "hero_hole_cards": hero_cards,
+                        "board": board,
+                        "pot_cents": int(getattr(hand, "pot", 0) or 0) if hand else 0,
+                        "hero_stack_cents": int(getattr(hero, "stack", 0) or 0) if hero else 0,
+                        "small_blind_cents": int(getattr(table, "small_blind", state.get("cash_sb", 0)) or 0) if table is not None else 0,
+                        "big_blind_cents": int(getattr(table, "big_blind", state.get("cash_bb", 1)) or 1) if table is not None else 1,
+                        "to_call_cents": int(legal.get("to_call", 0) or 0),
+                        "min_target_cents": int(legal.get("min_target", 0) or 0),
+                        "max_target_cents": int(legal.get("max_target", 0) or 0),
+                        "actions": actions,
+                        "busy": busy,
+                        "hero_turn": hero_turn,
+                        "rush_fold_available": rush_fold,
+                        "sitting_out": sitting_out,
+                        "players": players,
+                    })
+                self.phone_remote.publish_state({
+                    "wallet_cents": self.cash_balance_cents,
+                    "message": self.phone_remote_last_message,
+                    "tables": raw_tables,
+                })
+        except (tk.TclError, RuntimeError):
+            return
+        if not getattr(self, "_shutdown_in_progress", False):
+            try:
+                self._phone_remote_after_id = self.after(300, self._phone_remote_tick)
+            except tk.TclError:
+                pass
+
+    def _process_phone_remote_action(self, request: dict[str, Any]):
+        """Revalidate every phone action against the live engine before dispatch."""
+        table_id = str(request.get("table_id", ""))
+        action = str(request.get("action", "")).lower()
+        slot = self.multi_tables.get(table_id)
+        if slot is None:
+            self.phone_remote_last_message = "Table is no longer open"
+            return
+        state = slot.state
+        table = state.get("cash_table")
+        hand = table.hand if table is not None else None
+        if hand is None or hand.finished:
+            self.phone_remote_last_message = "No active hand on that table"
+            return
+        mode = normalize_table_mode(state.get("cash_game_mode", RUSH_MODE))
+        rush_fold = hand.street == "preflop" and is_rush_mode(mode)
+        if action == "fold":
+            if rush_fold and not state.get("cash_rush_fold_pending", False):
+                self._handle_table_fold(table_id)
+                self.phone_remote_last_message = "Rush fold sent"
+                return
+            if bool(state.get("cash_busy", False)) or hand.next_to_act != "hero":
+                self.phone_remote_last_message = "Not your turn to fold"
+                return
+            try:
+                legal = hand.legal_actions("hero")
+            except Exception:
+                legal = {}
+            if "fold" not in legal.get("actions", []):
+                self.phone_remote_last_message = "Fold is not legal now"
+                return
+            self._floating_table_action(table_id, "fold")
+            self.phone_remote_last_message = "Fold sent"
+            return
+
+        if bool(state.get("cash_busy", False)) or hand.next_to_act != "hero" or bool(state.get("cash_sitting_out", False)):
+            self.phone_remote_last_message = "Not your turn yet"
+            return
+        try:
+            legal = hand.legal_actions("hero")
+            allowed = set(legal.get("actions", []))
+            if action in {"check", "call", "all-in"}:
+                if action not in allowed:
+                    raise ValueError(f"{action.upper()} is not legal now")
+                self._floating_table_action(table_id, action)
+            elif action in {"bet", "raise"}:
+                if action not in allowed:
+                    raise ValueError(f"{action.upper()} is not legal now")
+                amount = int(request.get("amount_cents", -1))
+                minimum = int(legal.get("min_target", 0))
+                maximum = int(legal.get("max_target", 0))
+                if amount < minimum or amount > maximum:
+                    raise ValueError("Bet size is outside the current legal range")
+                if amount == maximum and "all-in" in allowed:
+                    self._floating_table_action(table_id, "all-in")
+                else:
+                    self._floating_table_action(table_id, action, amount)
+            else:
+                raise ValueError("Unsupported action")
+            self.phone_remote_last_message = f"{action.upper()} sent"
+        except Exception as exc:
+            self.phone_remote_last_message = str(exc)[:150]
+        self._refresh_table_windows()
+
+    def _open_phone_remote_dialog(self):
+        try:
+            self.phone_remote.start()
+        except OSError as exc:
+            messagebox.showerror(
+                "Phone Remote", f"スマホ操作サーバーを起動できませんでした。\n{exc}", parent=self
+            )
+            return
+        if self.phone_remote_window is not None:
+            try:
+                self.phone_remote_window.deiconify()
+                self.phone_remote_window.lift()
+                return
+            except tk.TclError:
+                self.phone_remote_window = None
+        window = tk.Toplevel(self)
+        self.phone_remote_window = window
+        window.title("Pigeon Poker • Phone Remote")
+        window.configure(bg=COLORS["bg"])
+        window.geometry("560x380")
+        window.minsize(480, 340)
+        window.transient(self)
+        tk.Label(window, text="PHONE REMOTE CONTROL", bg=COLORS["bg"],
+                 fg=COLORS["gold"], font=("Segoe UI", 16, "bold")).pack(anchor="w", padx=22, pady=(20, 4))
+        tk.Label(window, text="PCとスマホを同じWi-Fiに接続し、スマホのブラウザで下のURLを開いてください。",
+                 bg=COLORS["bg"], fg=COLORS["text"], font=("Segoe UI", 9),
+                 wraplength=510, justify="left").pack(anchor="w", padx=22, pady=(4, 12))
+        urls = self.phone_remote.urls
+        if urls:
+            for url in urls[:5]:
+                row = tk.Frame(window, bg=COLORS["panel"])
+                row.pack(fill="x", padx=22, pady=3)
+                tk.Label(row, text=url, bg=COLORS["panel"], fg=COLORS["green"],
+                         font=("Consolas", 10, "bold")).pack(side="left", padx=10, pady=8)
+                ttk.Button(row, text="COPY", command=lambda value=url: self._copy_phone_remote_url(value)).pack(side="right", padx=8)
+        else:
+            tk.Label(window, text="LANのIPv4アドレスを検出できません。Wi-Fi接続とWindowsファイアウォールの許可を確認してください。",
+                     bg=COLORS["bg"], fg=COLORS["red"], font=("Segoe UI", 9),
+                     wraplength=510, justify="left").pack(anchor="w", padx=22, pady=8)
+        pin_panel = tk.Frame(window, bg=COLORS["panel2"])
+        pin_panel.pack(fill="x", padx=22, pady=(12, 8))
+        tk.Label(pin_panel, text="8-DIGIT PAIRING CODE", bg=COLORS["panel2"],
+                 fg=COLORS["muted"], font=("Segoe UI", 8, "bold")).pack(pady=(10, 0))
+        tk.Label(pin_panel, text=self.phone_remote.pairing_code, bg=COLORS["panel2"],
+                 fg=COLORS["gold"], font=("Consolas", 28, "bold")).pack(pady=(0, 10))
+        tk.Label(window, text="接続後はFold / Check / Call / Bet / Raise / All-inを操作できます。\n同一ローカルネットワーク専用。ペアリングコードは他人に共有しないでください。",
+                 bg=COLORS["bg"], fg=COLORS["muted"], font=("Segoe UI", 8),
+                 justify="left").pack(anchor="w", padx=22, pady=5)
+        buttons = tk.Frame(window, bg=COLORS["bg"])
+        buttons.pack(fill="x", padx=22, pady=(8, 18))
+        ttk.Button(buttons, text="STOP PHONE SERVER", command=lambda: self._stop_phone_remote(window)).pack(side="left")
+        ttk.Button(buttons, text="CLOSE", command=window.destroy).pack(side="right")
+        window.protocol("WM_DELETE_WINDOW", window.destroy)
+
+    def _copy_phone_remote_url(self, url: str):
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(str(url))
+            self.update_idletasks()
+        except tk.TclError:
+            pass
+
+    def _stop_phone_remote(self, window=None):
+        try:
+            self.phone_remote.stop()
+        except Exception:
+            pass
+        self.phone_remote_last_message = "Phone remote disconnected"
+        target = window or self.phone_remote_window
+        if target is not None:
+            try:
+                target.destroy()
+            except tk.TclError:
+                pass
+        self.phone_remote_window = None
 
     # ---------- Theme helpers ----------
     def _style(self):
@@ -780,6 +1057,12 @@ class PigeonPokerApp(tk.Tk):
     def _build_lobby(self):
         page = self._new_page("lobby")
         self._page_header(page, "Poker Lobby", "Choose a game format. VIP is a separate 6-max NLH ring game, not fast-fold.")
+        phone_bar = tk.Frame(page, bg=COLORS["panel"], highlightbackground=COLORS["border"], highlightthickness=1)
+        phone_bar.pack(fill="x", padx=22, pady=(0, 6))
+        tk.Label(phone_bar, text="PLAY FROM YOUR PHONE  •  SAME WI-FI", bg=COLORS["panel"],
+                 fg=COLORS["gold"], font=("Segoe UI", 9, "bold")).pack(side="left", padx=14, pady=9)
+        ttk.Button(phone_bar, text="SET UP PHONE CONTROL", style="Accent.TButton",
+                   command=self._open_phone_remote_dialog).pack(side="right", padx=10, pady=5)
         # Each Rush & Cash stake card is the direct entry point; no oversized shortcut sits above them.
         notebook = ttk.Notebook(page)
         notebook.pack(fill="both", expand=True, padx=22, pady=(4, 14))
@@ -14480,6 +14763,10 @@ class PigeonPokerApp(tk.Tk):
                 pass
             return
 
+        try:
+            self.phone_remote.stop()
+        except Exception:
+            pass
         try:
             self.integration.stop(detach=True, terminate=False)
         except Exception:
