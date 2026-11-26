@@ -309,6 +309,7 @@ def draw_preflop_range_canvas(
                     canvas.create_rectangle(
                         position, bar_top, position + segment_width, bottom - 3,
                         fill=action["color"], outline=action["color"],
+                        tags=("range-frequency", f"hand:{cell['hand']}", f"action:{action['action']}"),
                     )
                     position += segment_width
         else:
