@@ -7,7 +7,7 @@
   "source_version": "1.3.101",
   "source_directory": "staging/source_1_3_101",
   "release_notes": "Pigeon Poker 1.5.24 upgrades the VIP Private Club to a fixed five-opponent lineup: three PRO seats and two TOP PRO seats, displayed only as PRO or TOP PRO with no numbered aliases. PRO CPUs use 1,024 postflop decision simulations; the two TOP PRO opponents use 4,096, a deeper range/showdown sampling profile, finer EV comparisons and a more pressure-oriented, adaptive postflop policy. All VIP seats automatically reload to 100 BB before the next hand when below 80 BB. HERO is topped up only when the wallet can fund the full difference; otherwise no debit or partial reload occurs. The 174-scenario preflop chart remains identical for every CPU. TOP PRO is a stronger local strategy target, not a claim of reproducing Garrett's exact play or solver-perfect GTO.",
-  "distribution_status": "pending",
+  "distribution_status": "published",
   "preflop_174_policy_verified": true,
   "postflop_theory_policy_verified": true,
   "postflop_sdv_policy_verified": true,
@@ -123,5 +123,28 @@
   "vip_top_pro_postflop_simulations_per_decision_verified": 4096,
   "vip_top_pro_pressure_ev_policy_verified": true,
   "vip_auto_rebuy_below_80bb_to_100bb_verified": true,
-  "vip_auto_rebuy_wallet_funding_guard_verified": true
+  "vip_auto_rebuy_wallet_funding_guard_verified": true,
+  "published_at": "2026-11-26T16:51:23Z",
+  "payload_sha256": "a4d3dd047edc236ce02130871a6691361f102a6a30d8d9851e99e21bcac0f7db",
+  "payload_size": 1222914,
+  "files": [
+    "PigeonPoker.pyw",
+    "VERSION.txt",
+    "pigeon_gto_plus/auto_solve_ui.py",
+    "pigeon_gto_plus/live_range_builder.py",
+    "pigeon_gto_plus/ui_probe.py",
+    "pigeon_poker/casino_games.py",
+    "pigeon_poker/cpu_learning.py",
+    "pigeon_poker/poker_reasoning.py",
+    "pigeon_poker/preflop_174_policy.py",
+    "pigeon_poker/preflop_174_policy_data.py",
+    "pigeon_poker/preflop_cleanup.py",
+    "pigeon_poker/range_chart_canvas.py",
+    "pigeon_poker/range_image_catalog.py",
+    "pigeon_poker/range_scenario_resolver.py",
+    "pigeon_poker/range_tables_v2_asset.py",
+    "pigeon_poker/vip_ai.py",
+    "pigeon_updater.py"
+  ],
+  "updater_actual_extract_validation": "passed"
 }

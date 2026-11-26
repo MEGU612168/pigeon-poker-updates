@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.23",
-  "published_at": "2026-11-26T16:08:24Z",
-  "release_notes": "Pigeon Poker 1.5.23 tightens the bottom action dock on every table (smaller action-button padding, shorter sizing/spot rows, and less outer spacing) so the table felt gains vertical room. VIP is rebuilt as a lavish ruby-red and gold Private Club: double gold rails, ruby felt, crowned crest, dedicated lobby and buy-in flow, and gold/red controls. All five seats remain PRO ONLY at CPU level 5; the VIP simulation budget doubles from 256 to 512, and VIP-only postflop range/showdown equity sampling increases by 50% with finer EV comparison. The immutable 174-scenario preflop policy and normal Rush CPU strategy settings are unchanged. This remains a stronger local strategy, not solver-exact GTO.",
+  "version": "1.5.24",
+  "published_at": "2026-11-26T16:51:23Z",
+  "release_notes": "Pigeon Poker 1.5.24 upgrades the VIP Private Club to a fixed five-opponent lineup: three PRO seats and two TOP PRO seats, displayed only as PRO or TOP PRO with no numbered aliases. PRO CPUs use 1,024 postflop decision simulations; the two TOP PRO opponents use 4,096, a deeper range/showdown sampling profile, finer EV comparisons and a more pressure-oriented, adaptive postflop policy. All VIP seats automatically reload to 100 BB before the next hand when below 80 BB. HERO is topped up only when the wallet can fund the full difference; otherwise no debit or partial reload occurs. The 174-scenario preflop chart remains identical for every CPU. TOP PRO is a stronger local strategy target, not a claim of reproducing Garrett's exact play or solver-perfect GTO.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.23/payload-updater.zip.b64?v=161f0e3c8b0c7873aa53d73df98db86601318150ac7143911b9333ded9c520d4",
-  "payload_sha256": "161f0e3c8b0c7873aa53d73df98db86601318150ac7143911b9333ded9c520d4",
-  "payload_size": 1221128
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.24/payload-updater.zip.b64?v=a4d3dd047edc236ce02130871a6691361f102a6a30d8d9851e99e21bcac0f7db",
+  "payload_sha256": "a4d3dd047edc236ce02130871a6691361f102a6a30d8d9851e99e21bcac0f7db",
+  "payload_size": 1222914
 }
