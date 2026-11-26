@@ -146,7 +146,8 @@ def run_tests():
         test_all_unambiguous_fully_sized_histories_resolve_to_their_source_id,
         test_all_174_live_histories_resolve_to_their_own_paid_image,
         test_live_range_signature_invalidates_when_eligibility_or_history_changes,
-        test_ambiguous_live_nodes_use_action_menu_and_all_in_state,\n        test_live_resolution_does_not_depend_on_the_legacy_bitmap_catalogue,
+        test_ambiguous_live_nodes_use_action_menu_and_all_in_state,
+        test_live_resolution_does_not_depend_on_the_legacy_bitmap_catalogue,
     ]
     for test in tests:
         test()
@@ -309,7 +310,8 @@ def test_live_range_signature_invalidates_when_eligibility_or_history_changes():
 
 
 def test_ambiguous_live_nodes_use_action_menu_and_all_in_state():
-    from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand\n    from pigeon_poker.range_chart_canvas import build_range_chart_model
+    from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand
+    from pigeon_poker.range_chart_canvas import build_range_chart_model
 
     by_id = {int(item["id"]): item for item in _scenarios()}
     for source_id in (244, 245, 252, 253, 266, 267):
@@ -317,7 +319,9 @@ def test_ambiguous_live_nodes_use_action_menu_and_all_in_state():
         table, hand, actor_id = _live_fixture_for_scenario(scenario)
         chart = resolve_range_image_for_hand(table, hand, actor_id)
         assert chart is not None, f"Ambiguous source #{source_id} remained unavailable"
-        actual_model = build_range_chart_model(int(chart["source_id"]))\n        expected_model = build_range_chart_model(source_id)\n        assert {k: v for k, v in actual_model.items() if k != "source_id"} == {k: v for k, v in expected_model.items() if k != "source_id"}
+        actual_model = build_range_chart_model(int(chart["source_id"]))
+        expected_model = build_range_chart_model(source_id)
+        assert {k: v for k, v in actual_model.items() if k != "source_id"} == {k: v for k, v in expected_model.items() if k != "source_id"}
 
 
 def test_complete_174_situation_and_source_image_inventory():
