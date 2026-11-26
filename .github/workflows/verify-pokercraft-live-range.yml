@@ -70,6 +70,7 @@ jobs:
           python staging/test_preflop_legacy_cleanup.py
           python staging/test_preflop_policy_removed.py
           python staging/test_preflop_174_policy.py
+          python staging/test_preflop_size_controls.py
       - name: Verify postflop and CPU compatibility
         run: |
           python staging/test_postflop_controls.py
