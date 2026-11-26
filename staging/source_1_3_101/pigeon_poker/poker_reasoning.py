@@ -13,6 +13,16 @@ from .engine import evaluate_seven, make_deck
 RANKS = "23456789TJQKA"
 SUITS = "cdhs"
 
+VIP_PRO_EQUITY_SAMPLE_MULTIPLIER = 1.5
+
+
+def _vip_pro_sample_multiplier(cpu: Any) -> float:
+    """Increase only tagged VIP PRO CPUs' range-equity calculation depth."""
+    return (
+        VIP_PRO_EQUITY_SAMPLE_MULTIPLIER
+        if bool(getattr(cpu, "_vip_pro_mode", False)) else 1.0
+    )
+
 
 @dataclass(frozen=True)
 class OpponentRange:
@@ -1148,8 +1158,13 @@ def _equity_vs_ranges(hand: Any, hero_id: str, ranges: dict[str, OpponentRange],
         return 1.0, 0
     rng = getattr(cpu, "rng", None) or random.Random()
     level = min(5, max(1, int(getattr(cpu, "level", 3) or 3)))
-    runs = int((220 + level * 130) * max(0.20, min(1.0, simulation_multiplier)))
-    runs = max(100, min(950, runs))
+    vip_multiplier = _vip_pro_sample_multiplier(cpu)
+    runs = int(
+        (220 + level * 130)
+        * max(0.20, min(1.0, simulation_multiplier))
+        * vip_multiplier
+    )
+    runs = max(100, min(1450 if vip_multiplier > 1.0 else 950, runs))
     deck = [str(card) for card in make_deck()]
     remaining = 5 - len(board)
     wins = 0.0
@@ -1209,9 +1224,13 @@ def _current_showdown_equity(
         return 1.0, 0
     rng = getattr(cpu, "rng", None) or random.Random()
     level = min(5, max(1, int(getattr(cpu, "level", 3) or 3)))
-    runs = max(100, min(420, int((120 + level * 60) * max(
-        0.25, min(1.0, float(simulation_multiplier))
-    ))))
+    vip_multiplier = _vip_pro_sample_multiplier(cpu)
+    runs = max(100, min(
+        650 if vip_multiplier > 1.0 else 420,
+        int((120 + level * 60) * max(
+            0.25, min(1.0, float(simulation_multiplier))
+        ) * vip_multiplier),
+    ))
     deck = [str(card) for card in make_deck()]
     hero_rank = evaluate_seven(hero_cards + board)
     wins = 0.0
@@ -3028,6 +3047,8 @@ def _choose_range_aware_action_impl(
     level = min(5, max(1, int(getattr(cpu, "level", 3) or 3)))
     archetype = str(getattr(cpu, "archetype", "balanced") or "balanced")
     margin = {1: 0.105, 2: 0.075, 3: 0.050, 4: 0.025, 5: 0.010}[level]
+    if bool(getattr(cpu, "_vip_pro_mode", False)):
+        margin = min(margin, 0.005)
     guardrail_penalty = min(
         1000, max(0, int(getattr(cpu, "_range_guardrail_penalty", 0) or 0))
     )
@@ -3487,6 +3508,10 @@ def _choose_range_aware_action_impl(
             if premium_preflop:
                 ev_margin = int(round(ev_margin * 0.60))
             ev_margin += int(round(max(1, pot) * guardrail_penalty / 1000.0 * 0.06))
+            if bool(getattr(cpu, "_vip_pro_mode", False)):
+                # Compare candidate EVs at finer resolution for the VIP-only
+                # high-precision policy; ordinary CPUs keep the same thresholds.
+                ev_margin = min(ev_margin, max(1, int(round(max(1, pot) * 0.003))))
             action_name = "raise" if to_call else "bet"
             if (value_gate or bluff_gate) and action_name in actions:
                 strategy_candidates.append((action_name, target, raise_ev))
