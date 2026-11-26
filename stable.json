@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.22",
-  "published_at": "2026-11-26T15:49:31Z",
-  "release_notes": "Pigeon Poker 1.5.22 compacts the bottom action dock by removing unused bet-sizing and 174-range rows, allowing the table felt to expand. VIP becomes a distinct Private Club table with richer gold-and-emerald trim, VIP-only header and seat badges. Every VIP opponent is PRO ONLY (five level-5 local CPUs; no weaker tier), with 256 postflop decision samples instead of 48. The fixed 174-scenario preflop chart remains unchanged. This is a stronger local policy, not solver-exact GTO.",
+  "version": "1.5.23",
+  "published_at": "2026-11-26T16:05:37Z",
+  "release_notes": "Pigeon Poker 1.5.23 tightens the table action dock to reclaim vertical space while preserving standard-table sizing. VIP is rebuilt as a lavish ruby-red and gold Private Club: double gold rails, ruby felt, crowned crest, dedicated lobby and buy-in flow, and gold/red controls. All five seats remain PRO ONLY at CPU level 5; the VIP simulation budget doubles from 256 to 512, and VIP-only postflop range/showdown equity sampling increases by 50% with finer EV comparison. The immutable 174-scenario preflop policy and normal Rush CPU settings are unchanged. This remains a stronger local strategy, not solver-exact GTO.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.22/payload-updater.zip.b64?v=0b67ebed1c4cf33e6fb4c702b89d37021bc2c1e5c3836e117a7fcd733a87adb9",
-  "payload_sha256": "0b67ebed1c4cf33e6fb4c702b89d37021bc2c1e5c3836e117a7fcd733a87adb9",
-  "payload_size": 1219786
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.23/payload-updater.zip.b64?v=a0f74f581dd7f6e9ccabafc8c67661989e5ddbf457d8439bed57de102e7d4279",
+  "payload_sha256": "a0f74f581dd7f6e9ccabafc8c67661989e5ddbf457d8439bed57de102e7d4279",
+  "payload_size": 1221144
 }
