@@ -6695,7 +6695,10 @@ class PigeonPokerApp(tk.Tk):
             size_label = f"{size_bb:g} BB"
             if self.chip_display_unit == "USD":
                 size_label = format_chip_amount(amount, bb, "USD")
-            suffix = "" if enabled_for_hand else "  •  NOT IN THIS HAND RANGE"
+            disabled_reason = str(option.get("disabled_reason") or (
+                "" if enabled_for_hand else "NOT IN THIS HAND RANGE"
+            ))
+            suffix = "" if enabled_for_hand else f"  •  {disabled_reason}"
             menu.add_command(
                 label=f"RAISE TO {size_label}  •  {pct:.1f}% chart frequency{suffix}",
                 state="normal" if enabled_for_hand else "disabled",
