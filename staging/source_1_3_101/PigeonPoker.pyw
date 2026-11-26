@@ -8247,6 +8247,7 @@ class PigeonPokerApp(tk.Tk):
             if record is None:
                 continue
             state = slot.state
+            vip_dock = is_vip_mode(state.get("cash_game_mode", RUSH_MODE))
             table = state.get("cash_table")
             hand = table.hand if table is not None else None
             current_hand_key = id(hand) if hand is not None else None
@@ -8621,8 +8622,8 @@ class PigeonPokerApp(tk.Tk):
             # The sizing and 174-range rows are conditional. Remove empty
             # frames completely so the felt/canvas expands into that space.
             for frame_key, before_key, row_height in (
-                ("size_actions", "situation_actions", 28),
-                ("situation_actions", "utility_actions", 18),
+                ("size_actions", "situation_actions", 28 if vip_dock else 34),
+                ("situation_actions", "utility_actions", 18 if vip_dock else 24),
             ):
                 dock_row = record.get(frame_key)
                 before_row = record.get(before_key)
@@ -8633,7 +8634,11 @@ class PigeonPokerApp(tk.Tk):
                         dock_row.configure(height=row_height)
                         dock_row.pack_propagate(False)
                         if not dock_row.winfo_manager():
-                            dock_row.pack(fill="x", padx=5, pady=(0, 1), before=before_row)
+                            dock_row.pack(
+                                fill="x", padx=5,
+                                pady=(0, 0 if vip_dock else 1),
+                                before=before_row,
+                            )
                     else:
                         dock_row.pack_forget()
                 except tk.TclError:
