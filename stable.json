@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.11",
-  "published_at": "2026-11-26T11:39:20Z",
-  "release_notes": "Pigeon Poker 1.5.11 strengthens the postflop CPU BOT with GTO-inspired bet sizing and polarized range selection. The response model now measures a raise using the incremental raise over the pot after call, not the hero's combined call-plus-raise spend. Routine flop and multiway bets use smaller size menus; overbets require suitable nut advantage, street, SPR and made-hand strength. Bets of 75% pot or larger use a polarized selection: strong value or blocker-qualified low-showdown-value bluffs, while medium-strength showdown-value hands remain in the check/call region. Large multiway bluffs are blocked and large multiway value requires exceptional nutted conditions. The immutable 174-situation preflop policy is unchanged.",
+  "version": "1.5.12",
+  "published_at": "2026-11-26T12:15:46Z",
+  "release_notes": "Pigeon Poker 1.5.12 further strengthens the postflop CPU BOT. Flush and straight draws are now attributed to each actual hole-card combo instead of the public board texture alone, nut and dominated flush draws receive different quality weights, and backdoor flush equity requires a suited hole card. Raise candidate increments now use the post-call pot as the denominator, matching the response model's sizing fraction. The immutable 174-situation preflop policy remains unchanged.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.11/payload-updater.zip.b64?v=3f64d4e4e760bfd9c064f1e277f5babcd31fa952e5af5acbcd3510b2375c43d5",
-  "payload_sha256": "3f64d4e4e760bfd9c064f1e277f5babcd31fa952e5af5acbcd3510b2375c43d5",
-  "payload_size": 1199411
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.12/payload-updater.zip.b64?v=198e2f00f44d0d8b1b008bc09e20b00421219ba9c112f091b9a5a6e5323abdb1",
+  "payload_sha256": "198e2f00f44d0d8b1b008bc09e20b00421219ba9c112f091b9a5a6e5323abdb1",
+  "payload_size": 1200128
 }
