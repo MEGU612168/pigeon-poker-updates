@@ -377,6 +377,7 @@ jobs:
               "VIP_TOP_PRO_SIMULATIONS = 4096",
               "simulations=(",
               "VIP_TOP_PRO_ROLE",
+              '"balanced" if is_vip_mode(table_mode) else profile.archetype',
               "vip_cpu._vip_top_pro_mode",
               "make_vip_auto_rebuy_plan(",
               'is_top_pro = (vip_role_text == "TOP PRO")',
