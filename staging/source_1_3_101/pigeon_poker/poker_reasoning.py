@@ -2369,6 +2369,111 @@ def _postflop_board_role_context(
 
 
 
+def _postflop_showdown_value_profile(
+    current_equity: float,
+    made_category: int,
+    expected_opponents: float,
+    street: str,
+    *,
+    supported: bool,
+    position_known: bool = False,
+    in_position: bool = False,
+    range_advantage: bool = False,
+    range_disadvantage: bool = False,
+) -> dict[str, Any]:
+    """Classify current-board showdown value separately from future draw equity.
+
+    The thresholds are heuristic policy cutoffs, not solver frequencies. They
+    become tighter multiway and when the 174-chart range profile favours the
+    opponent. A hand with meaningful SDV is protected from being repurposed as
+    a low-equity bluff.
+    """
+    value = max(0.0, min(1.0, float(current_equity)))
+    category = max(0, min(8, int(made_category)))
+    opponents = max(0.0, float(expected_opponents))
+    current_street = str(street or "").lower()
+    if category <= 0:
+        base = {"flop": 0.66, "turn": 0.63, "river": 0.59}.get(current_street, 0.63)
+    elif category == 1:
+        base = {"flop": 0.56, "turn": 0.54, "river": 0.51}.get(current_street, 0.54)
+    elif category == 2:
+        base = {"flop": 0.48, "turn": 0.47, "river": 0.46}.get(current_street, 0.47)
+    else:
+        base = {"flop": 0.42, "turn": 0.42, "river": 0.43}.get(current_street, 0.42)
+
+    multiway_adjustment = min(0.12, max(0.0, opponents - 1.0) * 0.045)
+    position_adjustment = -0.015 if position_known and in_position else 0.0
+    range_adjustment = (
+        0.025 if range_disadvantage else
+        -0.020 if range_advantage else 0.0
+    )
+    threshold = max(
+        0.34,
+        min(0.84, base + multiway_adjustment + position_adjustment + range_adjustment),
+    )
+    has_sdv = bool(supported and len(current_street) > 0 and value >= threshold)
+    margin = value - threshold
+    classification = (
+        "unsupported" if not supported else
+        "none" if not has_sdv else
+        "strong" if margin >= 0.14 else
+        "medium" if margin >= 0.06 else
+        "thin"
+    )
+    return {
+        "supported": bool(supported),
+        "has_sdv": has_sdv,
+        "classification": classification,
+        "current_equity": value,
+        "threshold": threshold,
+        "margin": margin,
+        "multiway_adjustment": multiway_adjustment,
+        "range_adjustment": range_adjustment,
+    }
+
+
+def _postflop_pure_bluff_allowed(
+    fold_probability: float,
+    required_success: float,
+    uncertainty_margin: float,
+    expected_callers: float,
+    value_combos_blocked: float,
+    bluff_combos_blocked: float,
+    *,
+    in_position: bool,
+    range_advantage: bool,
+) -> bool:
+    """Pure bluffs need both sufficient fold equity and useful value blockers."""
+    blocker_edge = (
+        max(0.0, float(value_combos_blocked))
+        - 0.75 * max(0.0, float(bluff_combos_blocked))
+    )
+    fold_floor = min(
+        0.98,
+        max(0.0, float(required_success))
+        + 0.14
+        + max(0.0, float(uncertainty_margin)) * 0.75,
+    )
+    return bool(
+        float(fold_probability) >= fold_floor
+        and float(expected_callers) <= 1.25
+        and blocker_edge >= 0.035
+        and (bool(in_position) or bool(range_advantage))
+    )
+
+
+def _postflop_thin_value_size_allowed(
+    is_thin_value: bool,
+    bet_fraction: float,
+    street: str,
+) -> bool:
+    """Thin one-pair value uses a capped size to avoid isolating against better."""
+    if not is_thin_value:
+        return True
+    cap = 0.33 if str(street or "").lower() == "river" else 0.50
+    return float(bet_fraction) <= cap + 1e-9
+
+
 def _postflop_aggression_gates(
     value_gate: bool,
     bluff_gate: bool,
@@ -2388,8 +2493,10 @@ def _postflop_aggression_gates(
     range_advantage: bool = False,
     range_edge: float = 0.0,
     called_current_equity: float | None = None,
+    has_sdv: bool = False,
+    protection_gate: bool = False,
 ) -> tuple[bool, bool]:
-    """Gate aggression using made-hand quality, range edge and opponent count."""
+    """Gate aggression using made-hand quality, SDV, range edge and opponent count."""
     if str(street).lower() == "preflop":
         return bool(value_gate), bool(bluff_gate)
 
@@ -2401,6 +2508,13 @@ def _postflop_aggression_gates(
         float(called_current_equity)
         if called_current_equity is not None else float(called_equity)
     )
+    # A hand that can win at showdown is not a candidate for a pure bluff.
+    # The only non-value exception is the tightly constrained small protection
+    # bet computed by the caller; it is never allowed to become a raise bluff.
+    if has_sdv:
+        bluff_gate = False
+    if protection_gate and int(to_call) <= 0 and not donk_lead:
+        value_gate = True
     effective_value_threshold = float(value_threshold)
     if range_advantage and not range_disadvantage:
         effective_value_threshold = max(
@@ -2566,6 +2680,20 @@ def _choose_range_aware_action_impl(
         ) if street != "preflop" else 1.0
     )
     realized_equity = max(0.0, min(1.0, equity * equity_realization))
+    showdown_profile = _postflop_showdown_value_profile(
+        current_made_equity,
+        hero_hand_category,
+        expected_opponents,
+        street,
+        supported=bool(ranges) and len(board) >= 3,
+        position_known=bool(position_profile.get("known", False)),
+        in_position=bool(position_profile.get("in_position", False)),
+        range_advantage=bool(board_role.get("preflop_range_advantage", False)),
+        range_disadvantage=bool(board_role.get("preflop_range_disadvantage", False)),
+    ) if street != "preflop" else {
+        "supported": False, "has_sdv": False, "classification": "not-postflop",
+        "current_equity": 0.0, "threshold": 0.0, "margin": 0.0,
+    }
     rake_bps = max(0, int(getattr(hand, "rake_bps", 0) or 0))
     rake_cap = max(0, int(getattr(hand, "rake_cap", 0) or 0))
     call_pot = pot + to_call
@@ -2582,6 +2710,7 @@ def _choose_range_aware_action_impl(
     response_samples = 0
     raise_response_probability = 0.0
     raise_equity_estimate = 0.0
+    candidate_draw_strength = hero_draw_strength
 
     if street == "preflop":
         # Require stronger equity when multiple players still have cards and
@@ -2799,13 +2928,50 @@ def _choose_range_aware_action_impl(
                 >= required_success + 0.04 + uncertainty_margin - blocker_bluff_pressure
                 and candidate_called_equity < 0.48
             )
+            has_sdv = bool(showdown_profile.get("has_sdv", False))
+            range_advantage = bool(board_role.get("preflop_range_advantage", False))
+            range_disadvantage = bool(board_role.get("preflop_range_disadvantage", False))
+            in_position = bool(position_profile.get("in_position", False))
+            # A draw is a semi-bluff only when it has meaningful improvement
+            # equity against the range that actually continues. Backdoor-only
+            # texture cannot justify an otherwise unsupported pure bluff.
+            if bluff_gate and candidate_draw_strength < 0.35:
+                bluff_gate = _postflop_pure_bluff_allowed(
+                    candidate_fold_probability,
+                    required_success,
+                    uncertainty_margin,
+                    max(candidate_expected_callers, expected_opponents),
+                    candidate_blockers["value_call_combos_blocked"],
+                    candidate_blockers["bluff_call_combos_blocked"],
+                    in_position=in_position,
+                    range_advantage=range_advantage,
+                )
+            candidate_thin_value = bool(
+                value_gate and has_sdv and hero_hand_category == 1
+                and candidate_called_realized_equity < value_threshold + 0.085
+            )
+            protection_gate = bool(
+                has_sdv and not value_gate
+                and to_call == 0
+                and street in {"flop", "turn"}
+                and hero_hand_category == 1
+                and board_texture.get("wetness", 0.0) >= 0.48
+                and bet_fraction <= 0.33
+                and max(candidate_expected_callers, expected_opponents) <= 1.25
+                and not range_disadvantage
+                and candidate_called_realized_equity >= max(0.45, value_threshold - 0.09)
+                and candidate_called_current_equity >= max(
+                    0.39, float(showdown_profile.get("threshold", 0.55)) - 0.13
+                )
+                and candidate_fold_probability >= max(0.10, required_success - 0.05)
+            )
             value_gate, bluff_gate = _postflop_aggression_gates(
                 value_gate,
                 bluff_gate,
                 street=street,
                 to_call=to_call,
                 donk_lead=bool(board_role.get("donk_lead", False)),
-                range_disadvantage=bool(board_role.get("preflop_range_disadvantage", False)),
+                range_disadvantage=range_disadvantage,
                 made_category=hero_hand_category,
                 draw_strength=candidate_draw_strength,
                 expected_callers=max(candidate_expected_callers, expected_opponents),
@@ -2814,10 +2980,16 @@ def _choose_range_aware_action_impl(
                 fold_probability=candidate_fold_probability,
                 required_success=required_success,
                 uncertainty_margin=uncertainty_margin,
-                range_advantage=bool(board_role.get("preflop_range_advantage", False)),
+                range_advantage=range_advantage,
                 range_edge=float(board_role.get("preflop_range_edge", 0.0)),
                 called_current_equity=candidate_called_current_equity,
+                has_sdv=has_sdv,
+                protection_gate=protection_gate,
             )
+            if not _postflop_thin_value_size_allowed(
+                candidate_thin_value, bet_fraction, street
+            ):
+                continue
             premium_preflop = False
             if street == "preflop":
                 try:
@@ -2924,6 +3096,10 @@ def _choose_range_aware_action_impl(
         f"raw-equity={equity:.1%}; realized-equity={realized_equity:.1%}; "
         f"call-realized-equity={call_equity:.1%}; call-is-all-in={call_is_all_in}; SPR={spr:.2f}; "
         f"SDV-check-EV≈{showdown_value_ev:.1f}; "
+        f"SDV-profile={showdown_profile.get('classification', 'unknown')}; "
+        f"SDV-current-equity={float(showdown_profile.get('current_equity', 0.0)):.1%}; "
+        f"SDV-threshold={float(showdown_profile.get('threshold', 0.0)):.1%}; "
+        f"SDV-supported={bool(showdown_profile.get('supported', False))}; "
         f"donk-lead={bool(board_role.get('donk_lead', False))}; "
         f"hero-made-category={hero_hand_category}; "
         f"structural-draw={hero_draw_strength:.2f}; "
