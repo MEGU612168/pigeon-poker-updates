@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.5",
-  "published_at": "2026-11-26T00:02:15Z",
-  "release_notes": "Pigeon Poker 1.5.5 fixes black/blank paid preflop range windows. Original range RGB pixels are written directly into native Tk PhotoImage surfaces instead of relying on the Windows PNG/PPM image decoder. Native Windows Tk verification renders and samples all 174 source images, including range #136. The full source audit confirms 174 IDs (128-301) and 174 image frames, with 171 unique semantic situations because three pairs are exact duplicate entries: 195/204, 196/205, and 238/243. The paid range remains 1BB per hand and uses exact live-state matching.",
+  "version": "1.5.6",
+  "published_at": "2026-11-26T05:52:33Z",
+  "release_notes": "Pigeon Poker 1.5.6 fixes paid preflop range availability and stale bitmap handling. A paid-range icon is enabled by an exact 174-catalog match; the 1 BB wallet debit remains atomic and is checked on click. A local bitmap is now accepted only when its size and SHA-256 match the verified source; otherwise the verified embedded image asset is used. The 174 original range images and exact live-state matching are preserved.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.5/payload-updater.zip.b64?v=0113a8683f32fb56a710b70dc6a5c4cbf407414319333d99dd0b6b912cf44c59",
-  "payload_sha256": "0113a8683f32fb56a710b70dc6a5c4cbf407414319333d99dd0b6b912cf44c59",
-  "payload_size": 1184116
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.6/payload-updater.zip.b64?v=b44802ec78f8180f37c1375b93de82a7d502e12ffd900df8c7a4fc3812c6c8da",
+  "payload_sha256": "b44802ec78f8180f37c1375b93de82a7d502e12ffd900df8c7a4fc3812c6c8da",
+  "payload_size": 1184204
 }
