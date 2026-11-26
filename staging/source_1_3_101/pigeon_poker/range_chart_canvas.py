@@ -182,7 +182,9 @@ def build_range_chart_model(source_id: int) -> dict[str, Any]:
             actions.sort(key=lambda item: (-item["frequency"], item["option_index"]))
         cells.append({
             "hand": str(hand_class),
-            "measured": bool(row),
+            "in_range": bool(row),
+            "measured": bool(row),  # legacy alias; a nonempty row is a hand with reach
+            "status": "in-range" if row else "out-of-range",
             "actions": actions,
         })
 
@@ -196,8 +198,10 @@ def build_range_chart_model(source_id: int) -> dict[str, Any]:
         "history_count": len(scenario.get("history", ()) or ()),
         "hand_order": hand_order,
         "cells": cells,
-        "measured_count": measured_count,
-        "blank_count": 169 - measured_count,
+        "in_range_count": measured_count,
+        "out_of_range_count": 169 - measured_count,
+        "measured_count": measured_count,  # backward-compatible alias
+        "blank_count": 169 - measured_count,  # backward-compatible alias
         "legend": legend,
     }
 
@@ -205,7 +209,7 @@ def build_range_chart_model(source_id: int) -> dict[str, Any]:
 def _cell_summary(cell: dict[str, Any]) -> str:
     actions = cell["actions"]
     if not actions:
-        return "NO SOURCE DATA"
+        return "OUT OF RANGE"
     parts = [
         f"{item['short']} {round(float(item['frequency']) * 100):d}"
         for item in actions[:2]
@@ -253,8 +257,8 @@ def draw_preflop_range_canvas(
     subtitle = (
         f"#{model['source_id']}  •  {model['position']}  •  "
         f"{model['history_count']} prior actions  •  "
-        f"{model['measured_count']}/169 measured hands  •  "
-        f"{model['blank_count']} blank source cells"
+        f"{model.get('in_range_count', model['measured_count'])}/169 hands in range  •  "
+        f"{model.get('out_of_range_count', model['blank_count'])} out of range"
     )
     canvas.create_text(
         _GRID_LEFT, 47, anchor="w", text=subtitle,
@@ -272,7 +276,7 @@ def draw_preflop_range_canvas(
         y = _GRID_TOP + row * (_CELL_HEIGHT + _CELL_GAP)
         right = x + _CELL_WIDTH
         bottom = y + _CELL_HEIGHT
-        measured = bool(cell["measured"])
+        measured = bool(cell.get("in_range", cell["measured"]))
         canvas.create_rectangle(
             x, y, right, bottom,
             fill="#172638" if measured else "#242d39",
@@ -315,15 +319,15 @@ def draw_preflop_range_canvas(
         else:
             canvas.create_text(
                 x + _CELL_WIDTH / 2, y + 25,
-                text="—",
+                text="OUT OF RANGE",
                 fill="#778394",
-                font=("Segoe UI", 10, "bold"),
+                font=("Segoe UI", 5, "bold"),
             )
 
     status_y = grid_bottom + 16
     status_id = canvas.create_text(
         _GRID_LEFT, status_y, anchor="w",
-        text="Hover a hand to inspect its complete action-frequency mix. Blank cells are not treated as folds.",
+        text="Dark cells are OUT OF RANGE at this node (no reach from the earlier action line).",
         fill="#c3cfdd", font=("Segoe UI", 8),
     )
 
@@ -366,7 +370,7 @@ def draw_preflop_range_canvas(
         if not (0 <= row < 13 and 0 <= column < 13):
             canvas.itemconfigure(
                 status_id,
-                text="Hover a hand to inspect its complete action-frequency mix. Blank cells are not treated as folds.",
+                text="Dark cells are OUT OF RANGE at this node (no reach from the earlier action line).",
             )
             return
         local_x = event.x - (_GRID_LEFT + column * (_CELL_WIDTH + _CELL_GAP))
@@ -374,8 +378,11 @@ def draw_preflop_range_canvas(
         cell = cells_by_index[row * 13 + column]
         if local_x > _CELL_WIDTH or local_y > _CELL_HEIGHT:
             return
-        if not cell["measured"]:
-            message = f"{cell['hand']}: no source frequency recorded; this cell is left unassigned"
+        if not cell.get("in_range", cell["measured"]):
+            message = (
+                f"{cell['hand']}: OUT OF RANGE at this node; this hand has no reach "
+                "from the earlier action line"
+            )
         else:
             details = " • ".join(
                 f"{item['label']}: {float(item['frequency']) * 100:.1f}%"
@@ -397,6 +404,8 @@ def draw_preflop_range_canvas(
         "canvas_width": canvas_width,
         "canvas_height": final_height,
         "cell_count": len(model["cells"]),
+        "in_range_count": model.get("in_range_count", model["measured_count"]),
+        "out_of_range_count": model.get("out_of_range_count", model["blank_count"]),
         "measured_count": model["measured_count"],
         "blank_count": model["blank_count"],
     }
