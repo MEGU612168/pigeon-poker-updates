@@ -2082,7 +2082,7 @@ def test_flush_draw_quality_recognizes_nut_and_backdoor_contribution():
         ("3h", "Qs"), ["2h", "7h", "Kh"]
     )[1]
     private_backdoor_flush = module._board_metrics(
-        ("Qh", "As"), ["2h", "7c", "Kd"]
+        ("Qh", "As"), ["2h", "7h", "Kd"]
     )[1]
     no_private_backdoor_flush = module._board_metrics(
         ("Qc", "As"), ["2h", "7h", "Kd"]
