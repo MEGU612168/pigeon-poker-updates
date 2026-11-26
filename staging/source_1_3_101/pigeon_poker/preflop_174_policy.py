@@ -300,38 +300,54 @@ def _scenario_distribution(scenario: dict[str, Any], hand_class: str) -> tuple[d
     index = _HAND_INDEX[hand_class]
     if scenario["hands"][index]:
         return _normalise_distribution(_decode_hand_actions(scenario, index)), False, "measured-image-cell"
-    distribution, method = _infer_hand_distribution(scenario, hand_class)
-    if distribution:
-        return distribution, True, method
-    # Every source scenario has at least one measured hand, but keep a transparent
-    # last safety branch in case a future source archive is damaged.
-    aggregate: dict[tuple[str, float | None], float] = {}
-    for action, size, frequency in scenario.get("overall", []):
-        key = (str(action), None if size is None else float(size))
-        aggregate[key] = aggregate.get(key, 0.0) + float(frequency)
-    return _normalise_distribution(aggregate), True, "scenario-overall-frequency-fallback"
+    # A blank/grey source cell is not a measured frequency distribution.
+    # Never fabricate a hand strategy from neighbouring cells or scenario totals.
+    return {}, True, "unmeasured-image-cell"
 
 
-def _choose_scenario(actor_position: str, actual_history: list[dict[str, Any]], rng: Any) -> tuple[dict[str, Any], bool, float]:
-    candidates = [s for s in _scenarios() if s["position"] == actor_position]
-    exact = [s for s in candidates if len(s["history"]) == len(actual_history)
-             and all(_event_matches(want, got) for want, got in zip(s["history"], actual_history))]
-    if exact:
-        # Keep source images as independent records; only select among identical matched histories.
-        if len(exact) == 1:
-            return exact[0], False, 0.0
-        picker = getattr(rng, "choice", None)
-        selected = picker(exact) if callable(picker) else exact[0]
-        return selected, False, 0.0
-    ranked = [(_history_distance(s["history"], actual_history), s) for s in candidates]
-    if not ranked:
-        raise RuntimeError(f"No 174-scenario reference exists for actor position {actor_position}")
-    ranked.sort(key=lambda item: item[0])
-    best_score = ranked[0][0]
-    near = [s for score, s in ranked if abs(score - best_score) <= 1e-9]
-    picker = getattr(rng, "choice", None)
-    selected = picker(near) if callable(picker) else near[0]
-    return selected, True, best_score
+def _scenario_strategy_signature(scenario: dict[str, Any]) -> tuple[Any, ...]:
+    """Canonicalise the full 169-cell action matrix, independent of option ordering."""
+    rows = []
+    for index, row in enumerate(scenario.get("hands", ())):
+        decoded = _decode_hand_actions(scenario, index) if row else {}
+        entries = [
+            (
+                str(action),
+                None if size is None else round(float(size), 6),
+                round(float(frequency), 8),
+            )
+            for (action, size), frequency in decoded.items()
+        ]
+        rows.append(tuple(sorted(entries, key=repr)))
+    return tuple(rows)
+
+
+def _choose_scenario(
+    actor_position: str,
+    actual_history: list[dict[str, Any]],
+    rng: Any = None,
+) -> tuple[dict[str, Any] | None, bool, float]:
+    """Select only an exact ordered action-history match; never borrow a nearby node."""
+    exact = [
+        scenario for scenario in _scenarios()
+        if scenario["position"] == actor_position
+        and len(scenario["history"]) == len(actual_history)
+        and all(
+            _event_matches(want, got)
+            for want, got in zip(scenario["history"], actual_history)
+        )
+    ]
+    if not exact:
+        return None, True, math.inf
+    if len(exact) == 1:
+        return exact[0], False, 0.0
+
+    signatures = {_scenario_strategy_signature(item) for item in exact}
+    if len(signatures) != 1:
+        # Same action history with different strategy data is ambiguous.
+        return None, True, math.inf
+    canonical = min(exact, key=lambda item: int(item["id"]))
+    return canonical, False, 0.0
 
 
 
@@ -533,15 +549,16 @@ def _select_live_scenario(
                         return selected, True, -1.0
                     return selected, False, 0.0
     except (KeyError, TypeError, ValueError, AttributeError, RuntimeError):
+        # A failed exact resolver must not be replaced by a fuzzy nearest node.
         pass
-    return _choose_scenario(actor_position, actual_history, rng)
+    return None, True, math.inf
 
 
 def _safe_legal_fallback(
     player_id: str,
     legal: dict[str, Any],
     hand_class: str,
-    scenario_id: int,
+    scenario_id: int | None,
     *,
     scenario_inferred: bool = False,
     distance: float = 0.0,
@@ -565,9 +582,15 @@ def _safe_legal_fallback(
         raise RuntimeError("No legal preflop action is available")
     return SimpleNamespace(
         player_id=str(player_id), action=action, amount=amount,
-        source="preflop-174-legal-guardrail",
-        node_id=f"174_IMAGE_{scenario_id}",
-        source_image_no=int(scenario_id),
+        source=(
+            "preflop-174-legal-guardrail" if scenario_id is not None
+            else "preflop-uncovered-legal-guardrail"
+        ),
+        node_id=(
+            f"174_IMAGE_{int(scenario_id)}" if scenario_id is not None
+            else "UNMAPPED_PREFLOP_HISTORY"
+        ),
+        source_image_no=None if scenario_id is None else int(scenario_id),
         hand_class=hand_class, action_frequency=1.0,
         inferred=bool(scenario_inferred), scenario_match_mode=(
             "exact" if not scenario_inferred
@@ -576,19 +599,25 @@ def _safe_legal_fallback(
         ),
         action_size_bb=None, size_source="legal-guardrail",
         note=(
-            f"174-scenario #{int(scenario_id)}; legal-action guardrail used "
-            f"because the source branch was unavailable at this live state"
-            + (
-                " (exact action history; live raise size was not recorded)"
-                if scenario_inferred and distance < 0
-                else (f" (nearest distance={distance:.3f})" if scenario_inferred else "")
-            )
+            (
+                f"174-scenario #{int(scenario_id)}; no measured action was available "
+                "for this hand in the matched source cell; legal guardrail used."
+            ) if scenario_id is not None else
+            "No exact 174-scenario action history matched; no unrelated range was borrowed. "
+            "A conservative legal-action guardrail was used."
         ),
     )
 
 
-def choose_preflop_174_action(table: Any, hand: Any, player_id: str, cpu: Any) -> SimpleNamespace:
-    """Select a legal preflop action from all 174 source scenarios.
+def choose_preflop_174_action(
+    table: Any,
+    hand: Any,
+    player_id: str,
+    cpu: Any,
+    *,
+    range_estimator: Any = None,
+) -> SimpleNamespace:
+    """Select a legal preflop action from exact 174 source scenarios.
 
     Every CPU uses this same chart-derived preflop policy. CPU level/archetype is not
     consulted. Postflop behaviour remains in poker_reasoning.py and is not changed here.
@@ -609,7 +638,53 @@ def choose_preflop_174_action(table: Any, hand: Any, player_id: str, cpu: Any) -
     hand_class = _hand_class(getattr(player, "hole_cards", ()))
     if hand_class is None:
         raise RuntimeError("CPU hole cards could not be mapped to a 169-class hand")
+
+    def uncovered_fallback(reason: str) -> SimpleNamespace:
+        if callable(range_estimator):
+            try:
+                # Uncovered histories/cells use the independent range-aware
+                # policy, never a guessed 174 node or a neighbouring hand cell.
+                from .poker_reasoning import choose_range_aware_action
+
+                fallback = choose_range_aware_action(
+                    table, hand, player_id, cpu, range_estimator=range_estimator
+                )
+                return SimpleNamespace(
+                    player_id=str(player_id),
+                    action=str(fallback.action),
+                    amount=fallback.amount,
+                    source="preflop-uncovered-range-aware-fallback",
+                    node_id="UNMAPPED_PREFLOP_HISTORY",
+                    source_image_no=None,
+                    hand_class=hand_class,
+                    action_frequency=0.0,
+                    inferred=True,
+                    scenario_match_mode="unsupported",
+                    size_source="range-aware-fallback",
+                    note=(
+                        f"{reason}; no 174 chart was borrowed. "
+                        f"Independent range policy: {getattr(fallback, 'note', '')}"
+                    ),
+                    equity_estimate=getattr(fallback, "equity_estimate", None),
+                )
+            except Exception:
+                pass
+        return _safe_legal_fallback(
+            player_id, legal, hand_class,
+            None if scenario is None else int(scenario["id"]),
+            scenario_inferred=scenario_inferred, distance=distance,
+        )
+
+    if scenario is None:
+        return uncovered_fallback(
+            "No exact 174-scenario action history (including known raise sizes) matched"
+        )
+
     distribution, hand_inferred, hand_method = _scenario_distribution(scenario, hand_class)
+    if not distribution:
+        return uncovered_fallback(
+            f"174-scenario #{int(scenario['id'])} has no measured cell for {hand_class}"
+        )
     distribution = _filter_first_in_distribution(actor_position, actual_history, distribution)
     bb = _big_blind(hand, table)
     choices = _legal_choices(hand, player_id, distribution, bb)
@@ -691,6 +766,8 @@ def preflop_174_raise_size_options(
         scenario, scenario_inferred, distance = _select_live_scenario(
             table, hand, player_id, actor_position, actual_history, random.Random(0)
         )
+        if scenario is None:
+            return None
         player = hand.player(player_id)
         hand_class = _hand_class(getattr(player, "hole_cards", ()))
         if hand_class is None:
@@ -763,8 +840,42 @@ def preflop_174_raise_size_options(
 def preflop_174_catalog_summary() -> dict[str, Any]:
     data = load_preflop_174_data()
     scenarios = _scenarios()
+    history_groups: dict[tuple[Any, ...], list[int]] = {}
+    matrix_groups: dict[tuple[Any, ...], list[int]] = {}
+    for item in scenarios:
+        history_key = (
+            str(item.get("position", "")).upper(),
+            tuple((
+                str(event.get("position", "")).upper(),
+                _normalise_action(event.get("action")),
+                None if event.get("size_bb") is None else round(float(event["size_bb"]), 5),
+            ) for event in (item.get("history", []) or [])),
+        )
+        history_groups.setdefault(history_key, []).append(int(item["id"]))
+        matrix_groups.setdefault(_scenario_strategy_signature(item), []).append(int(item["id"]))
+    duplicate_history_groups = sorted(
+        (sorted(ids) for ids in history_groups.values() if len(ids) > 1),
+        key=lambda ids: ids[0],
+    )
+    duplicate_matrix_groups = sorted(
+        (sorted(ids) for ids in matrix_groups.values() if len(ids) > 1),
+        key=lambda ids: ids[0],
+    )
+    ambiguous_history_groups = []
+    for ids in duplicate_history_groups:
+        signatures = {
+            _scenario_strategy_signature(item)
+            for item in scenarios if int(item["id"]) in set(ids)
+        }
+        if len(signatures) > 1:
+            ambiguous_history_groups.append(ids)
     return {
         "scenario_count": len(scenarios),
+        "unique_action_history_count": len(history_groups),
+        "duplicate_action_history_groups": duplicate_history_groups,
+        "ambiguous_duplicate_history_groups": ambiguous_history_groups,
+        "unique_169_cell_strategy_matrix_count": len(matrix_groups),
+        "duplicate_strategy_matrix_groups": duplicate_matrix_groups,
         "hand_classes_per_scenario": len(data["hand_order"]),
         "scenario_ids": [int(item["id"]) for item in scenarios],
         "unresolved_hand_cells": sum(1 for item in scenarios for row in item["hands"] if not row),
