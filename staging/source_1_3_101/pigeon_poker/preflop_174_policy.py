@@ -530,31 +530,48 @@ def _select_live_scenario(
     return _choose_scenario(actor_position, actual_history, rng)
 
 
-def _safe_legal_fallback(player_id: str, legal: dict[str, Any], hand_class: str, scenario_id: int) -> SimpleNamespace:
+def _safe_legal_fallback(
+    player_id: str,
+    legal: dict[str, Any],
+    hand_class: str,
+    scenario_id: int,
+    *,
+    scenario_inferred: bool = False,
+    distance: float = 0.0,
+) -> SimpleNamespace:
+    """Take a legal safety action without losing the selected 174 source ID."""
     available = _legal_actions(legal)
     to_call = max(0, int(legal.get("to_call", 0) or 0))
     if "check" in available and to_call == 0:
-        action = "check"
+        action, amount = "check", None
     elif "fold" in available and to_call > 0:
-        action = "fold"
+        action, amount = "fold", None
     elif "call" in available:
-        action = "call"
+        action, amount = "call", None
     elif "fold" in available:
-        action = "fold"
+        action, amount = "fold", None
     elif "check" in available:
-        action = "check"
+        action, amount = "check", None
     elif "raise" in available and int(legal.get("min_target", 0) or 0) > 0:
         action, amount = "raise", int(legal["min_target"])
-        return SimpleNamespace(player_id=str(player_id), action=action, amount=amount,
-            source="preflop-174-legal-guardrail", node_id=f"174_IMAGE_{scenario_id}",
-            hand_class=hand_class, action_frequency=1.0, inferred=True,
-            size_source="legal-guardrail", note="The measured action branches were not legal in the current hand; used a legal-action guardrail.")
     else:
         raise RuntimeError("No legal preflop action is available")
-    return SimpleNamespace(player_id=str(player_id), action=action, amount=None,
-        source="preflop-174-legal-guardrail", node_id=f"174_IMAGE_{scenario_id}",
-        hand_class=hand_class, action_frequency=1.0, inferred=True,
-        size_source="legal-guardrail", note="The measured action branches were not legal in the current hand; used a legal-action guardrail.")
+    return SimpleNamespace(
+        player_id=str(player_id), action=action, amount=amount,
+        source="preflop-174-legal-guardrail",
+        node_id=f"174_IMAGE_{scenario_id}",
+        source_image_no=int(scenario_id),
+        hand_class=hand_class, action_frequency=1.0,
+        inferred=bool(scenario_inferred), scenario_match_mode=(
+            "nearest-inferred" if scenario_inferred else "exact"
+        ),
+        action_size_bb=None, size_source="legal-guardrail",
+        note=(
+            f"174-scenario #{int(scenario_id)}; legal-action guardrail used "
+            f"because the source branch was unavailable at this live state"
+            + (f" (nearest distance={distance:.3f})" if scenario_inferred else "")
+        ),
+    )
 
 
 def choose_preflop_174_action(table: Any, hand: Any, player_id: str, cpu: Any) -> SimpleNamespace:
@@ -584,10 +601,16 @@ def choose_preflop_174_action(table: Any, hand: Any, player_id: str, cpu: Any) -
     bb = _big_blind(hand, table)
     choices = _legal_choices(hand, player_id, distribution, bb)
     if not choices:
-        return _safe_legal_fallback(player_id, legal, hand_class, int(scenario["id"]))
+        return _safe_legal_fallback(
+            player_id, legal, hand_class, int(scenario["id"]),
+            scenario_inferred=scenario_inferred, distance=distance,
+        )
     total = sum(item["frequency"] for item in choices)
     if total <= 0:
-        return _safe_legal_fallback(player_id, legal, hand_class, int(scenario["id"]))
+        return _safe_legal_fallback(
+            player_id, legal, hand_class, int(scenario["id"]),
+            scenario_inferred=scenario_inferred, distance=distance,
+        )
     pick = float(rng.random()) * total
     chosen = choices[-1]
     for item in choices:
@@ -677,15 +700,23 @@ def preflop_174_raise_size_options(
             if first_in and size_bb > 5.0:
                 continue
             amount = int(round(size_bb * bb))
-            if amount < max(1, min_target) or (max_target > 0 and amount > max_target):
-                continue
+            legal_target = (
+                amount >= max(1, min_target)
+                and (max_target <= 0 or amount <= max_target)
+            )
             frequency = float(distribution.get(("raise", size_bb), 0.0))
             choices.append({
                 "amount": amount,
                 "size_bb": size_bb,
                 "frequency": frequency,
                 "frequency_pct": 100.0 * frequency,
-                "enabled_for_hand": frequency > 0.0,
+                "legal_in_current_state": legal_target,
+                "enabled_for_hand": frequency > 0.0 and legal_target,
+                "disabled_reason": (
+                    "NOT IN THIS HAND RANGE" if frequency <= 0.0
+                    else "NOT LEGAL IN CURRENT STATE" if not legal_target
+                    else ""
+                ),
             })
         if not choices:
             return None
