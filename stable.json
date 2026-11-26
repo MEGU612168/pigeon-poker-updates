@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.16",
-  "published_at": "2026-11-26T13:53:37Z",
-  "release_notes": "Pigeon Poker 1.5.16 replaces the text-only Casino presentation with graphical felt tables, illustrated playing-card faces and backs, visual chip tokens, separate Blackjack and Punto Banco layouts, and staged card-reveal animations. The existing six-deck Blackjack and standard Baccarat payout rules are unchanged. A one-time $270.00 refund for the initial casino UI test is credited to the existing local wallet with an atomic ledger entry; it does not reset the wallet or change poker P&L. NL500/NL1000, the immutable 174-situation preflop chart, postflop reasoning, and Hold'em Run It Twice are preserved.",
+  "version": "1.5.17",
+  "published_at": "2026-11-26T14:18:35Z",
+  "release_notes": "Pigeon Poker 1.5.17 makes every player stack clickable to toggle table amount labels between USD and BB, and moves the upper/lower seat rows to keep hole cards from obscuring the displayed stack. Casino now opens in a dedicated reusable window instead of occupying the main app page. Punto Banco Baccarat now reveals every dealt card with a deliberate corner-peel squeeze animation, including third cards, and hides totals/results until reveal completes. Existing Blackjack/Baccarat rules, casino wallet and ledger behavior, the one-time $270 UI-test refund marker, NL500/NL1000, the immutable 174-situation preflop chart, postflop reasoning, and Hold'em Run It Twice are preserved.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.16/payload-updater.zip.b64?v=7f3440035fe95ce1cdf65245eaf67c157fa601bd0d7f3a6c00ad1f3c0153b7ee",
-  "payload_sha256": "7f3440035fe95ce1cdf65245eaf67c157fa601bd0d7f3a6c00ad1f3c0153b7ee",
-  "payload_size": 1214503
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.17/payload-updater.zip.b64?v=3a208d03a7deb02133dae84404e55e7956965cd2c9634f7ce6e5001305abf05b",
+  "payload_sha256": "3a208d03a7deb02133dae84404e55e7956965cd2c9634f7ce6e5001305abf05b",
+  "payload_size": 1216324
 }
