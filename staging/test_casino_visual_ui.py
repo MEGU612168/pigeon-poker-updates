@@ -148,8 +148,7 @@ def test_baccarat_every_card_is_squeezed_before_the_result_is_shown() -> None:
     draw = source_of("_casino_draw_baccarat_table")
     animate = source_of("_casino_animate_baccarat_to_state")
     assert "self._casino_draw_squeezed_card(" in draw
-    assert 'get(("player", index)' in draw or 'get(\n                            ("player", index)' in draw
-    assert 'get(("banker", index)' in draw or 'get(\n                            ("banker", index)' in draw
+    assert "(side, index), 0.0" in draw
     assert 'order.append(("player", index))' in animate
     assert 'order.append(("banker", index))' in animate
     assert "frames = 10" in animate
