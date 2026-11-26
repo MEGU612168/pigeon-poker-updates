@@ -93,7 +93,7 @@ from pigeon_poker.casino_games import (
 from pigeon_poker.vip_ai import (
     assign_vip_cpu_roles, vip_cpu_role_label, validate_vip_cpu_roles,
     VIP_PRO_COUNT, VIP_TOP_PRO_COUNT, VIP_TOP_PRO_ROLE,
-    make_vip_auto_rebuy_plan,
+    make_vip_auto_rebuy_plan, randomize_cash_seating,
     PURE_GTO_ROLE, NEAR_GTO_ROLE,
 )
 from pigeon_poker.study_time import (
@@ -401,6 +401,8 @@ class PigeonPokerApp(tk.Tk):
         self.cash_bb = 10
         self.cash_buyin = 1000
         self.cash_balance_cents = int(round(float(self.config_data.get("balance", 0)) * 100))
+        self._shutdown_cashout_token = uuid.uuid4().hex
+        self._shutdown_in_progress = False
         self.cash_auto_rebuy_var = tk.BooleanVar(value=bool(self.config_data.get("cash_auto_rebuy", False)))
         # The BB-before-sit-out preference is per table slot, not global.
         # Temporary sit-out preserves that table and its stack/session.
@@ -485,6 +487,8 @@ class PigeonPokerApp(tk.Tk):
         self._apply_one_time_270_dollar_casino_test_refund()
         # User-requested one-time $1,100 top-up; existing wallet funds are preserved.
         self._apply_one_time_1100_dollar_user_balance_topup()
+        # One-time recovery for the $5,000 table stack lost when updating with an open table.
+        self._apply_one_time_5000_dollar_update_loss_recovery()
         self.cash_balance_cents = self.wallet_store.get_balance(self.cash_balance_cents)
         self.balance_var.set(f"${self.cash_balance_cents / 100:,.2f}")
         self.config_data["balance"] = self.cash_balance_cents / 100
@@ -1157,7 +1161,9 @@ class PigeonPokerApp(tk.Tk):
             )
             for profile in profiles
         ]
-        players = cpu_players[:3] + [("hero", "YOU", self.cash_buyin)] + cpu_players[3:]
+        players = randomize_cash_seating(
+            [*cpu_players, ("hero", "YOU", self.cash_buyin)], rng=self.cash_random
+        )
         if is_vip_mode(table_mode):
             # Reference profile: 5% rake with a $25 cap for the $25/$50
             # standard 6-max VIP listing found in public GGPoker stake tables.
@@ -2698,6 +2704,64 @@ class PigeonPokerApp(tk.Tk):
                 (
                     transaction_id, now, "bonus-credit", amount_cents,
                     new_balance, "", "One-time +$1,100.00 user-requested balance top-up (v1.5.19)",
+                ),
+            )
+            con.execute(
+                "INSERT INTO wallet_meta(key,value) VALUES(?,?)",
+                (marker_key, now),
+            )
+            con.execute("COMMIT")
+        self.cash_balance_cents = new_balance
+        self.config_data["balance"] = new_balance / 100
+        return True
+
+
+    def _apply_one_time_5000_dollar_update_loss_recovery(self) -> bool:
+        """Restore the reported $5,000 open-table update loss exactly once."""
+        import sqlite3
+        amount_cents = 500_000
+        marker_key = "pigeon_poker_v1_5_25_update_open_table_loss_recovery_5000_usd"
+        transaction_id = "pigeon-poker-v1.5.25-update-open-table-loss-recovery-5000-usd"
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with sqlite3.connect(str(self.wallet_store.db_path), timeout=20) as con:
+            con.row_factory = sqlite3.Row
+            con.execute("PRAGMA busy_timeout=20000")
+            con.execute("BEGIN IMMEDIATE")
+            already = con.execute(
+                "SELECT value FROM wallet_meta WHERE key=?", (marker_key,)
+            ).fetchone()
+            existing_tx = con.execute(
+                "SELECT transaction_id FROM cashier_transactions WHERE transaction_id=?",
+                (transaction_id,),
+            ).fetchone()
+            if already is not None:
+                con.execute("ROLLBACK")
+                return False
+            if existing_tx is not None:
+                con.execute(
+                    "INSERT OR IGNORE INTO wallet_meta(key,value) VALUES(?,?)",
+                    (marker_key, now),
+                )
+                con.execute("COMMIT")
+                return False
+            row = con.execute(
+                "SELECT balance_cents FROM wallet_account WHERE account_id=1"
+            ).fetchone()
+            if row is None:
+                con.execute("ROLLBACK")
+                raise RuntimeError("Wallet account was not initialized; $5,000 update recovery not applied.")
+            new_balance = int(row["balance_cents"]) + amount_cents
+            con.execute(
+                "UPDATE wallet_account SET balance_cents=?,updated_at=? WHERE account_id=1",
+                (new_balance, now),
+            )
+            con.execute(
+                "INSERT INTO cashier_transactions "
+                "(transaction_id,played_at,kind,delta_cents,balance_after_cents,recipient,note) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (
+                    transaction_id, now, "update-recovery", amount_cents,
+                    new_balance, "", "One-time +$5,000.00 recovery for lost open-table stack during app update (v1.5.25)",
                 ),
             )
             con.execute(
@@ -14324,11 +14388,23 @@ class PigeonPokerApp(tk.Tk):
         return "\n".join(lines)
 
     def _on_close(self):
+        if getattr(self, "_shutdown_in_progress", False):
+            return
+        self._shutdown_in_progress = True
         self._sync_external_wallet_balance()
         self.auto_scan_cancel_event.set()
-        # Return all active cash-table stacks to the common simulated wallet.
+        for cancel_event in getattr(self, "cash_cpu_cancel_events", {}).values():
+            try:
+                cancel_event.set()
+            except Exception:
+                pass
+
+        # First collect all live HERO stacks; then commit one idempotent wallet
+        # transaction. A failed DB write keeps the app open instead of silently
+        # discarding the table money during an update/restart.
         try:
             self._save_active_cash_slot()
+            table_cashouts = []
             for slot in self.multi_tables.list():
                 state = slot.state
                 table = state.get("cash_table")
@@ -14336,20 +14412,74 @@ class PigeonPokerApp(tk.Tk):
                     continue
                 table.sync_external_hand_state()
                 hero = next((seat for seat in table.seats if seat["id"] == "hero"), None)
-                if hero:
-                    cash_out = max(0, int(hero["stack"]))
-                    self.cash_balance_cents += cash_out
-                    if cash_out:
-                        self.cashier_ledger.record(
-                            "cash-out", cash_out, self.cash_balance_cents,
-                            note=f"{slot.rate} application shutdown cash-out"
+                if hero is not None:
+                    amount = max(0, int(hero.get("stack", 0)))
+                    if amount:
+                        table_cashouts.append((str(slot.table_id), str(slot.rate), amount))
+
+            total_cashout = sum(item[2] for item in table_cashouts)
+            if total_cashout:
+                import sqlite3
+                transaction_id = f"pigeon-poker-shutdown-cashout-{self._shutdown_cashout_token}"
+                now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                note = "Application shutdown/update cash-out: " + ", ".join(
+                    f"{rate} ${amount / 100:,.2f}" for _, rate, amount in table_cashouts
+                )
+                with sqlite3.connect(str(self.wallet_store.db_path), timeout=20) as con:
+                    con.row_factory = sqlite3.Row
+                    con.execute("PRAGMA busy_timeout=20000")
+                    con.execute("BEGIN IMMEDIATE")
+                    existing = con.execute(
+                        "SELECT transaction_id FROM cashier_transactions WHERE transaction_id=?",
+                        (transaction_id,),
+                    ).fetchone()
+                    row = con.execute(
+                        "SELECT balance_cents FROM wallet_account WHERE account_id=1"
+                    ).fetchone()
+                    if row is None:
+                        con.execute("ROLLBACK")
+                        raise RuntimeError("Shared wallet account is missing; table cash-out was not committed.")
+                    current_balance = int(row["balance_cents"])
+                    if existing is None:
+                        new_balance = current_balance + total_cashout
+                        con.execute(
+                            "UPDATE wallet_account SET balance_cents=?,updated_at=? WHERE account_id=1",
+                            (new_balance, now),
                         )
+                        con.execute(
+                            "INSERT INTO cashier_transactions "
+                            "(transaction_id,played_at,kind,delta_cents,balance_after_cents,recipient,note) "
+                            "VALUES(?,?,?,?,?,?,?)",
+                            (
+                                transaction_id, now, "cash-out", total_cashout,
+                                new_balance, "", note,
+                            ),
+                        )
+                    else:
+                        new_balance = current_balance
+                    con.execute("COMMIT")
+                self.cash_balance_cents = new_balance
+            else:
+                self.cash_balance_cents = int(self.wallet_store.get_balance(self.cash_balance_cents))
+
             self._update_cash_balance()
             self.wallet_store.set_live_poker_stack(0)
             self.config_data["balance"] = self.cash_balance_cents / 100
             save_config(self.config_data)
-        except Exception:
-            pass
+        except Exception as exc:
+            self._shutdown_in_progress = False
+            self.cashier_link_error = f"Shutdown cash-out failed: {exc}"
+            try:
+                messagebox.showerror(
+                    "Pigeon Poker cash-out",
+                    "卓上チップをウォレットへ保存できなかったため、アプリを終了しませんでした。\\n"
+                    f"原因: {exc}",
+                    parent=self,
+                )
+            except Exception:
+                pass
+            return
+
         try:
             self.integration.stop(detach=True, terminate=False)
         except Exception:
