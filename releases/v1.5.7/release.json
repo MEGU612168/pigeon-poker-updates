@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.5.7",
+  "package_mode": "full",
+  "source_version": "1.3.101",
+  "source_directory": "staging/source_1_3_101",
+  "release_notes": "Pigeon Poker 1.5.7 replaces the paid preflop range display architecture. The 174 scenario charts are now rendered directly from their authoritative 169-hand action-frequency matrices using native Tk Canvas. Runtime range lookup no longer loads the legacy bitmap catalogue or creates PhotoImage objects. Source-empty cells remain explicitly blank; the 1 BB charge is still checked atomically and only after the selected matrix has been fully validated.",
+  "distribution_status": "queued",
+  "preflop_174_policy_verified": true,
+  "postflop_theory_policy_verified": true,
+  "range_data_audit_verified": true,
+  "range_source_entries_expected": 174,
+  "unique_semantic_situations_expected": 171,
+  "duplicate_semantic_scenario_groups": [
+    [
+      195,
+      204
+    ],
+    [
+      196,
+      205
+    ],
+    [
+      238,
+      243
+    ]
+  ],
+  "range_bitmap_display_retired": true,
+  "native_windows_canvas_range_render_verified": false,
+  "paid_range_live_resolution_verified": false,
+  "live_range_button_cache_signature_verified": true,
+  "preflop_raise_size_selector_verified": true
+}
