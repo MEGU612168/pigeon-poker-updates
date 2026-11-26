@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "product": "pigeon-poker",
+  "channel": "stable",
+  "version": "1.5.9",
+  "package_mode": "full",
+  "source_version": "1.3.101",
+  "source_directory": "staging/source_1_3_101",
+  "release_notes": "Pigeon Poker 1.5.9 strengthens postflop decision-making while preserving the immutable 174-scenario preflop policy. The BOT distinguishes current-board showdown value from future draw equity, protects showdown-capable hands from being repurposed as bluffs, sizes thin one-pair value bets more carefully, allows only narrow protection bets, and requires fold equity plus value-combo blockers and positional/range support for pure bluffs. Regression coverage includes full-decision SDV cases and all existing 174-chart, CPU, and updater checks.",
+  "distribution_status": "pending",
+  "preflop_174_policy_verified": true,
+  "postflop_theory_policy_verified": true,
+  "range_data_audit_verified": true,
+  "range_source_entries_expected": 174,
+  "unique_semantic_situations_expected": 171,
+  "duplicate_semantic_scenario_groups": [
+    [
+      195,
+      204
+    ],
+    [
+      196,
+      205
+    ],
+    [
+      238,
+      243
+    ]
+  ],
+  "range_bitmap_display_retired": true,
+  "native_windows_canvas_range_render_verified": true,
+  "paid_range_live_resolution_verified": true,
+  "live_range_button_cache_signature_verified": true,
+  "preflop_raise_size_selector_verified": false,
+  "range_chart_bot_source_id_consistency_verified": true,
+  "all_174_situations_bot_mapped_verified": true,
+  "bot_169_hand_frequency_integration_verified": true,
+  "source_raise_sizes_visible_in_matching_menu_verified": true,
+  "updater_actual_extract_validation": "passed",
+  "range_source_entries_verified": 174,
+  "unique_semantic_situations_verified": 171,
+  "windows_native_range_view_verified": true,
+  "updater_required_root_files": "PigeonPoker.pyw, pigeon_updater.py, VERSION.txt",
+  "legacy_preflop_retirement_validation": "passed",
+  "postflop_sdv_policy_verified": false,
+  "showdown_value_bluff_separation_verified": false,
+  "thin_value_bet_sizing_verified": false,
+  "pure_bluff_blocker_gate_verified": false
+}
