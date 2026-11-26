@@ -2057,6 +2057,51 @@ def test_cash_cpu_connects_174_chart_ranges_and_learned_profiles_to_postflop():
     assert "def _postflop_polarized_candidate_role(" in reasoning_source
     assert "polar-role={selected_polar_role}" in reasoning_source
 
+
+
+def test_flush_and_straight_draws_require_private_hand_contribution():
+    # Four flush cards on the board alone must not be treated as every
+    # opponent holding a private flush draw.
+    board_only_flush = module._board_metrics(
+        ("Qc", "As"), ["2h", "7h", "Kh", "3h"]
+    )[1]
+    # Four consecutive ranks on the board alone likewise do not create a
+    # private straight draw for unrelated low hole cards.
+    board_only_straight = module._board_metrics(
+        ("2c", "3d"), ["6s", "7h", "8c", "9d"]
+    )[1]
+    assert board_only_flush < 0.30
+    assert board_only_straight == 0.0
+
+
+def test_flush_draw_quality_recognizes_nut_and_backdoor_contribution():
+    nut_flush_draw = module._board_metrics(
+        ("Ah", "Qs"), ["2h", "7h", "Kh"]
+    )[1]
+    dominated_flush_draw = module._board_metrics(
+        ("3h", "Qs"), ["2h", "7h", "Kh"]
+    )[1]
+    private_backdoor_flush = module._board_metrics(
+        ("Qh", "As"), ["2h", "7c", "Kd"]
+    )[1]
+    no_private_backdoor_flush = module._board_metrics(
+        ("Qc", "As"), ["2h", "7h", "Kd"]
+    )[1]
+    assert nut_flush_draw > dominated_flush_draw
+    assert private_backdoor_flush > no_private_backdoor_flush
+
+
+def test_postflop_raise_size_fraction_uses_the_post_call_pot_consistently():
+    increment = module._postflop_raise_increment(1600, 500, 0.50)
+    assert increment == 1050
+    actual_fraction = module._postflop_size_fraction(
+        1600, 500 + increment, 500
+    )
+    assert actual_fraction == 0.50
+    # A lead bet continues to use the uncalled current pot as its denominator.
+    assert module._postflop_raise_increment(1600, 0, 0.50) == 800
+
+
 if __name__ == "__main__":
     tests = [value for name, value in globals().items()
              if name.startswith("test_") and callable(value)]
