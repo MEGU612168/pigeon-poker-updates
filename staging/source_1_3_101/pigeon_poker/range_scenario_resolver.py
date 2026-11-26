@@ -11,6 +11,7 @@ from typing import Any
 
 from .preflop_174_policy import (
     PAID_RANGE_ALL_IN_POSITION_REQUIREMENTS,
+    _actual_history,
     _normalise_action,
     _scenarios,
     exact_preflop_174_source_candidates,
@@ -131,6 +132,8 @@ def resolve_range_image_for_situation(spot: dict[str, Any]) -> dict[str, Any] | 
         "match_mode": "exact",
         "matched_history_count": len(scenario.get("history", []) or []),
         "prefix_complete": True,
+        "raise_size_verified": not size_unverified,
+        "action_history_exact": True,
     }
 
 
@@ -146,15 +149,75 @@ def _scenario_signature(scenario: dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _history_matches_when_live_raise_size_is_missing(
+    expected_history: list[dict[str, Any]],
+    actual_history: list[dict[str, Any]],
+) -> bool:
+    """Match the full action sequence when the runtime omitted a raise-to amount.
+
+    A known but different raise size is never relaxed. This fallback is limited
+    to events whose raise size is genuinely absent; the resolver must still
+    disambiguate candidates by legal actions, all-in state, or identical
+    169-hand strategy matrices before returning a paid chart.
+    """
+    if len(expected_history) != len(actual_history):
+        return False
+    missing_live_raise_size = False
+    for expected, actual in zip(expected_history, actual_history):
+        if str(expected.get("position", "")).upper() != str(actual.get("position", "")).upper():
+            return False
+        expected_action = _normalise_action(expected.get("action"))
+        actual_action = _normalise_action(actual.get("action"))
+        if expected_action != actual_action:
+            return False
+        if expected_action != "raise":
+            continue
+        expected_size = expected.get("size_bb")
+        actual_size = actual.get("size_bb")
+        if actual_size is None:
+            missing_live_raise_size = True
+            continue
+        if expected_size is None:
+            continue
+        try:
+            e = float(expected_size)
+            a = float(actual_size)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if not math.isfinite(e) or not math.isfinite(a):
+            return False
+        if abs(e - a) > max(0.12, abs(e) * 0.04):
+            return False
+    return missing_live_raise_size
+
+
 def resolve_range_image_for_hand(table: Any, hand: Any, player_id: str) -> dict[str, Any] | None:
-    """Resolve the exact 174-source strategy node using live action/menu state."""
+    """Resolve a 174-source node from the live action history and legal state."""
     actor_position, positions, candidates = exact_preflop_174_source_candidates(
         table, hand, player_id
     )
+    size_unverified = False
     if not candidates:
-        return None
+        actual_history = _actual_history(table, hand, player_id, positions)
+        # Some runtime action records omit target/raise_to. Do not turn that
+        # into a blanket miss: match the exact position/action sequence, but
+        # retain only candidates whose known sizes agree with any recorded
+        # live sizes. Ambiguous strategies remain unavailable.
+        candidates = [
+            scenario for scenario in _scenarios()
+            if str(scenario.get("position", "")).upper() == str(actor_position or "").upper()
+            and _history_matches_when_live_raise_size_is_missing(
+                list(scenario.get("history", []) or []), actual_history
+            )
+        ]
+        size_unverified = bool(candidates)
+        if not candidates:
+            return None
 
-    match_mode = "exact"
+    match_mode = "exact-actions-size-unverified" if size_unverified else "exact"
+
+    def resolved_mode(stage: str) -> str:
+        return f"actions-size-unverified-{stage}" if size_unverified else f"exact-{stage}"
 
     if len(candidates) > 1:
         try:
@@ -195,7 +258,7 @@ def resolve_range_image_for_hand(table: Any, hand: Any, player_id: str) -> dict[
                 }) == largest_menu
             ]
             if len(candidates) == 1:
-                match_mode = "exact-live-actions"
+                match_mode = resolved_mode("live-actions")
 
     if len(candidates) > 1:
         actual_all_in_positions = {
@@ -217,7 +280,7 @@ def resolve_range_image_for_hand(table: Any, hand: Any, player_id: str) -> dict[
         if len(compatible) < len(candidates):
             candidates = compatible
             if len(candidates) == 1:
-                match_mode = "exact-live-state"
+                match_mode = resolved_mode("live-state")
 
     if len(candidates) > 1:
         signatures = {_scenario_signature(scenario) for scenario in candidates}
@@ -232,7 +295,7 @@ def resolve_range_image_for_hand(table: Any, hand: Any, player_id: str) -> dict[
             )
 
         candidates = [min(candidates, key=canonical_key)]
-        match_mode = "exact-identical-strategy-data"
+        match_mode = resolved_mode("identical-strategy-data")
 
     try:
         source_id = int(candidates[0]["id"])
