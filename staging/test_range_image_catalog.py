@@ -275,17 +275,28 @@ def test_bot_uses_the_169_hand_frequencies_for_each_first_in_and_response_family
             # The CPU must not invent one from neighbouring hands or label a
             # guardrail action as coming from this chart.
             if not distribution:
+                # The situation image may still be an exact history match, but
+                # a blank hand cell has no measured frequency. The BOT must
+                # therefore use a clearly-labelled guardrail/fallback, not a
+                # chart-frequency action.
                 if getattr(decision, "source", "") not in {
+                    "preflop-174-legal-guardrail",
                     "preflop-uncovered-legal-guardrail",
                     "preflop-uncovered-range-aware-fallback",
                 }:
                     failures.append((
-                        source_id, hand_class, "unmeasured cell used chart policy",
+                        source_id, hand_class, "unmeasured cell used chart-frequency policy",
                         getattr(decision, "source", ""),
                     ))
-                if getattr(decision, "source_image_no", None) is not None:
+                if getattr(decision, "source", "") == "preflop-174-legal-guardrail":
+                    if int(getattr(decision, "source_image_no", -1)) != int(chart["source_id"]):
+                        failures.append((
+                            source_id, hand_class, "guardrail lost exact matched situation",
+                            getattr(decision, "source_image_no", None), chart["source_id"],
+                        ))
+                elif getattr(decision, "source_image_no", None) is not None:
                     failures.append((
-                        source_id, hand_class, "unmeasured cell claimed source image",
+                        source_id, hand_class, "unmatched fallback claimed source image",
                         getattr(decision, "source_image_no", None),
                     ))
                 continue
