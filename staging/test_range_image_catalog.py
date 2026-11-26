@@ -228,6 +228,76 @@ def test_fold_only_live_prefixes_resolve_to_their_first_in_chart_and_bot():
             assert decision.action != "call"
 
 
+
+def test_bot_uses_the_169_hand_frequencies_for_each_first_in_and_response_family():
+    import random
+    from types import SimpleNamespace
+
+    from pigeon_poker.preflop_174_policy import (
+        _HAND_ORDER, _actual_history, _normalise_action, _position_map,
+        _scenario_distribution, _filter_first_in_distribution,
+        choose_preflop_174_action,
+    )
+    from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand
+
+    by_id = {int(item["id"]): item for item in _scenarios()}
+    source_ids = (128, 129, 130, 131, 132, 135, 146, 147, 153, 232)
+    failures = []
+
+    def cards_for(hand_class):
+        if len(hand_class) == 2:
+            return (hand_class[0] + "s", hand_class[1] + "h")
+        high, low, suited = hand_class[0], hand_class[1], hand_class[2]
+        return (high + "s", low + ("s" if suited == "s" else "h"))
+
+    for source_id in source_ids:
+        source = by_id[source_id]
+        for hand_class in _HAND_ORDER:
+            table, hand, actor_id = _live_fixture_for_scenario(
+                source, cards=cards_for(hand_class)
+            )
+            chart = resolve_range_image_for_hand(table, hand, actor_id)
+            assert chart is not None, f"Missing live chart for #{source_id} / {hand_class}"
+            selected_source = by_id[int(chart["source_id"])]
+            positions = _position_map(table, hand)
+            history = _actual_history(table, hand, actor_id, positions)
+            distribution, _hand_inferred, _method = _scenario_distribution(
+                selected_source, hand_class
+            )
+            distribution = _filter_first_in_distribution(
+                selected_source["position"], history, distribution
+            )
+            decision = choose_preflop_174_action(
+                table, hand, actor_id,
+                SimpleNamespace(rng=random.Random(1000 + source_id), level=1, archetype="balanced"),
+            )
+            action = _normalise_action(decision.action)
+            if action == "raise":
+                matching = [
+                    frequency for (candidate_action, size), frequency in distribution.items()
+                    if candidate_action == "raise" and size is not None
+                    and decision.action_size_bb is not None
+                    and abs(float(size) - float(decision.action_size_bb)) <= 0.0001
+                ]
+            else:
+                matching = [
+                    frequency for (candidate_action, _size), frequency in distribution.items()
+                    if candidate_action == action
+                ]
+            if not matching or not any(float(value) > 0.0 for value in matching):
+                failures.append((source_id, hand_class, decision.action, decision.action_size_bb))
+            if int(getattr(decision, "source_image_no", -1)) != int(chart["source_id"]):
+                failures.append((
+                    source_id, hand_class, "source mismatch",
+                    getattr(decision, "source_image_no", None), chart["source_id"],
+                ))
+
+    assert not failures, (
+        f"BOT did not use the matching per-hand 174-source frequencies "
+        f"for {len(failures)} combinations: {failures[:80]}"
+    )
+
+
 def run_tests():
     tests = [
         test_catalog_still_contains_exactly_174_source_scenarios,
@@ -244,6 +314,7 @@ def run_tests():
         test_live_resolution_does_not_depend_on_the_legacy_bitmap_catalogue,
         test_bot_chart_and_raise_sizes_share_the_same_source_for_all_174_situations,
         test_fold_only_live_prefixes_resolve_to_their_first_in_chart_and_bot,
+        test_bot_uses_the_169_hand_frequencies_for_each_first_in_and_response_family,
     ]
     for test in tests:
         test()
