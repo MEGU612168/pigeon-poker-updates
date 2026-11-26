@@ -271,6 +271,25 @@ def test_bot_uses_the_169_hand_frequencies_for_each_first_in_and_response_family
                 table, hand, actor_id,
                 SimpleNamespace(rng=random.Random(1000 + source_id), level=1, archetype="balanced"),
             )
+            # A grey/blank source cell has no measured action frequency.
+            # The CPU must not invent one from neighbouring hands or label a
+            # guardrail action as coming from this chart.
+            if not distribution:
+                if getattr(decision, "source", "") not in {
+                    "preflop-uncovered-legal-guardrail",
+                    "preflop-uncovered-range-aware-fallback",
+                }:
+                    failures.append((
+                        source_id, hand_class, "unmeasured cell used chart policy",
+                        getattr(decision, "source", ""),
+                    ))
+                if getattr(decision, "source_image_no", None) is not None:
+                    failures.append((
+                        source_id, hand_class, "unmeasured cell claimed source image",
+                        getattr(decision, "source_image_no", None),
+                    ))
+                continue
+
             action = _normalise_action(decision.action)
             if action == "raise":
                 matching = [
