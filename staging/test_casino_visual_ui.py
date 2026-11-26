@@ -64,7 +64,8 @@ def test_baccarat_table_has_separate_player_and_banker_zones() -> None:
     assert "player_center" in draw and "banker_center" in draw
     assert "PLAYER" in draw and "BANKER" in draw
     assert "PLAYER" in draw and "BANKER" in draw and "TIE" in draw
-    assert "self._casino_draw_card_row(" in draw
+    assert "self._casino_draw_squeezed_card(" in draw
+    assert "baccarat_card_reveal_progress" in draw
     assert "state['bet_side']" in draw
 
 
@@ -78,10 +79,10 @@ def test_blackjack_cards_are_revealed_in_stages() -> None:
 
 def test_baccarat_cards_are_revealed_in_stages() -> None:
     animate = source_of("_casino_animate_baccarat_to_state")
-    assert "steps.append" in animate
+    assert "order.append" in animate
     assert "self.after(" in animate
-    assert "self.baccarat_visible_player_cards" in animate
-    assert "self.baccarat_visible_banker_cards" in animate
+    assert "self.baccarat_card_reveal_progress" in animate
+    assert "squeeze_frame" in animate
 
 
 def test_blackjack_input_is_locked_during_the_deal_animation() -> None:
