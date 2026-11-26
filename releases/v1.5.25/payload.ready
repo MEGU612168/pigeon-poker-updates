@@ -1,1 +1,1 @@
-Re-run verified Pigeon Poker v1.5.25 build after correcting the $5,000 wallet recovery regression test.
+Retry v1.5.25 after fixing the recovery test syntax and final balance assertion.
