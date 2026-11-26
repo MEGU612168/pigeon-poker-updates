@@ -2088,7 +2088,7 @@ def test_cash_cpu_connects_174_chart_ranges_and_learned_profiles_to_postflop():
     # the same range estimator; preflop chart misses never borrow nearby nodes.
     assert app_source.count("range_estimator=postflop_range_estimator") == 4
     # The 174 preflop policy remains a separate, immutable CPU decision path.
-    assert "choose_preflop_174_action(table, hand, pid, cpu)" in app_source
+    assert app_source.count("choose_preflop_174_action(") == 2
     reasoning_source = MODULE_PATH.read_text(encoding="utf-8")
     assert "def _postflop_polarized_candidate_role(" in reasoning_source
     assert "polar-role={selected_polar_role}" in reasoning_source
