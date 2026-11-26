@@ -92,7 +92,7 @@ def test_existing_wallet_is_preserved_and_four_credits_are_exactly_once() -> Non
                 row[0] for row in con.execute("SELECT key FROM wallet_meta")
             }
 
-        assert balance == 140575
+        assert balance == 640575
         assert len(rows) == 4
         by_id = {row[0]: row for row in rows}
         assert by_id["pigeon-poker-v1.3.106-bonus-10-usd"][1:4] == ("bonus-credit", 1000, 3575)
@@ -126,6 +126,6 @@ def test_startup_applies_topup_after_existing_wallet_refund() -> None:
 
 
 if __name__ == "__main__":
-    test_existing_wallet_is_preserved_and_three_credits_are_exactly_once()
+    test_existing_wallet_is_preserved_and_four_credits_are_exactly_once()
     test_startup_applies_topup_after_existing_wallet_refund()
     print("PASS $10 bonus, $270 refund, $1,100 top-up, and one-time $5,000 update-loss recovery; no double credit")
