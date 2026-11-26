@@ -310,6 +310,10 @@ jobs:
           meta["distribution_status"] = "published"
           meta["preflop_174_policy_verified"] = True
           meta["postflop_theory_policy_verified"] = True
+          meta["postflop_sdv_policy_verified"] = True
+          meta["showdown_value_bluff_separation_verified"] = True
+          meta["thin_value_bet_sizing_verified"] = True
+          meta["pure_bluff_blocker_gate_verified"] = True
           meta["range_chart_bot_source_id_consistency_verified"] = True
           meta["all_174_situations_bot_mapped_verified"] = True
           meta["bot_169_hand_frequency_integration_verified"] = True
@@ -342,6 +346,10 @@ jobs:
               "hero_raise_size_menu": "all source-defined raise sizes shown and disabled only when unavailable for that hand/state",
               "retired_preflop_module": "not bundled",
               "updater_extract_validation": "passed",
+              "postflop_sdv_policy": "verified",
+              "showdown_value_bluff_separation": "verified",
+              "thin_value_bet_sizing": "verified",
+              "pure_bluff_blocker_gate": "verified",
           }, ensure_ascii=False))
           PY
 
