@@ -608,34 +608,69 @@ def _board_metrics_cached(
     made = _rank_strength(rank)
 
     suit_counts: dict[str, int] = {}
+    hole_suit_counts: dict[str, int] = {}
     rank_values: set[int] = set()
+    board_rank_values: set[int] = set()
+    hole_rank_values: set[int] = set()
     for card in all_cards:
         suit_counts[card[1]] = suit_counts.get(card[1], 0) + 1
-        rank_values.add(14 if card[0] == "A" else RANKS.index(card[0]) + 2)
+        rank = 14 if card[0] == "A" else RANKS.index(card[0]) + 2
+        rank_values.add(rank)
+    for card in board:
+        rank = 14 if card[0] == "A" else RANKS.index(card[0]) + 2
+        board_rank_values.add(rank)
+    for card in cards:
+        hole_suit_counts[card[1]] = hole_suit_counts.get(card[1], 0) + 1
+        hole_rank_values.add(14 if card[0] == "A" else RANKS.index(card[0]) + 2)
+    hole_contribution_ranks = hole_rank_values - board_rank_values
+    # Ace can contribute as the low end of a wheel as well as the high end.
+    if 14 in hole_contribution_ranks:
+        hole_contribution_ranks.add(1)
     if 14 in rank_values:
         rank_values.add(1)
 
-    highest_suit_count = max(suit_counts.values(), default=0)
     flush_draw = 0.0
     straight_draw = 0.0
     overcard_draw = 0.0
-    # No future cards remain on the river: never classify a made river hand
-    # as a live draw.
+    # Attribute draws to the private hand, not merely to a draw-looking board.
+    # A four-flush on the board does not give every player a private flush draw;
+    # similarly, a four-card straight texture shared by the board is not an
+    # individual straight draw unless a hole-card rank contributes to it.
     if len(board) < 5:
-        if highest_suit_count < 5:
-            if highest_suit_count >= 4:
-                flush_draw = 0.84
-            elif highest_suit_count == 3 and len(board) == 3:
-                flush_draw = 0.16
+        for suit, suit_count in suit_counts.items():
+            hole_count = hole_suit_counts.get(suit, 0)
+            if hole_count <= 0:
+                continue
+            if 4 <= suit_count < 5:
+                suited_hole_ranks = [
+                    14 if card[0] == "A" else RANKS.index(card[0]) + 2
+                    for card in cards if card[1] == suit
+                ]
+                top_held = max(suited_hole_ranks, default=0)
+                higher_available = sum(
+                    1 for rank in range(top_held + 1, 15)
+                    if RANKS[rank - 2] + suit not in all_cards
+                )
+                # A nut draw is more robust than a dominated low flush draw.
+                flush_quality = (
+                    0.94 if higher_available == 0 else
+                    0.86 if higher_available == 1 else
+                    0.79 if higher_available == 2 else 0.72
+                )
+                flush_draw = max(flush_draw, flush_quality)
+            elif suit_count == 3 and len(board) == 3:
+                # Backdoor flushes require at least one matching hole card.
+                flush_draw = max(flush_draw, 0.16 + 0.02 * min(1, hole_count - 1))
 
         completion_ranks: set[int] = set()
         backdoor_straight = False
         for high in range(5, 15):
             window = set(range(high - 4, high + 1))
             missing = window - rank_values
-            if len(missing) == 1:
+            hole_contributes = bool(window & hole_contribution_ranks)
+            if len(missing) == 1 and hole_contributes:
                 completion_ranks.update(missing)
-            elif len(missing) == 2 and len(board) == 3:
+            elif len(missing) == 2 and len(board) == 3 and hole_contributes:
                 backdoor_straight = True
         straight_draw = min(0.88, len(completion_ranks) * 0.40)
         if straight_draw <= 0 and backdoor_straight:
@@ -1987,6 +2022,17 @@ def _postflop_size_fraction(pot: int, risk: int, to_call: int = 0) -> float:
         return 0.0
     return max(0.0, min(4.0, float(wager) / max(1, denominator)))
 
+def _postflop_raise_increment(pot: int, to_call: int, fraction: float) -> int:
+    """Convert a raise-size fraction into chips using the pot after hero calls.
+
+    This is the same denominator used by _postflop_size_fraction. Keeping
+    candidate generation and response sizing on one pot basis prevents the
+    BOT from labelling a smaller raise as (for example) a 50% pot raise.
+    """
+    post_call_pot = max(1, int(pot)) + max(0, int(to_call))
+    size = max(0.0, min(4.0, float(fraction)))
+    return max(0, int(round(post_call_pot * size)))
+
 
 def _postflop_bet_size_fractions(
     *,
@@ -3061,7 +3107,13 @@ def _choose_range_aware_action_impl(
             ]
             if to_call:
                 bases = [
-                    max(min_target, current_bet + max(last_full_raise, int(round(max(1, pot) * fraction))))
+                    max(
+                        min_target,
+                        current_bet + max(
+                            last_full_raise,
+                            _postflop_raise_increment(pot, to_call, fraction),
+                        ),
+                    )
                     for fraction in fractions
                 ]
             targets = {min(max_target, target) for target in bases
