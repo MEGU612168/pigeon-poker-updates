@@ -114,8 +114,11 @@ def test_live_resolution_does_not_depend_on_the_legacy_bitmap_catalogue():
 
     scenario = next(
         item for item in _scenarios()
-        if not any(action.get("action") == "raise" and action.get("size_bb") is None
-                   for action in item.get("history", []))
+        if (
+            not any(action.get("action") == "raise" and action.get("size_bb") is None
+                    for action in item.get("history", []))
+            and find_exact_preflop_174_scenario(item["position"], _history(item)) == int(item["id"])
+        )
     )
     table, hand, actor_id = _live_fixture_for_scenario(scenario)
     original_loader = legacy_images._load_catalog
