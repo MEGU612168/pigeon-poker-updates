@@ -84,6 +84,44 @@ def test_all_174_scenarios_and_169_hand_classes_are_loaded():
     assert all(len(item["hands"]) == 169 for item in _scenarios())
 
 
+def test_emit_full_three_bet_four_bet_source_inventory():
+    scenarios = _scenarios()
+    for level, minimum_raises, maximum_raises in (
+        ("VS_3BET", 1, 1),
+        ("VS_4BET", 2, 2),
+        ("VS_5BET_PLUS", 3, 99),
+    ):
+        matches = []
+        for scenario in scenarios:
+            history = list(scenario.get("history", []) or [])
+            raises = sum(
+                1 for event_row in history
+                if str(event_row.get("action", "")).lower() in {"raise", "bet", "raise_to"}
+            )
+            if minimum_raises <= raises <= maximum_raises:
+                measured = sum(1 for row in scenario.get("hands", []) if row)
+                raise_options = [
+                    [str(action), size]
+                    for action, size in scenario.get("action_options", [])
+                    if str(action).lower() in {"raise", "allin"}
+                ]
+                matches.append({
+                    "id": int(scenario["id"]),
+                    "actor_position": str(scenario.get("position", "")),
+                    "history": history,
+                    "raise_count": raises,
+                    "measured_hand_cells": measured,
+                    "blank_hand_cells": 169 - measured,
+                    "action_options": scenario.get("action_options", []),
+                    "raise_options": raise_options,
+                    "history_parse_source": scenario.get("history_parse_source"),
+                })
+        print(
+            f"{level}_SOURCE_INVENTORY count={len(matches)} "
+            + __import__("json").dumps(matches, ensure_ascii=False, sort_keys=True)
+        )
+
+
 def test_source_action_frequencies_and_separate_sizes():
     for scenario in _scenarios():
         for row in scenario["hands"]:
@@ -318,6 +356,7 @@ def test_situation_size_stays_visible_but_disabled_when_current_hand_never_raise
 if __name__ == "__main__":
     tests = [
         test_all_174_scenarios_and_169_hand_classes_are_loaded,
+        test_emit_full_three_bet_four_bet_source_inventory,
         test_source_action_frequencies_and_separate_sizes,
         test_bb_vs_btn_open_matches_source_146_and_uses_13bb,
         test_same_actor_multiple_actions_are_preserved,
