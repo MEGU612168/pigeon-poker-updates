@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.20",
-  "published_at": "2026-11-26T15:27:09Z",
-  "release_notes": "Pigeon Poker 1.5.20 makes all-in showdowns suspenseful and correctly ordered: reveal every live player's hole cards first, wait for an explicit Run It Once/Twice/Three Times choice (no automatic timeout), then reveal the flop, turn, and river in separate paced stages for every board. Winner banners, POT PAID, stack changes, and payout effects remain hidden until the final river is visible. The existing v1.5.18 pot visibility correction and the one-time +$1,100 wallet credit from v1.5.19 are preserved.",
+  "version": "1.5.21",
+  "published_at": "2026-11-26T15:31:26Z",
+  "release_notes": "Pigeon Poker 1.5.21 refines the all-in suspense sequence: already-dealt community cards stay visible. A flop all-in opens both hands, asks the player to choose Run It Once/Twice/Three Times, then reveals only the turn and river with deliberate pauses; a preflop all-in reveals flop, turn, and river in order. For multiple runouts, each board starts from the already-shared street and reveals only its remaining cards. Winner banners, POT PAID, stack changes, and payouts stay hidden until the final river. The v1.5.19 one-time +$1,100 wallet credit and v1.5.18 pot visibility fix are preserved.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.20/payload-updater.zip.b64?v=67581cdc3adf64baa40382d418ca5b47c529bef863bdcbac28a694016b3b8d97",
-  "payload_sha256": "67581cdc3adf64baa40382d418ca5b47c529bef863bdcbac28a694016b3b8d97",
-  "payload_size": 1217733
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.21/payload-updater.zip.b64?v=64cbddae6f48e999ffd46e839d1903ca0f746f0c009ef7c726d15c63b367f7e1",
+  "payload_sha256": "64cbddae6f48e999ffd46e839d1903ca0f746f0c009ef7c726d15c63b367f7e1",
+  "payload_size": 1218068
 }
