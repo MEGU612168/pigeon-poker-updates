@@ -9,7 +9,7 @@ SOURCE = ROOT / "source_1_3_101"
 sys.path.insert(0, str(SOURCE))
 
 from pigeon_poker.preflop_174_policy import (
-    _HAND_INDEX, _actual_history, _choose_scenario, _position_map,
+    _HAND_INDEX, _HAND_ORDER, _actual_history, _choose_scenario, _filter_first_in_distribution, _position_map,
     _scenario_distribution, _scenarios, choose_preflop_174_action,
     preflop_174_catalog_summary, preflop_174_raise_size_options,
 )
@@ -31,6 +31,7 @@ class FakeHand:
         self.seat_by_id = {p.player_id: i for i, p in enumerate(self.players)}
         next(p for p in self.players if p.player_id == actor_id).hole_cards = cards
         self.events, self.dealer_index, self.big_blind, self.street = events, 0, 100, "preflop"
+        self.next_to_act = actor_id
         self._legal = legal or {
             "actions": ["raise", "call", "fold", "check", "all_in"],
             "to_call": 100, "raise_allowed": True, "min_target": 200, "max_target": 10000,
@@ -159,36 +160,124 @@ def test_preflop_policy_is_cpu_level_independent():
     assert "cpu.level" not in source and "cpu.archetype" not in source
 
 
-def test_print_first_in_174_source_action_audit():
-    # Diagnostic against the authoritative 174 source matrix, not assumptions
-    # from UI defaults. First-in means the prior action history has no voluntary
-    # call/raise/all-in; blind checks/folds are not first-in limps.
-    for position in ("UTG", "HJ", "CO", "BTN", "SB", "BB"):
-        for scenario in _scenarios():
-            if scenario["position"] != position:
-                continue
-            history = scenario.get("history", [])
-            if any(item.get("action") in {"call", "raise", "allin"}
-                   for item in history):
-                continue
-            used = {int(option_index) for row in scenario["hands"] for option_index, freq in row if float(freq) > 0}
-            options = [
-                (str(action), None if size is None else float(size))
-                for index, (action, size) in enumerate(scenario["action_options"])
-                if index in used
-            ]
-            raises = sorted({size for action, size in options if action == "raise"})
-            calls = [item for item in options if item[0] == "call"]
-            print(
-                "FIRST_IN_AUDIT",
-                "id=", scenario["id"],
-                "position=", position,
-                "history=", [(x.get("position"), x.get("action"), x.get("size_bb")) for x in history],
-                "raise_sizes=", raises,
-                "has_call=", bool(calls),
-                "options=", options,
-                "overall=", scenario.get("overall", []),
-            )
+
+def test_only_a_folded_to_me_prefix_matches_the_empty_first_in_chart():
+    # A live BTN turn contains the UTG/HJ/CO folds. The 174 BTN RFI source
+    # records those folds implicitly as an empty history.
+    events = [event("utg", "fold"), event("hj", "fold"), event("co", "fold")]
+    hand = FakeHand(events, "btn")
+    history = _actual_history(FakeTable(), hand, "btn", _position_map(FakeTable(), hand))
+    assert history == []
+    scenario, inferred, distance = _choose_scenario("BTN", history, FakeCPU().rng)
+    assert scenario["id"] == 131
+    assert not inferred and distance == 0.0
+
+    # A fold-only HJ prefix must resolve the HJ first-in node as well.
+    hj_hand = FakeHand([event("utg", "fold")], "hj")
+    hj_history = _actual_history(
+        FakeTable(), hj_hand, "hj", _position_map(FakeTable(), hj_hand)
+    )
+    assert hj_history == []
+    hj_scenario, inferred, distance = _choose_scenario("HJ", hj_history, FakeCPU().rng)
+    assert hj_scenario["id"] == 129
+    assert not inferred and distance == 0.0
+
+
+def test_hj_first_in_cannot_limp_and_btn_first_in_uses_25bb_open():
+    hj_hand = FakeHand([event("utg", "fold")], "hj")
+    hj_decision = choose_preflop_174_action(FakeTable(), hj_hand, "hj", FakeCPU(seed=2))
+    assert hj_decision.source_image_no == 129
+    assert hj_decision.scenario_match_mode == "exact"
+    assert hj_decision.action != "call"
+    if hj_decision.action == "raise":
+        assert hj_decision.amount == 200
+
+    btn_hand = FakeHand(
+        [event("utg", "fold"), event("hj", "fold"), event("co", "fold")],
+        "btn",
+    )
+    btn_decision = choose_preflop_174_action(FakeTable(), btn_hand, "btn", FakeCPU(seed=2))
+    assert btn_decision.source_image_no == 131
+    assert btn_decision.scenario_match_mode == "exact"
+    assert btn_decision.action != "call"
+    if btn_decision.action == "raise":
+        assert btn_decision.amount == 250
+
+
+def test_first_in_guardrail_removes_open_limp_and_oversized_raise_in_inferred_nodes():
+    distribution = {
+        ("raise", 2.5): 0.50,
+        ("raise", 27.0): 0.20,
+        ("call", None): 0.20,
+        ("fold", None): 0.10,
+    }
+    for position in ("UTG", "HJ", "CO", "BTN"):
+        safe = _filter_first_in_distribution(position, [], distribution)
+        assert safe == {
+            ("raise", 2.5): 0.50,
+            ("fold", None): 0.10,
+        }
+    # SB completion is an explicit action in source scenario #132.
+    sb_safe = _filter_first_in_distribution("SB", [], distribution)
+    assert ("call", None) in sb_safe
+
+
+def _cards_for_hand_class(hand_class):
+    ranks = "AKQJT98765432"
+    if len(hand_class) == 2:
+        return (hand_class[0] + "s", hand_class[1] + "h")
+    high, low, suited = hand_class[0], hand_class[1], hand_class[2]
+    return (high + "s", low + ("s" if suited == "s" else "h"))
+
+
+def test_first_in_raise_size_controls_match_exact_hj_and_btn_scenarios():
+    hj_hand = FakeHand([event("utg", "fold")], "hj")
+    hj_result = preflop_174_raise_size_options(FakeTable(), hj_hand, "hj")
+    assert hj_result is not None
+    assert hj_result["scenario_id"] == 129
+    assert hj_result["scenario_match_mode"] == "exact"
+    assert {item["size_bb"] for item in hj_result["choices"]} == {2.0}
+    assert all(item["enabled_for_hand"] for item in hj_result["choices"])
+
+    btn_hand = FakeHand(
+        [event("utg", "fold"), event("hj", "fold"), event("co", "fold")],
+        "btn",
+    )
+    btn_result = preflop_174_raise_size_options(FakeTable(), btn_hand, "btn")
+    assert btn_result is not None
+    assert btn_result["scenario_id"] == 131
+    assert btn_result["scenario_match_mode"] == "exact"
+    assert {item["size_bb"] for item in btn_result["choices"]} == {2.5}
+    assert all(item["enabled_for_hand"] for item in btn_result["choices"])
+
+
+def test_situation_size_stays_visible_but_disabled_when_current_hand_never_raises():
+    scenario = next(item for item in _scenarios() if int(item["id"]) == 131)
+    hand_class = None
+    for index, row in enumerate(scenario["hands"]):
+        if not row:
+            continue
+        has_raise = any(
+            str(scenario["action_options"][int(option_index)][0]).lower() == "raise"
+            and float(frequency) > 0
+            for option_index, frequency in row
+        )
+        if not has_raise:
+            hand_class = _HAND_ORDER[index]
+            break
+    assert hand_class is not None
+
+    hand = FakeHand(
+        [event("utg", "fold"), event("hj", "fold"), event("co", "fold")],
+        "btn",
+        _cards_for_hand_class(hand_class),
+    )
+    result = preflop_174_raise_size_options(FakeTable(), hand, "btn")
+    assert result is not None
+    assert result["scenario_id"] == 131
+    assert {item["size_bb"] for item in result["choices"]} == {2.5}
+    assert all(item["frequency"] == 0.0 for item in result["choices"])
+    assert all(not item["enabled_for_hand"] for item in result["choices"])
 
 
 
@@ -203,7 +292,11 @@ if __name__ == "__main__":
         test_hero_raise_size_options_match_the_174_scenario_and_stay_legal,
         test_hero_raise_size_options_are_not_offered_outside_preflop_or_out_of_turn,
         test_preflop_policy_is_cpu_level_independent,
-        test_print_first_in_174_source_action_audit,
+        test_only_a_folded_to_me_prefix_matches_the_empty_first_in_chart,
+        test_hj_first_in_cannot_limp_and_btn_first_in_uses_25bb_open,
+        test_first_in_guardrail_removes_open_limp_and_oversized_raise_in_inferred_nodes,
+        test_first_in_raise_size_controls_match_exact_hj_and_btn_scenarios,
+        test_situation_size_stays_visible_but_disabled_when_current_hand_never_raises,
     ]
     for test in tests:
         test()
