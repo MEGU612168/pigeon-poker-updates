@@ -38,10 +38,19 @@ def main():
                 canvas.itemcget(item_id, "fill")
                 for item_id in cells
             }
-            if len(fills) < 2:
-                failures.append((source_id, "no visible cell contrast", sorted(fills)))
+            if not fills:
+                failures.append((source_id, "missing cell backgrounds"))
             if any(fill in {"", "#000000", "black"} for fill in fills):
                 failures.append((source_id, "black cell fill", sorted(fills)))
+            frequency_items = canvas.find_withtag("range-frequency")
+            frequency_fills = {
+                canvas.itemcget(item_id, "fill")
+                for item_id in frequency_items
+            }
+            if not frequency_items or not frequency_fills:
+                failures.append((source_id, "missing action-frequency bars"))
+            if any(fill in {"", "#000000", "black"} for fill in frequency_fills):
+                failures.append((source_id, "black action-frequency bar", sorted(frequency_fills)))
         if failures:
             raise AssertionError(f"Native Windows Tk Canvas failed for {len(failures)} / 174 charts: {failures}")
     finally:
