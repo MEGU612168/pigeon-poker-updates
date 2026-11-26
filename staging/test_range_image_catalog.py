@@ -271,33 +271,24 @@ def test_bot_uses_the_169_hand_frequencies_for_each_first_in_and_response_family
                 table, hand, actor_id,
                 SimpleNamespace(rng=random.Random(1000 + source_id), level=1, archetype="balanced"),
             )
-            # A grey/blank source cell has no measured action frequency.
-            # The CPU must not invent one from neighbouring hands or label a
-            # guardrail action as coming from this chart.
+            # A black source cell is outside the conditional range at this
+            # exact node, not missing data. The BOT must keep the exact source
+            # ID and must not use the generic range-aware fallback.
             if not distribution:
-                # The situation image may still be an exact history match, but
-                # a blank hand cell has no measured frequency. The BOT must
-                # therefore use a clearly-labelled guardrail/fallback, not a
-                # chart-frequency action.
-                if getattr(decision, "source", "") not in {
-                    "preflop-174-legal-guardrail",
-                    "preflop-uncovered-legal-guardrail",
-                    "preflop-uncovered-range-aware-fallback",
-                }:
+                if getattr(decision, "source", "") != "preflop-174-out-of-range-guardrail":
                     failures.append((
-                        source_id, hand_class, "unmeasured cell used chart-frequency policy",
+                        source_id, hand_class, "out-of-range hand did not use exact-node guardrail",
                         getattr(decision, "source", ""),
                     ))
-                if getattr(decision, "source", "") == "preflop-174-legal-guardrail":
-                    if int(getattr(decision, "source_image_no", -1)) != int(chart["source_id"]):
-                        failures.append((
-                            source_id, hand_class, "guardrail lost exact matched situation",
-                            getattr(decision, "source_image_no", None), chart["source_id"],
-                        ))
-                elif getattr(decision, "source_image_no", None) is not None:
+                if int(getattr(decision, "source_image_no", -1)) != int(chart["source_id"]):
                     failures.append((
-                        source_id, hand_class, "unmatched fallback claimed source image",
-                        getattr(decision, "source_image_no", None),
+                        source_id, hand_class, "out-of-range hand lost exact source image",
+                        getattr(decision, "source_image_no", None), chart["source_id"],
+                    ))
+                if float(getattr(decision, "action_frequency", -1.0)) != 0.0:
+                    failures.append((
+                        source_id, hand_class, "out-of-range hand was assigned a fabricated frequency",
+                        getattr(decision, "action_frequency", None),
                     ))
                 continue
 
