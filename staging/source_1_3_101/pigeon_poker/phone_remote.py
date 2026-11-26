@@ -165,6 +165,8 @@ function render(data){
  if(data.message)$("globalStatus").textContent=data.message;
  const tabs=$("tabs");tabs.innerHTML="";
  data.tables.forEach(t=>{const b=document.createElement("button");b.className="secondary"+(t.id===currentTable?" selected":"");b.textContent=(t.rate||"TABLE")+" • "+(t.mode||"");b.onclick=()=>{currentTable=t.id;render(data);};tabs.appendChild(b);});
+ const previousBet=$("betAmount")?.value??null;
+ const betWasFocused=document.activeElement?.id==="betAmount";
  let t=data.tables.find(x=>x.id===currentTable)||data.tables[0];if(t)currentTable=t.id;
  if(!t){$("tableArea").innerHTML='<div class="panel"><h2>NO OPEN TABLE</h2><p class="small">Open a cash table in Pigeon Poker on your PC.</p></div>';return;}
  const canFold=t.actions.includes("fold");
@@ -193,10 +195,11 @@ function render(data){
  }
  html+='<div class="notice" id="actionMessage"></div></div>';
  $("tableArea").innerHTML=html;
+ if(previousBet!==null){const nextBet=$("betAmount");if(nextBet){nextBet.value=previousBet;if(betWasFocused)nextBet.focus();}}
 }
 function setBetPreset(p,pot,toCall,min,max){const target=Math.max(min,Math.min(max,Math.round((pot+toCall)*p/100)));$("betAmount").value=(target/100).toFixed(2);}
 async function sendAction(action,amount){$("actionMessage").textContent="Sending…";try{await api("/api/action",{table_id:currentTable,action,amount_cents:amount});$("actionMessage").textContent="Action sent to PC";}catch(e){$("actionMessage").textContent=e.message;}}
-async function submitBet(action,max){const amount=Math.round(Number($("betAmount").value)*100);if(!Number.isFinite(amount)||amount<0){$("actionMessage").textContent="Enter a valid amount";return;}if(amount===max){await sendAction("all-in");}else{await sendAction(action,amount);}}
+async function submitBet(action,max){const amount=Math.round(Number($("betAmount").value)*100);if(!Number.isFinite(amount)||amount<0){$("actionMessage").textContent="Enter a valid amount";return;}await sendAction(action,amount);}
 async function poll(){
  if(!token)return;
  try{const data=await api("/api/state");render(data);$("connection").textContent="CONNECTED";}
