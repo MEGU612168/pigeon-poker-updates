@@ -570,7 +570,9 @@ def _safe_legal_fallback(
         source_image_no=int(scenario_id),
         hand_class=hand_class, action_frequency=1.0,
         inferred=bool(scenario_inferred), scenario_match_mode=(
-            "nearest-inferred" if scenario_inferred else "exact"
+            "exact" if not scenario_inferred
+            else "actions-size-unverified" if distance < 0
+            else "nearest-inferred"
         ),
         action_size_bb=None, size_source="legal-guardrail",
         note=(
