@@ -149,6 +149,32 @@ jobs:
                   "Stable publication blocked: duplicate action histories contain different 169-cell matrices: "
                   + json.dumps(catalog_audit["ambiguous_duplicate_history_groups"])
               )
+
+          from pigeon_poker.preflop_174_policy import preflop_174_pressure_coverage_summary
+          pressure_audit = preflop_174_pressure_coverage_summary()
+          print("LIVE FACING 3-BET / 4-BET RANGE AUDIT:", json.dumps(pressure_audit, ensure_ascii=False))
+          for pressure_key, pressure_label in (
+              ("facing_3bet", "facing 3-bet"),
+              ("facing_4bet", "facing 4-bet"),
+          ):
+              pressure = pressure_audit[pressure_key]
+              incomplete = pressure.get("incomplete_scenarios", [])
+              if not pressure.get("scenario_count") or incomplete:
+                  compact = [
+                      {
+                          "id": item["scenario_id"],
+                          "actor": item["actor_position"],
+                          "measured": item["measured_hand_cells"],
+                          "missing": item["missing_hand_cells"],
+                      }
+                      for item in incomplete
+                  ]
+                  raise SystemExit(
+                      f"Stable publication blocked: {pressure_label} charts must each contain "
+                      f"all 169 measured hand classes; "
+                      f"{pressure.get('complete_169_cell_count')}/{pressure.get('scenario_count')} "
+                      f"are complete. Incomplete={json.dumps(compact, ensure_ascii=False)}"
+                  )
           version = str(meta.get("version", "")).strip()
           if version != "1.5.26" or release_dir.name != "v" + version:
               raise SystemExit("Unexpected release version")
