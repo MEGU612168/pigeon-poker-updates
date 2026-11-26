@@ -2,13 +2,13 @@
   "schema_version": 1,
   "product": "pigeon-poker",
   "channel": "stable",
-  "version": "1.5.24",
-  "published_at": "2026-11-26T16:51:23Z",
-  "release_notes": "Pigeon Poker 1.5.24 upgrades the VIP Private Club to a fixed five-opponent lineup: three PRO seats and two TOP PRO seats, displayed only as PRO or TOP PRO with no numbered aliases. PRO CPUs use 1,024 postflop decision simulations; the two TOP PRO opponents use 4,096, a deeper range/showdown sampling profile, finer EV comparisons and a more pressure-oriented, adaptive postflop policy. All VIP seats automatically reload to 100 BB before the next hand when below 80 BB. HERO is topped up only when the wallet can fund the full difference; otherwise no debit or partial reload occurs. The 174-scenario preflop chart remains identical for every CPU. TOP PRO is a stronger local strategy target, not a claim of reproducing Garrett's exact play or solver-perfect GTO.",
+  "version": "1.5.25",
+  "published_at": "2026-11-26T17:21:20Z",
+  "release_notes": "Pigeon Poker 1.5.25 randomizes all six player seat positions on every new cash table. Updating or closing Pigeon Poker now commits all open-table HERO stacks to the shared SQLite wallet in one idempotent transaction; a failed cash-out prevents shutdown so table chips are not silently discarded. The release also applies a one-time $5,000 wallet recovery credit for the open-table update loss reported by the user. The credit is written to the shared wallet ledger and protected against duplicate application. Existing VIP PRO/TOP PRO lineup, 1,024/4,096 postflop simulations, 80 BB to 100 BB auto-rebuy, 174-scenario preflop policy, casino games, and all-in staged reveals remain intact.",
   "package_mode": "full",
   "payload_encoding": "base64",
   "updates_paused": false,
-  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.24/payload-updater.zip.b64?v=a4d3dd047edc236ce02130871a6691361f102a6a30d8d9851e99e21bcac0f7db",
-  "payload_sha256": "a4d3dd047edc236ce02130871a6691361f102a6a30d8d9851e99e21bcac0f7db",
-  "payload_size": 1222914
+  "payload_url": "https://raw.githubusercontent.com/MEGU612168/pigeon-poker-updates/main/releases/v1.5.25/payload-updater.zip.b64?v=b50436fb320ebab0924ba9d803331954862fcfa12cc50866a50ab48c562dedb4",
+  "payload_sha256": "b50436fb320ebab0924ba9d803331954862fcfa12cc50866a50ab48c562dedb4",
+  "payload_size": 1224261
 }
