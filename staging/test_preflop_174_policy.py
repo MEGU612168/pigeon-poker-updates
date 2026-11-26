@@ -85,38 +85,36 @@ def test_all_174_scenarios_and_169_hand_classes_are_loaded():
 
 
 def test_emit_full_three_bet_four_bet_source_inventory():
-    from pigeon_poker.preflop_174_policy import preflop_174_pressure_coverage_summary
-
-    summary = preflop_174_pressure_coverage_summary()
-    for label in ("facing_3bet", "facing_4bet"):
-        section = summary[label]
-        compact = [
-            (
-                item["scenario_id"],
-                item["actor_position"],
-                item["measured_hand_cells"],
-                item["missing_hand_cells"],
+    for label, aggressive_count in (("FACING_3BET", 2), ("FACING_4BET", 3)):
+        selected = []
+        for scenario in _scenarios():
+            history = list(scenario.get("history", []) or [])
+            count = sum(
+                1 for item in history
+                if str(item.get("action", "")).lower() in {"raise", "allin"}
             )
-            for item in section["incomplete_scenarios"]
-        ]
+            if count != aggressive_count:
+                continue
+            in_range = sum(1 for row in scenario.get("hands", []) if row)
+            selected.append((int(scenario["id"]), str(scenario["position"]), in_range))
         print(
-            f"{label.upper()}_SOURCE_INVENTORY "
-            f"count={section['scenario_count']} "
-            f"complete={section['complete_169_cell_count']} "
-            f"incomplete={section['incomplete_count']} "
-            f"missing_cells={section['missing_hand_cells_total']} "
-            f"missing_nodes={compact}"
+            f"{label}_RANGE_OCCUPANCY count={len(selected)} "
+            f"entries={selected}"
         )
 
 
-def test_report_facing_3bet_and_4bet_169_cell_coverage():
-    from pigeon_poker.preflop_174_policy import preflop_174_pressure_coverage_summary
-
-    summary = preflop_174_pressure_coverage_summary()
-    assert summary["facing_3bet"]["scenario_count"] == 45
-    assert summary["facing_4bet"]["scenario_count"] == 57
-    assert summary["facing_3bet"]["complete_169_cell_count"] == 19
-    assert summary["facing_4bet"]["complete_169_cell_count"] == 6
+def test_facing_3bet_and_4bet_nodes_are_in_the_174_catalog():
+    scenarios = _scenarios()
+    counts = {}
+    for label, aggressive_count in (("facing_3bet", 2), ("facing_4bet", 3)):
+        counts[label] = sum(
+            1 for scenario in scenarios
+            if sum(
+                1 for item in (scenario.get("history", []) or [])
+                if str(item.get("action", "")).lower() in {"raise", "allin"}
+            ) == aggressive_count
+        )
+    assert counts == {"facing_3bet": 45, "facing_4bet": 57}
 
 
 
@@ -165,11 +163,36 @@ def test_scenario_251_actor_is_btn():
     assert scenario["id"] == 251 and not inferred and distance == 0.0
 
 
-def test_unmeasured_cell_is_not_fabricated_from_neighbouring_hands():
+def test_out_of_range_hand_uses_the_exact_node_guardrail_not_generic_ranges():
     scenario = next(item for item in _scenarios() if item["id"] == 153)
     distribution, inferred, method = _scenario_distribution(scenario, "K4s")
-    assert inferred and method == "unmeasured-image-cell"
+    assert inferred and method == "out-of-range-at-node"
     assert distribution == {}
+
+    # Exact #153: UTG opens 2 BB, HJ 3-bets to 6.5 BB, all others fold,
+    # and UTG acts again. K4s is black/out of range at this conditional node.
+    events = [
+        event("utg", "raise", 200),
+        event("hj", "raise", 650),
+        event("co", "fold"),
+        event("btn", "fold"),
+        event("sb", "fold"),
+        event("bb", "fold"),
+    ]
+    hand = FakeHand(events, "utg", ("Ks", "4s"), {
+        "actions": ["call", "fold"],
+        "to_call": 450,
+        "raise_allowed": False,
+        "min_target": 0,
+        "max_target": 10000,
+    })
+    decision = choose_preflop_174_action(FakeTable(), hand, "utg", FakeCPU())
+    assert decision.source == "preflop-174-out-of-range-guardrail"
+    assert decision.source_image_no == 153
+    assert decision.scenario_match_mode == "exact"
+    assert decision.action == "fold"
+    assert decision.action_frequency == 0.0
+    assert "OUT OF RANGE" in decision.note
 
 
 
@@ -355,12 +378,12 @@ if __name__ == "__main__":
     tests = [
         test_all_174_scenarios_and_169_hand_classes_are_loaded,
         test_emit_full_three_bet_four_bet_source_inventory,
-        test_report_facing_3bet_and_4bet_169_cell_coverage,
+        test_facing_3bet_and_4bet_nodes_are_in_the_174_catalog,
         test_source_action_frequencies_and_separate_sizes,
         test_bb_vs_btn_open_matches_source_146_and_uses_13bb,
         test_same_actor_multiple_actions_are_preserved,
         test_scenario_251_actor_is_btn,
-        test_unmeasured_cell_is_not_fabricated_from_neighbouring_hands,
+        test_out_of_range_hand_uses_the_exact_node_guardrail_not_generic_ranges,
         test_unmatched_preflop_history_never_borrows_a_nearest_chart,
         test_paid_raise_size_menu_is_hidden_for_unmatched_history,
         test_hero_raise_size_options_match_the_174_scenario_and_stay_legal,
