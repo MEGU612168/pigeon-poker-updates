@@ -109,6 +109,7 @@ jobs:
           import io
           import json
           import pathlib
+          import sys
           import tempfile
           import zipfile
           from datetime import datetime, timezone
@@ -131,11 +132,23 @@ jobs:
               raise SystemExit("This release is withdrawn and must not be distributed.")
           if meta.get("preflop_174_policy_verified") is not True:
               raise SystemExit("The complete 174-scenario preflop policy has not been verified; stable publication is blocked.")
-          expected_duplicate_groups = [[195, 204], [196, 205], [238, 243]]
-          if meta.get("unique_semantic_situations_expected") != 171:
-              raise SystemExit("The audited 174-entry dataset must report 171 unique semantic situations.")
-          if meta.get("duplicate_semantic_scenario_groups") != expected_duplicate_groups:
-              raise SystemExit("The known exact duplicate scenario groups do not match the audited source.")
+          sys.path.insert(0, str(source_dir))
+          from pigeon_poker.preflop_174_policy import preflop_174_catalog_summary
+          catalog_audit = preflop_174_catalog_summary()
+          print("LIVE 174-SCENARIO CATALOG AUDIT:", json.dumps(catalog_audit, ensure_ascii=False))
+          if catalog_audit.get("scenario_count") != 174:
+              raise SystemExit("The source catalog must contain all 174 original scenario entries.")
+          if catalog_audit.get("unique_action_history_count") != 174:
+              duplicates = catalog_audit.get("duplicate_action_history_groups", [])
+              raise SystemExit(
+                  "Stable publication blocked: expected 174 distinct ordered action histories, "
+                  f"found {catalog_audit.get('unique_action_history_count')}; duplicate groups={duplicates}"
+              )
+          if catalog_audit.get("ambiguous_duplicate_history_groups"):
+              raise SystemExit(
+                  "Stable publication blocked: duplicate action histories contain different 169-cell matrices: "
+                  + json.dumps(catalog_audit["ambiguous_duplicate_history_groups"])
+              )
           version = str(meta.get("version", "")).strip()
           if version != "1.5.26" or release_dir.name != "v" + version:
               raise SystemExit("Unexpected release version")
