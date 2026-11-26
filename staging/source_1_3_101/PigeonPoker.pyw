@@ -6691,11 +6691,14 @@ class PigeonPokerApp(tk.Tk):
             amount = int(option["amount"])
             size_bb = float(option["size_bb"])
             pct = float(option["frequency_pct"])
+            enabled_for_hand = bool(option.get("enabled_for_hand", pct > 0.0))
             size_label = f"{size_bb:g} BB"
             if self.chip_display_unit == "USD":
                 size_label = format_chip_amount(amount, bb, "USD")
+            suffix = "" if enabled_for_hand else "  •  NOT IN THIS HAND RANGE"
             menu.add_command(
-                label=f"RAISE TO {size_label}  •  {pct:.1f}% chart frequency",
+                label=f"RAISE TO {size_label}  •  {pct:.1f}% chart frequency{suffix}",
+                state="normal" if enabled_for_hand else "disabled",
                 command=lambda tid=table_id, target=amount: self._set_table_bet_target(tid, target),
             )
         button = record.get("gto_size_button")
