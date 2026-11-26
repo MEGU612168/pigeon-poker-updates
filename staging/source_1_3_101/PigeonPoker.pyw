@@ -683,8 +683,8 @@ class PigeonPokerApp(tk.Tk):
                     "message": self.phone_remote_last_message,
                     "tables": raw_tables,
                 })
-        except (tk.TclError, RuntimeError):
-            return
+        except Exception as exc:
+            self.phone_remote_last_message = f"Remote sync error: {exc}"[:150]
         if not getattr(self, "_shutdown_in_progress", False):
             try:
                 self._phone_remote_after_id = self.after(300, self._phone_remote_tick)
