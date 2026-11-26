@@ -69,7 +69,8 @@ def test_vip_pro_and_top_pro_use_separate_simulation_budgets() -> None:
     assert "exact-history 174-source preflop chart" in join
     assert "separately labelled" in join
     assert "not a separate solver-exact strategy" in join
-    assert "Local strategy, not solver-exact GTO" in join
+    assert "deeper sampling" in join
+    assert "not a separate solver-exact strategy" in join
     assert "VIP_PRO_BASE_SAMPLES = 1024" in REASONING_TEXT
     assert "VIP_TOP_PRO_BASE_SAMPLES = 4096" in REASONING_TEXT
     assert "def _vip_base_sample_budget(" in REASONING_TEXT
