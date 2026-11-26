@@ -11,6 +11,8 @@ on:
       - "staging/source_1_3_101/PigeonPoker.pyw"
       - "staging/test_preflop_174_policy.py"
       - "staging/test_poker_reasoning.py"
+      - "staging/test_cpu_learning.py"
+      - "staging/test_preflop_policy_removed.py"
       - "staging/test_vip_pro_and_dock.py"
       - "staging/source_1_3_101/pigeon_poker/range_tables_v2.bin"
       - "staging/test_real_range_bitmap_asset.py"
