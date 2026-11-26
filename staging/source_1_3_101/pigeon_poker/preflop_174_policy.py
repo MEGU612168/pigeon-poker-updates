@@ -524,6 +524,13 @@ def _select_live_scenario(
                     None,
                 )
                 if selected is not None:
+                    if chart.get("raise_size_verified") is False:
+                        # The ordered actor/action history is exact, but the
+                        # runtime event omitted a raise-to amount. Keep this
+                        # distinct from nearest-node inference in the decision
+                        # metadata so neither BOT nor UI claims a fully exact
+                        # size match.
+                        return selected, True, -1.0
                     return selected, False, 0.0
     except (KeyError, TypeError, ValueError, AttributeError, RuntimeError):
         pass
@@ -563,13 +570,19 @@ def _safe_legal_fallback(
         source_image_no=int(scenario_id),
         hand_class=hand_class, action_frequency=1.0,
         inferred=bool(scenario_inferred), scenario_match_mode=(
-            "nearest-inferred" if scenario_inferred else "exact"
+            "exact" if not scenario_inferred
+            else "actions-size-unverified" if distance < 0
+            else "nearest-inferred"
         ),
         action_size_bb=None, size_source="legal-guardrail",
         note=(
             f"174-scenario #{int(scenario_id)}; legal-action guardrail used "
             f"because the source branch was unavailable at this live state"
-            + (f" (nearest distance={distance:.3f})" if scenario_inferred else "")
+            + (
+                " (exact action history; live raise size was not recorded)"
+                if scenario_inferred and distance < 0
+                else (f" (nearest distance={distance:.3f})" if scenario_inferred else "")
+            )
         ),
     )
 
@@ -621,7 +634,12 @@ def choose_preflop_174_action(table: Any, hand: Any, player_id: str, cpu: Any) -
     exact = not scenario_inferred
     inferred = bool(scenario_inferred or hand_inferred)
     source_image = int(scenario["id"])
-    match_label = "exact" if exact else f"nearest-inferred distance={distance:.3f}"
+    if exact:
+        match_label = "exact"
+    elif scenario_inferred and distance < 0:
+        match_label = "exact-action-history; live raise size unavailable"
+    else:
+        match_label = f"nearest-inferred distance={distance:.3f}"
     note = (f"174-scenario #{source_image} ({match_label}); {hand_method}; "
             "hand frequencies estimated from source-image colour proportions.")
     return SimpleNamespace(
@@ -631,7 +649,11 @@ def choose_preflop_174_action(table: Any, hand: Any, player_id: str, cpu: Any) -
         inferred=inferred,
         size_source="174-image-exact" if not inferred else "174-image-inference",
         note=note, source_image_no=source_image,
-        scenario_match_mode="exact" if exact else "nearest-inferred",
+        scenario_match_mode=(
+            "exact" if exact
+            else "actions-size-unverified" if scenario_inferred and distance < 0
+            else "nearest-inferred"
+        ),
         action_size_bb=chosen.get("size_bb"),
         hand_inference_method=hand_method,
     )
@@ -722,7 +744,11 @@ def preflop_174_raise_size_options(
             return None
         return {
             "scenario_id": int(scenario["id"]),
-            "scenario_match_mode": "nearest-inferred" if scenario_inferred else "exact",
+            "scenario_match_mode": (
+                "exact" if not scenario_inferred
+                else "actions-size-unverified" if distance < 0
+                else "nearest-inferred"
+            ),
             "scenario_inferred": bool(scenario_inferred),
             "distance": float(distance),
             "hand_class": hand_class,

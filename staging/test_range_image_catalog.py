@@ -298,11 +298,154 @@ def test_bot_uses_the_169_hand_frequencies_for_each_first_in_and_response_family
     )
 
 
+def test_all_174_paid_ranges_survive_missing_live_raise_amounts_without_strategy_drift():
+    from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand
+    from pigeon_poker.range_chart_canvas import build_range_chart_model
+
+    from pigeon_poker.range_scenario_resolver import (
+        _history_matches_when_live_raise_size_is_missing,
+        _scenario_signature,
+    )
+    from pigeon_poker.preflop_174_policy import _actual_history, _position_map
+
+    failures = []
+    action_only_matches = 0
+    all_scenarios = _scenarios()
+    for scenario in all_scenarios:
+        table, hand, actor_id = _live_fixture_for_scenario(scenario)
+        for event in hand.events:
+            if str(event.get("action", "")).lower() == "raise":
+                event.pop("target", None)
+
+        chart = resolve_range_image_for_hand(table, hand, actor_id)
+        if chart is None:
+            actor_position, positions, _strict = (
+                __import__("pigeon_poker.preflop_174_policy", fromlist=["exact_preflop_174_source_candidates"])
+                .exact_preflop_174_source_candidates(table, hand, actor_id)
+            )
+            actual = _actual_history(table, hand, actor_id, positions)
+            candidates = [
+                item for item in all_scenarios
+                if str(item.get("position", "")).upper() == str(actor_position or "").upper()
+                and _history_matches_when_live_raise_size_is_missing(
+                    list(item.get("history", []) or []), actual
+                )
+            ]
+            details = []
+            for item in candidates:
+                model = build_range_chart_model(int(item["id"]))
+                model.pop("source_id", None)
+                details.append({
+                    "id": int(item["id"]),
+                    "history": item.get("history"),
+                    "action_options": item.get("action_options"),
+                    "all_in_required": list(__import__(
+                        "pigeon_poker.range_scenario_resolver",
+                        fromlist=["PAID_RANGE_ALL_IN_POSITION_REQUIREMENTS"]
+                    ).PAID_RANGE_ALL_IN_POSITION_REQUIREMENTS.get(int(item["id"]), ())),
+                    "strategy_sha": hashlib.sha256(
+                        json.dumps(model, sort_keys=True).encode("utf-8")
+                    ).hexdigest()[:12],
+                })
+            failures.append({
+                "id": int(scenario["id"]),
+                "history": actual,
+                "legal_actions": hand.legal_actions(actor_id).get("actions"),
+                "candidates": details,
+            })
+            continue
+        actual_id = int(chart["source_id"])
+        expected_model = build_range_chart_model(int(scenario["id"]))
+        actual_model = build_range_chart_model(actual_id)
+        expected_model.pop("source_id", None)
+        actual_model.pop("source_id", None)
+        if actual_model != expected_model:
+            failures.append((int(scenario["id"]), "different 169-hand strategy matrix", actual_id))
+        if chart.get("raise_size_verified") is False:
+            action_only_matches += 1
+
+    print(
+        "MISSING-LIVE-RAISE-SIZE AUDIT:",
+        f"checked=174",
+        f"action-only-matches={action_only_matches}",
+        f"failures={failures}",
+    )
+    assert not failures, (
+        f"{len(failures)} / 174 paid ranges were not mapped to the correct "
+        f"169-hand strategy matrix when live raise targets were omitted: {failures}"
+    )
+
+
+def test_paid_range_resolves_when_live_raise_amount_is_omitted_but_history_is_unique():
+    from pigeon_poker.preflop_174_policy import choose_preflop_174_action
+    from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand
+
+    groups = {}
+    for scenario in _scenarios():
+        key = (
+            str(scenario["position"]).upper(),
+            tuple(
+                (str(item["position"]).upper(), str(item["action"]).lower())
+                for item in scenario.get("history", [])
+            ),
+        )
+        groups.setdefault(key, []).append(scenario)
+
+    scenario = next(
+        item for values in groups.values() if len(values) == 1
+        for item in values
+        if any(str(action.get("action", "")).lower() == "raise"
+               for action in item.get("history", []))
+    )
+    table, hand, actor_id = _live_fixture_for_scenario(scenario)
+    for event in hand.events:
+        if str(event.get("action", "")).lower() == "raise":
+            event.pop("target", None)
+
+    chart = resolve_range_image_for_hand(table, hand, actor_id)
+    assert chart is not None, f"Paid range was not resolved for source #{scenario['id']}"
+    assert int(chart["source_id"]) == int(scenario["id"])
+    assert chart["raise_size_verified"] is False
+    assert chart["action_history_exact"] is True
+    assert (
+        chart["match_mode"] == "exact-actions-size-unverified"
+        or chart["match_mode"].startswith("actions-size-unverified-")
+    )
+
+    cpu = type("CPU", (), {"rng": __import__("random").Random(7), "level": 1,
+                           "archetype": "balanced"})()
+    decision = choose_preflop_174_action(table, hand, actor_id, cpu)
+    assert int(decision.source_image_no) == int(chart["source_id"])
+    assert decision.scenario_match_mode == "actions-size-unverified"
+    assert "raise size unavailable" in decision.note
+
+
+def test_paid_range_does_not_ignore_a_known_but_wrong_live_raise_amount():
+    from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand
+
+    scenario = next(
+        item for item in _scenarios()
+        if any(str(action.get("action", "")).lower() == "raise"
+               and action.get("size_bb") is not None
+               for action in item.get("history", []))
+    )
+    table, hand, actor_id = _live_fixture_for_scenario(scenario)
+    raise_event = next(
+        event for event in hand.events
+        if str(event.get("action", "")).lower() == "raise"
+    )
+    raise_event["target"] = 9999999
+    assert resolve_range_image_for_hand(table, hand, actor_id) is None
+
+
 def run_tests():
     tests = [
         test_catalog_still_contains_exactly_174_source_scenarios,
         test_complete_174_situation_and_source_image_inventory,
         test_paid_range_lookup_never_uses_nearest_node_inference,
+        test_all_174_paid_ranges_survive_missing_live_raise_amounts_without_strategy_drift,
+        test_paid_range_resolves_when_live_raise_amount_is_omitted_but_history_is_unique,
+        test_paid_range_does_not_ignore_a_known_but_wrong_live_raise_amount,
         test_missing_raise_sizes_do_not_create_false_exact_matches,
         test_changed_raise_size_is_not_treated_as_the_original_situation,
         test_allin_without_target_size_is_still_an_exact_action_class,
@@ -333,7 +476,10 @@ class _LivePlayer:
 
 
 class _LiveHand:
-    def __init__(self, events, next_to_act: str, legal_actions, all_in_positions=()):
+    def __init__(
+        self, events, next_to_act: str, legal_actions, all_in_positions=(),
+        *, pot=0, to_call=100,
+    ):
         # dealer_index=0 and this seat order give the six standard positions.
         all_in_positions = set(all_in_positions)
         self.players = [
@@ -352,12 +498,14 @@ class _LiveHand:
         self.big_blind = 100
         self.dealer_index = 0
         self._legal_actions = list(legal_actions)
+        self.pot = int(pot)
+        self._to_call = int(to_call)
 
     def legal_actions(self, player_id):
         actions = list(self._legal_actions)
         return {
             "actions": actions,
-            "to_call": 100 if "call" in actions else 0,
+            "to_call": self._to_call if "call" in actions else 0,
             "raise_allowed": "raise" in actions,
             "min_target": 100,
             "max_target": 100000,
@@ -394,17 +542,34 @@ def _live_fixture_for_scenario(scenario: dict, cards=("As", "Ah")):
                 "player": player_by_position[position],
                 "action": "fold",
             })
+    contributions = {"SB": 0.5, "BB": 1.0}
+    current_bet = 1.0
     for item in scenario.get("history", []):
         action = str(item["action"]).lower()
+        position = str(item["position"]).upper()
         event = {
             "type": "action",
             "street": "preflop",
-            "player_id": player_by_position[item["position"]],
-            "player": player_by_position[item["position"]],
+            "player_id": player_by_position[position],
+            "player": player_by_position[position],
             "action": action,
         }
         if action == "raise":
             event["target"] = round(float(item["size_bb"]) * 100)
+            target = float(item["size_bb"])
+            contributions[position] = max(contributions.get(position, 0.0), target)
+            current_bet = max(current_bet, target)
+        elif action == "call":
+            contributions[position] = max(contributions.get(position, 0.0), current_bet)
+        elif action == "allin":
+            # The source uses the all-in action class without storing the
+            # effective stack size. This fixture mirrors a live all-in event
+            # that records the paid amount, while raise-to fields are omitted
+            # in the dedicated regression test below.
+            target = float(item.get("size_bb") or 100.0)
+            event["amount"] = round(target * 100)
+            contributions[position] = max(contributions.get(position, 0.0), target)
+            current_bet = max(current_bet, target)
         events.append(event)
     actor_id = player_by_position[scenario["position"]]
     legal_actions = [
@@ -415,8 +580,20 @@ def _live_fixture_for_scenario(scenario: dict, cards=("As", "Ah")):
         252: ("CO",),
         253: ("CO", "BTN"),
     }.get(int(scenario["id"]), ())
+    all_in_positions = set(all_in_positions) | {
+        str(item["position"]).upper()
+        for item in scenario.get("history", [])
+        if str(item.get("action", "")).lower() == "allin"
+    }
     table = _LiveTable()
-    hand = _LiveHand(events, actor_id, legal_actions, all_in_positions)
+    pot_cents = int(round(sum(contributions.values()) * 100))
+    to_call_cents = int(round(max(0.0, current_bet - contributions.get(
+        str(scenario["position"]).upper(), 0.0
+    )) * 100))
+    hand = _LiveHand(
+        events, actor_id, legal_actions, all_in_positions,
+        pot=pot_cents, to_call=to_call_cents,
+    )
     hand.player(actor_id).hole_cards = tuple(cards)
     return table, hand, actor_id
 
