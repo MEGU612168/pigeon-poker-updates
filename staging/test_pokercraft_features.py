@@ -222,7 +222,7 @@ def run_tests():
         test_all_pokercraft_timestamps_use_japan_time,
         test_history_icon_draws_two_real_playing_cards_tilted_left,
         test_live_hand_flow_shows_scrollable_table_history_with_cards_winner_and_pot,
-        test_range_view_displays_one_source_bitmap_without_canvas_redrawing,
+        test_range_view_uses_native_canvas_and_never_photoimage,
         test_range_icon_is_disabled_and_unbound_outside_the_174_catalogue,
         test_live_range_button_requires_unique_exact_174_node_and_current_hero_turn,
         test_catalogued_range_icon_is_clickable_before_wallet_affordability_check,
@@ -230,10 +230,10 @@ def run_tests():
         test_historical_range_uses_only_events_before_hero_first_action,
         test_pokercraft_refreshes_live_without_blocking_table_play,
         test_main_and_table_windows_use_native_monitor_work_area_bounds,
-        test_paid_range_window_is_left_aligned_and_loads_original_bitmap,
+        test_paid_range_window_prevalidates_the_matrix_before_wallet_debit,
         test_format_table_chips_signature_matches_every_call_site,
         test_range_window_is_resizable_until_native_work_area_fit_finishes,
-        test_live_preflop_range_is_a_bitmap_overlay_and_pauses_the_action_clock,
+        test_live_preflop_range_is_a_canvas_overlay_and_pauses_the_action_clock,
     ]
     for test in tests:
         test()
@@ -241,13 +241,15 @@ def run_tests():
     print("ALL PASS", len(tests), "PokerCraft / live flow / range viewer tests")
 
 
-def test_live_preflop_range_is_a_bitmap_overlay_and_pauses_the_action_clock():
+def test_live_preflop_range_is_a_canvas_overlay_and_pauses_the_action_clock():
     view = source_of("_open_preflop_range_view")
     assert "table_canvas.winfo_toplevel()" in view
     assert "win.overrideredirect(True)" not in view
     assert 'win.attributes("-topmost", True)' not in view
-    assert "image=photo" in view
-    assert "win._range_photo = photo" in view
+    assert "draw_preflop_range_canvas(" in view
+    assert "tk.Canvas(" in view
+    assert "image=photo" not in view
+    assert "PhotoImage(" not in view
     assert "cash_squeeze_deadline_at" in view
     assert "paused_clock" in view
     assert "close_range_overlay" in view
