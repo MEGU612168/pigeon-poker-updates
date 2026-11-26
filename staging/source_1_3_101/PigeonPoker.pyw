@@ -1126,7 +1126,7 @@ class PigeonPokerApp(tk.Tk):
         tk.Label(vip_card, text="♛  THREE PRO  •  TWO TOP PRO  •  NO NUMBERED SEAT NAMES",
                  bg="#17070d", fg="#f1cd7c",
                  font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=28, pady=(0, 6))
-        tk.Label(vip_card, text="PRO 1,024 SAMPLES  •  TOP PRO 4,096 SAMPLES  •  DEEP RANGE & SHOWDOWN ANALYSIS",
+        tk.Label(vip_card, text="PRO 1,024 BASE MC  •  TOP PRO 4,096 BASE MC  •  DEEP RANGE & SHOWDOWN ANALYSIS",
                  bg="#17070d", fg="#efb7a9", font=("Segoe UI", 9, "bold"),
                  wraplength=980, justify="left").pack(anchor="w", padx=28, pady=(0, 10))
         tk.Label(vip_card, text="Buy-in: 20–100 BB ($1,000–$5,000)  •  Default: 100 BB ($5,000)  •  No ante",
