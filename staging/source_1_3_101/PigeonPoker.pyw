@@ -5776,25 +5776,25 @@ class PigeonPokerApp(tk.Tk):
         dock_border = "#d4b264" if vip_mode else COLORS["border"]
         action_outer = tk.Frame(window, bg=dock_bg,
                                 highlightbackground=dock_border, highlightthickness=1)
-        action_outer.pack(fill="x", padx=5 if vip_mode else 6, pady=(0, 1 if vip_mode else 2))
+        action_outer.pack(fill="x", padx=5 if vip_mode else 6, pady=(0, 1))
         actions = tk.Frame(action_outer, bg=dock_bg)
-        actions.pack(fill="x", padx=4, pady=(1 if vip_mode else 2, 0))
+        actions.pack(fill="x", padx=4, pady=(1, 0))
         fold_button = self._compact_action_button(
             actions, "FOLD",
             lambda tid=table_id: self._handle_table_fold(tid), "danger")
         fold_button.pack_forget()
         size_actions = tk.Frame(action_outer, bg=dock_bg)
         size_actions.pack(fill="x", padx=5, pady=(0, 0))
-        size_actions.configure(height=28 if vip_mode else 34)
+        size_actions.configure(height=28 if vip_mode else 30)
         size_actions.pack_propagate(False)
         # Dedicated row keeps the situation-size control visible even when the
         # slider, amount entry and pot presets consume the full width.
         situation_actions = tk.Frame(action_outer, bg=dock_bg)
         situation_actions.pack(fill="x", padx=5, pady=(0, 0))
-        situation_actions.configure(height=18 if vip_mode else 24)
+        situation_actions.configure(height=18 if vip_mode else 20)
         situation_actions.pack_propagate(False)
         utility_actions = tk.Frame(action_outer, bg=dock_bg)
-        utility_actions.pack(fill="x", padx=5, pady=(0, 0 if vip_mode else 2))
+        utility_actions.pack(fill="x", padx=5, pady=(0, 0 if vip_mode else 1))
         quick_leave_button = self._compact_action_button(
             utility_actions, "テーブル退出",
             lambda tid=table_id: self._leave_floating_table(tid), "danger")
@@ -5841,7 +5841,7 @@ class PigeonPokerApp(tk.Tk):
             lambda tid=table_id: self._trigger_big_pot_celebration(tid), "accent")
         celebrate_button.pack_forget()
         timebank_actions = tk.Frame(action_outer, bg=dock_bg)
-        timebank_actions.pack(fill="x", padx=5, pady=(0, 0 if vip_mode else 2))
+        timebank_actions.pack(fill="x", padx=5, pady=(0, 0 if vip_mode else 1))
         timebank_button = self._compact_action_button(
             timebank_actions, "TIME BANK CARD +30s",
             lambda tid=table_id: self._toggle_free_timebank(tid), "normal")
@@ -8051,7 +8051,7 @@ class PigeonPokerApp(tk.Tk):
             parent, text=text, command=command, bg=bg, fg=fg,
             activebackground=active, activeforeground=fg,
             relief="flat", bd=0, highlightthickness=0,
-            padx=8, pady=(2 if vip_theme else 3), font=("Segoe UI", 8, "bold"),
+            padx=8, pady=2, font=("Segoe UI", 8, "bold"),
             cursor="hand2", takefocus=True,
         )
 
@@ -8622,8 +8622,8 @@ class PigeonPokerApp(tk.Tk):
             # The sizing and 174-range rows are conditional. Remove empty
             # frames completely so the felt/canvas expands into that space.
             for frame_key, before_key, row_height in (
-                ("size_actions", "situation_actions", 28 if vip_dock else 34),
-                ("situation_actions", "utility_actions", 18 if vip_dock else 24),
+                ("size_actions", "situation_actions", 28 if vip_dock else 30),
+                ("situation_actions", "utility_actions", 18 if vip_dock else 20),
             ):
                 dock_row = record.get(frame_key)
                 before_row = record.get(before_key)
