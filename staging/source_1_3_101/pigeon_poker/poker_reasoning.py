@@ -1966,6 +1966,28 @@ def _postflop_board_texture(board: list[str]) -> dict[str, Any]:
 
 
 
+def _postflop_size_fraction(pot: int, risk: int, to_call: int = 0) -> float:
+    """Measure the wager opponents face, excluding money already required to call.
+
+    For a raise, the wager is the extra raise increment divided by the pot after
+    the hero's call. Counting the call itself as part of the raise makes a
+    normal raise look much larger to the response model, distorting fold
+    probabilities and candidate EV.
+    """
+    current_pot = max(1, int(pot))
+    total_risk = max(0, int(risk))
+    call_cost = max(0, int(to_call))
+    if call_cost > 0:
+        wager = max(0, total_risk - call_cost)
+        denominator = current_pot + call_cost
+    else:
+        wager = total_risk
+        denominator = current_pot
+    if wager <= 0:
+        return 0.0
+    return max(0.0, min(4.0, float(wager) / max(1, denominator)))
+
+
 def _postflop_bet_size_fractions(
     *,
     to_call: bool,
@@ -1977,55 +1999,169 @@ def _postflop_bet_size_fractions(
     board_texture: dict[str, Any] | None = None,
     spr: float | None = None,
     remaining_streets: int = 2,
+    street: str = "flop",
+    made_category: int = 0,
 ) -> tuple[float, ...]:
-    """Choose sizes from position, range edge, nut density, board and SPR."""
+    """Generate a compact GTO-style size menu from range, nuts, texture and SPR.
+
+    Range advantage primarily supports betting frequency. Nut advantage and
+    board/runout interaction justify larger sizes. Flop sizes start smaller;
+    turn/river overbets are reserved for genuinely polar, heads-up value ranges.
+    Multiway defaults are deliberately reduced because combined calling ranges
+    retain much more equity than a single opponent's range.
+    """
     callers = max(0.0, float(expected_callers))
     nut_edge = max(0.0, min(1.0, float(nut_advantage)))
     texture = board_texture if isinstance(board_texture, dict) else {}
     wetness = max(0.0, min(1.0, float(texture.get("wetness", 0.30) or 0.0)))
     paired = bool(texture.get("paired", False))
     monotone = bool(texture.get("monotone", False))
+    current_street = str(street or "flop").lower()
+    category = max(0, min(8, int(made_category)))
     effective_spr = max(0.0, float(spr)) if spr is not None else 5.0
-    shallow = effective_spr <= 2.0
-    deep = effective_spr >= 8.0
+    hu = callers <= 1.25
+
     if to_call:
-        if range_disadvantage:
-            return (0.50, 0.75, 1.00)
-        if range_advantage and nut_edge >= 0.05:
-            if wetness >= 0.50 or monotone:
-                return (0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
-            return (0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
-        return (0.50, 0.75, 1.00, 1.25, 1.50)
+        # A raise menu is expressed in increments over the current pot. It is
+        # intentionally narrower than a lead-bet menu; the call component is
+        # excluded later when the response model measures the actual raise.
+        if callers >= 1.5 or range_disadvantage:
+            return (0.50, 0.75)
+        if range_advantage and nut_edge >= 0.12:
+            return (0.50, 0.75, 1.00, 1.25)
+        return (0.33, 0.50, 0.75, 1.00)
+
     if donk_lead:
         if callers >= 1.5:
             return (0.20, 0.25, 0.33)
-        return (0.20, 0.25, 0.33, 0.50) if wetness >= 0.50 else (0.25, 0.33, 0.50)
+        return (0.20, 0.25, 0.33, 0.50) if wetness >= 0.48 else (0.20, 0.25, 0.33)
+
+    if callers >= 1.5:
+        # Rare multiway exceptions need both a substantial nut edge and a
+        # near-nutted made hand; a generic range edge is not enough.
+        if (
+            range_advantage and not range_disadvantage
+            and nut_edge >= 0.30 and category >= 4
+            and current_street in {"turn", "river"}
+        ):
+            return (0.25, 0.33, 0.50, 0.75, 1.00, 1.25)
+        return (0.15, 0.25, 0.33, 0.50)
+
     if range_disadvantage:
-        return (0.15, 0.25, 0.33) if paired or wetness < 0.30 else (0.20, 0.33, 0.50)
+        return (0.20, 0.33, 0.50, 0.75) if wetness >= 0.50 else (0.15, 0.25, 0.33, 0.50)
+
     if range_advantage and nut_edge >= 0.05:
-        if shallow:
-            base_sizes = (0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 2.50)
-        elif deep and wetness < 0.50 and not monotone:
-            base_sizes = (0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
-        elif wetness >= 0.50 or monotone:
-            base_sizes = (0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
+        if current_street == "flop":
+            if paired or wetness < 0.25:
+                base_sizes = (0.15, 0.25, 0.33, 0.50)
+            elif wetness >= 0.50 or monotone:
+                base_sizes = (0.25, 0.33, 0.50, 0.75, 1.00) if nut_edge >= 0.12 and category >= 2 else (0.25, 0.33, 0.50, 0.75)
+            else:
+                base_sizes = (0.20, 0.25, 0.33, 0.50, 0.75)
+        elif current_street == "turn":
+            base_sizes = (0.25, 0.33, 0.50, 0.75, 1.00)
+            if nut_edge >= 0.15 and category >= 2:
+                base_sizes += (1.25,)
+        elif current_street == "river":
+            base_sizes = (0.25, 0.33, 0.50, 0.75, 1.00)
+            if nut_edge >= 0.15 and category >= 2:
+                base_sizes += (1.25,)
+            if nut_edge >= 0.22 and category >= 3:
+                base_sizes += (1.50,)
         else:
-            base_sizes = (0.15, 0.25, 0.33, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00)
-        # When our range has a real nut edge, include the geometric size that
-        # plans a called pot to reach an effective all-in over the streets left.
+            base_sizes = (0.25, 0.33, 0.50, 0.75)
+
+        # A shallow-SPR flop jam is retained only for a strong made hand with a
+        # verified nut edge. It is not a blanket permission to bet 2.5x pot.
+        if (
+            current_street == "flop" and hu
+            and 0.0 < effective_spr <= 1.75
+            and category >= 3 and nut_edge >= 0.12
+        ):
+            base_sizes += (round(effective_spr, 2),)
+
+        # Geometric sizing is a planning tool, not an instruction to overbet
+        # every street. Add it only when it is small enough for the current
+        # street or when the turn/river hand meets the polar-value conditions.
         geometric = _geometric_bet_fraction(effective_spr, remaining_streets)
         if geometric is not None:
-            base_sizes = tuple(sorted(set(base_sizes + (round(geometric, 2),))))
-        return base_sizes
-    if range_advantage:
-        if paired or wetness < 0.25:
-            return (0.10, 0.15, 0.25, 0.33, 0.50, 0.75)
-        return (0.15, 0.25, 0.33, 0.50, 0.75, 1.00)
-    if wetness >= 0.60 or monotone:
-        return (0.33, 0.50, 0.75, 1.00, 1.50)
+            if geometric <= 1.00:
+                base_sizes += (round(geometric, 2),)
+            elif (
+                current_street in {"turn", "river"}
+                and hu and nut_edge >= 0.15 and category >= 2
+                and geometric <= (1.25 if current_street == "turn" else 1.50)
+            ):
+                base_sizes += (round(geometric, 2),)
+        return tuple(sorted(set(base_sizes)))
+
+    # Without a meaningful range/nut edge, use merged, small-to-medium bets.
     if paired or wetness < 0.20:
-        return (0.10, 0.15, 0.25, 0.33, 0.50, 0.75)
-    return (0.15, 0.25, 0.33, 0.50, 0.75, 1.00, 1.50)
+        return (0.10, 0.15, 0.25, 0.33, 0.50)
+    if wetness >= 0.60 or monotone:
+        return (0.25, 0.33, 0.50, 0.75)
+    return (0.15, 0.25, 0.33, 0.50, 0.75)
+
+
+def _postflop_overbet_size_allowed(
+    bet_fraction: float,
+    *,
+    street: str,
+    range_advantage: bool,
+    range_disadvantage: bool,
+    nut_advantage: float,
+    expected_callers: float,
+    made_category: int,
+    current_equity: float,
+    spr: float,
+) -> bool:
+    """Permit overbets only where GTO-style polar/nut conditions support them."""
+    size = max(0.0, float(bet_fraction))
+    if size <= 1.0 + 1e-9:
+        return True
+    current_street = str(street or "").lower()
+    nut_edge = max(0.0, min(1.0, float(nut_advantage)))
+    callers = max(0.0, float(expected_callers))
+    category = max(0, min(8, int(made_category)))
+    equity = max(0.0, min(1.0, float(current_equity)))
+    effective_spr = max(0.0, float(spr))
+
+    if not range_advantage or range_disadvantage or nut_edge < 0.12:
+        return False
+
+    if current_street == "flop":
+        # Early-street overbets are unusual. Keep only genuine low-SPR,
+        # near-stack-off value situations, not generic range bets.
+        return bool(
+            callers <= 1.15 and effective_spr <= 1.75
+            and size <= effective_spr + 0.02
+            and category >= 3 and equity >= 0.78
+            and nut_edge >= 0.15
+        )
+    if current_street == "turn":
+        if callers >= 1.5:
+            return bool(
+                size <= 1.25 and nut_edge >= 0.30
+                and category >= 4 and equity >= 0.85
+            )
+        return bool(
+            size <= 1.25 and callers <= 1.25
+            and nut_edge >= 0.15 and category >= 2
+            and equity >= 0.72
+        )
+    if current_street == "river":
+        if callers >= 1.5:
+            return bool(
+                size <= 1.25 and nut_edge >= 0.30
+                and category >= 4 and equity >= 0.85
+            )
+        return bool(
+            size <= 1.50 and callers <= 1.25
+            and nut_edge >= 0.15 and category >= 2
+            and equity >= 0.70
+        )
+    return False
+
 
 def _range_board_strength_profile(
     row: dict[str, Any],
@@ -2807,6 +2943,8 @@ def _choose_range_aware_action_impl(
                 board_texture=board_texture,
                 spr=spr,
                 remaining_streets=max(1, 6 - len(board)),
+                street=street,
+                made_category=hero_hand_category,
             )
             bases = [
                 street_contribution + max(min_target - street_contribution,
@@ -2824,7 +2962,9 @@ def _choose_range_aware_action_impl(
             if target <= current_bet:
                 continue
             risk = target - street_contribution
-            bet_fraction = risk / max(1, pot)
+            # Opponents respond to the incremental wager, not to the call
+            # amount already included in the current pot.
+            bet_fraction = _postflop_size_fraction(pot, risk, to_call)
             candidate_blockers = _blocker_removal_metrics(
                 hand, player_id, ranges, bet_fraction
             )
@@ -2948,8 +3088,24 @@ def _choose_range_aware_action_impl(
                 )
             candidate_thin_value = bool(
                 value_gate and has_sdv and hero_hand_category == 1
-                and candidate_called_realized_equity < value_threshold + 0.085
+                and (
+                    candidate_called_realized_equity < value_threshold + 0.085
+                    or float(showdown_profile.get("margin", 0.0)) < 0.12
+                )
             )
+            overbet_allowed = _postflop_overbet_size_allowed(
+                bet_fraction,
+                street=street,
+                range_advantage=range_advantage,
+                range_disadvantage=range_disadvantage,
+                nut_advantage=nut_advantage,
+                expected_callers=max(candidate_expected_callers, expected_opponents),
+                made_category=hero_hand_category,
+                current_equity=candidate_called_current_equity,
+                spr=spr,
+            )
+            if not overbet_allowed:
+                continue
             protection_gate = bool(
                 has_sdv and not value_gate
                 and to_call == 0
@@ -3104,7 +3260,13 @@ def _choose_range_aware_action_impl(
         f"hero-made-category={hero_hand_category}; "
         f"structural-draw={hero_draw_strength:.2f}; "
         f"range-conditioned-draw={candidate_draw_strength:.2f}; "
-        "source=range-aware multiway response model with postflop aggression guardrails (not solver exact)"
+        + (
+            f"selected-size={_postflop_size_fraction(pot, best_amount - street_contribution, to_call):.0%}"
+            f"{' of post-call pot' if to_call else ' of pot'}; "
+            if best_amount is not None and best_action in {"bet", "raise"}
+            else "selected-size=none; "
+        )
+        + "source=range-aware multiway response model with GTO-style sizing constraints (not solver exact)"
     )
     return CPUAction(
         player_id=str(player_id),
