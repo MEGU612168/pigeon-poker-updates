@@ -132,8 +132,6 @@ def resolve_range_image_for_situation(spot: dict[str, Any]) -> dict[str, Any] | 
         "match_mode": "exact",
         "matched_history_count": len(scenario.get("history", []) or []),
         "prefix_complete": True,
-        "raise_size_verified": not size_unverified,
-        "action_history_exact": True,
     }
 
 
@@ -310,4 +308,6 @@ def resolve_range_image_for_hand(table: Any, hand: Any, player_id: str) -> dict[
         "match_mode": match_mode,
         "matched_history_count": len(chosen.get("history", []) or []),
         "prefix_complete": True,
+        "raise_size_verified": not size_unverified,
+        "action_history_exact": True,
     }
