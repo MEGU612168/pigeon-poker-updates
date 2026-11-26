@@ -1238,6 +1238,153 @@ def test_sdv_check_value_beats_a_lower_ev_bet():
     assert "SDV-check-EV≈772.8" in decision.note
 
 
+def test_showdown_value_profile_separates_current_hand_strength_from_draw_equity():
+    heads_up = module._postflop_showdown_value_profile(
+        0.64, 1, 1.0, "flop", supported=True,
+        position_known=True, in_position=True,
+    )
+    multiway = module._postflop_showdown_value_profile(
+        0.64, 1, 3.0, "flop", supported=True,
+        position_known=True, in_position=True,
+    )
+    disadvantaged = module._postflop_showdown_value_profile(
+        0.58, 1, 1.0, "flop", supported=True,
+        range_disadvantage=True,
+    )
+    assert heads_up["has_sdv"] is True
+    assert heads_up["classification"] in {"medium", "strong"}
+    assert multiway["threshold"] > heads_up["threshold"]
+    assert multiway["has_sdv"] is True
+    assert disadvantaged["threshold"] > heads_up["threshold"]
+    assert disadvantaged["has_sdv"] is False
+
+
+def test_sdv_blocks_bluff_but_keeps_qualified_value_and_protection_bets():
+    blocked_value, blocked_bluff = module._postflop_aggression_gates(
+        False, True,
+        street="river", to_call=0, donk_lead=False,
+        range_disadvantage=False, made_category=1, draw_strength=0.0,
+        expected_callers=1.0, called_equity=0.30, value_threshold=0.56,
+        fold_probability=0.90, required_success=0.25, uncertainty_margin=0.01,
+        has_sdv=True,
+    )
+    value_bet, value_bluff = module._postflop_aggression_gates(
+        True, True,
+        street="river", to_call=0, donk_lead=False,
+        range_disadvantage=False, made_category=1, draw_strength=0.0,
+        expected_callers=1.0, called_equity=0.72, value_threshold=0.56,
+        fold_probability=0.70, required_success=0.25, uncertainty_margin=0.01,
+        has_sdv=True,
+    )
+    protection_bet, protection_bluff = module._postflop_aggression_gates(
+        False, True,
+        street="flop", to_call=0, donk_lead=False,
+        range_disadvantage=False, made_category=1, draw_strength=0.20,
+        expected_callers=1.0, called_equity=0.50, value_threshold=0.56,
+        fold_probability=0.55, required_success=0.30, uncertainty_margin=0.01,
+        has_sdv=True, protection_gate=True,
+    )
+    assert blocked_value is False and blocked_bluff is False
+    assert value_bet is True and value_bluff is False
+    assert protection_bet is True and protection_bluff is False
+
+
+def test_pure_bluff_requires_value_blockers_fold_equity_and_hu_conditions():
+    good = module._postflop_pure_bluff_allowed(
+        0.72, 0.30, 0.02, 1.0, 0.22, 0.02,
+        in_position=True, range_advantage=False,
+    )
+    no_value_blocker = module._postflop_pure_bluff_allowed(
+        0.92, 0.30, 0.02, 1.0, 0.02, 0.01,
+        in_position=True, range_advantage=False,
+    )
+    multiway = module._postflop_pure_bluff_allowed(
+        0.92, 0.30, 0.02, 2.0, 0.22, 0.02,
+        in_position=True, range_advantage=True,
+    )
+    out_of_position_without_range_edge = module._postflop_pure_bluff_allowed(
+        0.92, 0.30, 0.02, 1.0, 0.22, 0.02,
+        in_position=False, range_advantage=False,
+    )
+    assert good is True
+    assert no_value_blocker is False
+    assert multiway is False
+    assert out_of_position_without_range_edge is False
+
+
+def test_thin_value_bets_are_size_capped():
+    assert module._postflop_thin_value_size_allowed(True, 0.33, "river") is True
+    assert module._postflop_thin_value_size_allowed(True, 0.50, "turn") is True
+    assert module._postflop_thin_value_size_allowed(True, 0.51, "flop") is False
+    assert module._postflop_thin_value_size_allowed(True, 0.34, "river") is False
+    assert module._postflop_thin_value_size_allowed(False, 1.50, "river") is True
+
+
+def test_high_fold_equity_does_not_turn_a_showdown_hand_into_a_bluff():
+    players = [
+        FakePlayer("hero", ("As", "Ah")),
+        FakePlayer("villain", ()),
+    ]
+    hand = FakeHand(
+        players, board=("Jc", "7d", "2s"), pot=1000, street="flop",
+        to_call=0, actions=("check", "bet"), min_target=150, max_target=3000,
+    )
+    opponent = module.OpponentRange(
+        player_id="villain",
+        combos=((("Qc", "Qd"), 1.0),),
+        source="test-range",
+        confidence=1.0,
+    )
+    original = {
+        "infer_opponent_ranges": module.infer_opponent_ranges,
+        "_equity_vs_ranges": module._equity_vs_ranges,
+        "_current_showdown_equity": module._current_showdown_equity,
+        "_blocker_removal_metrics": module._blocker_removal_metrics,
+        "_postflop_board_role_context": module._postflop_board_role_context,
+        "_bet_response_branch_metrics": module._bet_response_branch_metrics,
+    }
+    module.infer_opponent_ranges = lambda *args, **kwargs: {"villain": opponent}
+    module._equity_vs_ranges = lambda *args, **kwargs: (0.80, 500)
+    module._current_showdown_equity = lambda *args, **kwargs: (0.80, 200)
+    module._blocker_removal_metrics = lambda *args, **kwargs: {
+        "value_call_combos_blocked": 0.0,
+        "bluff_call_combos_blocked": 0.0,
+        "draw_call_combos_blocked": 0.0,
+        "removed_combo_mass": 0.0,
+    }
+    module._postflop_board_role_context = lambda *args, **kwargs: {
+        "preflop_aggressor": "villain",
+        "hero_is_preflop_aggressor": False,
+        "caller_favored_board": False,
+        "aggressor_favored_board": False,
+        "preflop_range_disadvantage": False,
+        "preflop_range_advantage": False,
+        "preflop_range_edge": 0.0,
+        "preflop_range_profile": {"supported": False, "top_decile_advantage": 0.0},
+        "donk_lead": False,
+    }
+    module._bet_response_branch_metrics = lambda *args, **kwargs: {
+        "all_fold_probability": 0.98,
+        "call_only_probability": 0.02,
+        "raise_probability": 0.0,
+        "expected_callers": 0.02,
+        "called_equity": 0.10,
+        "called_current_equity": 0.10,
+        "samples": 120,
+    }
+    try:
+        decision = module.choose_range_aware_action(
+            FakeTable(), hand, "hero", FakeCPU(5)
+        )
+    finally:
+        for name, value in original.items():
+            setattr(module, name, value)
+
+    assert decision.action == "check"
+    assert "SDV-profile=" in decision.note
+    assert "SDV-supported=True" in decision.note
+
+
 def test_chart_range_profile_recognizes_hero_positive_range_advantage():
     players = [
         FakePlayer("hero", ("9h", "Th")),
