@@ -25,6 +25,8 @@ def test_174_raise_size_menu_only_sets_the_amount_and_does_not_submit():
     assert "_floating_table_action(" not in method
     assert "tk_popup(" in method
     assert "chart frequency" in method
+    assert 'state="normal" if enabled_for_hand else "disabled"' in method
+    assert "NOT IN THIS HAND RANGE" in method
 
 
 def test_postflop_pot_presets_remain_available_and_unchanged():
