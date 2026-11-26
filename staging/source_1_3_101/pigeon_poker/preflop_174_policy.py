@@ -871,10 +871,26 @@ def preflop_174_catalog_summary() -> dict[str, Any]:
         }
         if len(signatures) > 1:
             ambiguous_history_groups.append(ids)
+    duplicate_history_details = []
+    for ids in duplicate_history_groups:
+        items = [
+            item for item in scenarios if int(item["id"]) in set(ids)
+        ]
+        duplicate_history_details.append({
+            "ids": ids,
+            "entries": [
+                {
+                    key: value for key, value in item.items()
+                    if key != "hands"
+                }
+                for item in items
+            ],
+        })
     return {
         "scenario_count": len(scenarios),
         "unique_action_history_count": len(history_groups),
         "duplicate_action_history_groups": duplicate_history_groups,
+        "duplicate_history_details": duplicate_history_details,
         "ambiguous_duplicate_history_groups": ambiguous_history_groups,
         "unique_169_cell_strategy_matrix_count": len(matrix_groups),
         "duplicate_strategy_matrix_groups": duplicate_matrix_groups,
