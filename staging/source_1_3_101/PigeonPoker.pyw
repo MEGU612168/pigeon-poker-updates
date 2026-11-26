@@ -3856,11 +3856,10 @@ class PigeonPokerApp(tk.Tk):
                 record["range_chart_cache"] = chart
                 record["range_chart_cache_key"] = signature
             chart = record.get("range_chart_cache")
-        # Use the already synchronized wallet cache during high-frequency table
-        # refreshes. The click handler re-checks/debits SQLite atomically.
-        balance = max(0, int(getattr(self, "cash_balance_cents", 0)))
-        fee = int(getattr(hand, "big_blind", 0) or 0) if hand is not None else 0
-        enabled = bool(chart and (paid or (fee > 0 and balance >= fee)))
+        # The icon represents an exact 174-chart match, not wallet affordability.
+        # Keep a matched chart clickable; the click handler checks/debits 1 BB
+        # atomically and shows an insufficient-funds warning when necessary.
+        enabled = bool(chart)
         if record.get("range_icon_enabled") != enabled:
             self._draw_range_grid_icon(canvas, enabled=enabled)
             record["range_icon_enabled"] = enabled
