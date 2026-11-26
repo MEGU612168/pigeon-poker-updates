@@ -24,10 +24,10 @@ def source_of(name: str) -> str:
 def test_empty_bet_and_174_range_rows_are_removed_from_action_dock() -> None:
     create = source_of("_create_table_window")
     refresh = source_of("_refresh_table_windows")
-    assert 'size_actions.configure(height=34)' in create
-    assert 'situation_actions.configure(height=24)' in create
-    assert '("size_actions", "situation_actions", 34)' in refresh
-    assert '("situation_actions", "utility_actions", 24)' in refresh
+    assert 'size_actions.configure(height=28 if vip_mode else 34)' in create
+    assert 'situation_actions.configure(height=18 if vip_mode else 24)' in create
+    assert '("size_actions", "situation_actions", 28)' in refresh
+    assert '("situation_actions", "utility_actions", 18)' in refresh
     assert "dock_row.winfo_children()" in refresh
     assert "dock_row.pack_forget()" in refresh
     assert 'before=before_row' in refresh
@@ -51,7 +51,7 @@ def test_vip_roles_assign_all_five_opponents_to_pro_only() -> None:
 
 def test_vip_runtime_uses_maximum_cpu_level_and_increased_postflop_samples() -> None:
     join = source_of("_join_table")
-    assert "VIP_PRO_SIMULATIONS = 256" in TEXT
+    assert "VIP_PRO_SIMULATIONS = 512" in TEXT
     assert "level=(5 if is_vip_mode(table_mode) else profile.level)" in join
     assert "simulations=(VIP_PRO_SIMULATIONS if is_vip_mode(table_mode) else 48)" in join
     assert "assign_vip_cpu_roles(" in join
@@ -72,7 +72,12 @@ def test_vip_has_distinct_private_club_window_and_table_surface() -> None:
     assert "vip_rail_double_line" in draw
     assert "vip_felt_gold_pinstripe" in draw
     assert 'text="PRO ONLY"' in draw
-    assert "PRO ONLY  •  FIVE LEVEL-5 OPPONENTS" in lobby
+    assert "PRO ONLY  •  FIVE LEVEL-5 PROFESSIONAL OPPONENTS" in lobby
+    assert "512 POSTFLOP ENGINE SAMPLES" in lobby
+    assert "#71172c" in draw
+    assert "#e2bd69" in draw
+    assert "window._pigeon_vip_theme = vip_mode" in create
+    assert "dock_bg = \"#19070d\" if vip_mode else COLORS[\"panel\"]" in create
     assert "VIP PRIVATE CLUB" in buyin
 
 
