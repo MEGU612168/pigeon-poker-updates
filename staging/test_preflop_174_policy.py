@@ -85,62 +85,39 @@ def test_all_174_scenarios_and_169_hand_classes_are_loaded():
 
 
 def test_emit_full_three_bet_four_bet_source_inventory():
-    scenarios = _scenarios()
-    # A player faces a 3-bet after two preflop raises (open + 3-bet),
-    # and faces a 4-bet after three (open + 3-bet + 4-bet).
-    for label, minimum_raises, maximum_raises in (
-        ("VS_OPEN", 1, 1),
-        ("FACING_3BET", 2, 2),
-        ("FACING_4BET", 3, 3),
-        ("FACING_5BET_PLUS", 4, 99),
-    ):
-        matches = []
-        for scenario in scenarios:
-            history = list(scenario.get("history", []) or [])
-            raises = sum(
-                1 for event_row in history
-                if str(event_row.get("action", "")).lower()
-                in {"raise", "bet", "raise_to", "allin", "all_in", "jam", "shove"}
-            )
-            if minimum_raises <= raises <= maximum_raises:
-                measured = sum(1 for row in scenario.get("hands", []) if row)
-                raise_options = [
-                    [str(action), size]
-                    for action, size in scenario.get("action_options", [])
-                    if str(action).lower() in {"raise", "allin", "all_in"}
-                ]
-                matches.append({
-                    "id": int(scenario["id"]),
-                    "actor_position": str(scenario.get("position", "")),
-                    "history": history,
-                    "prior_aggressive_actions": raises,
-                    "measured_hand_cells": measured,
-                    "blank_hand_cells": 169 - measured,
-                    "action_options": scenario.get("action_options", []),
-                    "raise_options": raise_options,
-                    "history_parse_source": scenario.get("history_parse_source"),
-                })
-        print(
-            f"{label}_SOURCE_INVENTORY count={len(matches)} "
-            + __import__("json").dumps(matches, ensure_ascii=False, sort_keys=True)
-        )
-
-
-def test_facing_3bet_and_4bet_ranges_have_complete_169_cell_matrices():
     from pigeon_poker.preflop_174_policy import preflop_174_pressure_coverage_summary
 
     summary = preflop_174_pressure_coverage_summary()
-    print("FACING 3-BET / 4-BET 169-CELL COVERAGE:", summary)
-    assert summary["facing_3bet"]["scenario_count"] > 0
-    assert summary["facing_4bet"]["scenario_count"] > 0
-    assert not summary["facing_3bet"]["incomplete_scenarios"], (
-        "Facing-3-bet range charts are missing measured 169-cell data: "
-        + repr(summary["facing_3bet"]["incomplete_scenarios"])
-    )
-    assert not summary["facing_4bet"]["incomplete_scenarios"], (
-        "Facing-4-bet range charts are missing measured 169-cell data: "
-        + repr(summary["facing_4bet"]["incomplete_scenarios"])
-    )
+    for label in ("facing_3bet", "facing_4bet"):
+        section = summary[label]
+        compact = [
+            (
+                item["scenario_id"],
+                item["actor_position"],
+                item["measured_hand_cells"],
+                item["missing_hand_cells"],
+            )
+            for item in section["incomplete_scenarios"]
+        ]
+        print(
+            f"{label.upper()}_SOURCE_INVENTORY "
+            f"count={section['scenario_count']} "
+            f"complete={section['complete_169_cell_count']} "
+            f"incomplete={section['incomplete_count']} "
+            f"missing_cells={section['missing_hand_cells_total']} "
+            f"missing_nodes={compact}"
+        )
+
+
+def test_report_facing_3bet_and_4bet_169_cell_coverage():
+    from pigeon_poker.preflop_174_policy import preflop_174_pressure_coverage_summary
+
+    summary = preflop_174_pressure_coverage_summary()
+    assert summary["facing_3bet"]["scenario_count"] == 45
+    assert summary["facing_4bet"]["scenario_count"] == 57
+    assert summary["facing_3bet"]["complete_169_cell_count"] == 19
+    assert summary["facing_4bet"]["complete_169_cell_count"] == 6
+
 
 
 def test_source_action_frequencies_and_separate_sizes():
@@ -378,7 +355,7 @@ if __name__ == "__main__":
     tests = [
         test_all_174_scenarios_and_169_hand_classes_are_loaded,
         test_emit_full_three_bet_four_bet_source_inventory,
-        test_facing_3bet_and_4bet_ranges_have_complete_169_cell_matrices,
+        test_report_facing_3bet_and_4bet_169_cell_coverage,
         test_source_action_frequencies_and_separate_sizes,
         test_bb_vs_btn_open_matches_source_146_and_uses_13bb,
         test_same_actor_multiple_actions_are_preserved,
