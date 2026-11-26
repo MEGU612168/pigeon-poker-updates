@@ -86,6 +86,10 @@ from pigeon_poker.table_modes import (
     VIP_MIN_BUYIN_BB, VIP_MAX_BUYIN_BB, VIP_DEFAULT_BUYIN_BB,
     normalize_table_mode, is_rush_mode, is_vip_mode, table_mode_label,
 )
+from pigeon_poker.casino_games import (
+    card_label, blackjack_total, new_blackjack_round, blackjack_hit, blackjack_stand,
+    blackjack_double, new_baccarat_round, serialize_blackjack_state, restore_blackjack_state,
+)
 from pigeon_poker.vip_ai import (
     assign_vip_cpu_roles, vip_cpu_role_label,
     validate_vip_cpu_roles, VIP_PURE_GTO_COUNT, VIP_NEAR_GTO_COUNT,
@@ -370,6 +374,17 @@ class PigeonPokerApp(tk.Tk):
         self.cash_source_var = tk.StringVar(value="CPU strategy: waiting")
         self.cash_log_lines: list[str] = []
         self.cash_random = random.Random()
+        self.casino_random = random.Random()
+        try:
+            self.blackjack_state: dict[str, Any] | None = restore_blackjack_state(
+                self.config_data.get("casino_blackjack_state")
+            )
+        except (TypeError, ValueError):
+            self.blackjack_state = None
+            self.config_data["casino_blackjack_state"] = None
+        self.baccarat_state: dict[str, Any] | None = None
+        self.casino_history: list[dict[str, Any]] = []
+        self.casino_pnl_cents = 0
         self.cash_drop_pool_cents = max(0, int(self.config_data.get("cash_drop_pool_cents", 0)))
         self.cash_session_id = uuid.uuid4().hex
         self.cash_hand_instance = 0
@@ -379,7 +394,7 @@ class PigeonPokerApp(tk.Tk):
         self.cash_current_hand_key: str | None = None
         self.history_store = HandHistoryStore(ROOT / "data" / "pigeon_hands.sqlite3")
         self.cpu_pool_store = CPUPoolStore(ROOT / "data" / "pigeon_cpu_pool.sqlite3",
-                                                   stakes=("NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200", VIP_STAKE_KEY))
+                                                   stakes=("NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200", "NL500", "NL1000", VIP_STAKE_KEY))
         self.cpu_learning_store = CPULearningStore(ROOT / "data" / "pigeon_cpu_learning.sqlite3")
         self.ggcare_ledger = GGCareLedger(ROOT / "data" / "pigeon_ggcare.sqlite3")
         self.ggcare_candidate = None
@@ -460,6 +475,7 @@ class PigeonPokerApp(tk.Tk):
         self._build_shell()
         self._build_lobby()
         self._build_cashier_page()
+        self._build_casino_page()
         self._build_table()
         self._build_placeholder_pages()
         self._build_pokercraft_page()
@@ -539,7 +555,7 @@ class PigeonPokerApp(tk.Tk):
         self.nested_page_scroll_canvases: set[tk.Canvas] = set()
         self._active_page_key: str | None = None
         self.bind_all("<MouseWheel>", self._scroll_active_page, add="+")
-        nav = [("LOBBY", "lobby"), ("OPEN TABLES", "table"), ("CASHIER", "cashier"), ("POKERCRAFT", "poker_craft"), ("GG CARE", "gg_care"), ("SETTINGS", "settings")]
+        nav = [("LOBBY", "lobby"), ("OPEN TABLES", "table"), ("CASHIER", "cashier"), ("CASINO", "casino"), ("POKERCRAFT", "poker_craft"), ("GG CARE", "gg_care"), ("SETTINGS", "settings")]
         for label, page in nav:
             ttk.Button(self.sidebar, text=label, command=lambda p=page: self.show_page(p)).pack(fill="x", padx=10, pady=3)
         tk.Frame(self.sidebar, bg=COLORS["border"], height=1).pack(fill="x", padx=14, pady=16)
@@ -706,7 +722,8 @@ class PigeonPokerApp(tk.Tk):
         rates = [("NL2", "$0.01 / $0.02"), ("NL5", "$0.02 / $0.05"),
                  ("NL10", "$0.05 / $0.10"), ("NL25", "$0.10 / $0.25"),
                  ("NL50", "$0.25 / $0.50"), ("NL100", "$0.50 / $1.00"),
-                 ("NL200", "$1.00 / $2.00")]
+                 ("NL200", "$1.00 / $2.00"), ("NL500", "$2.50 / $5.00"),
+                 ("NL1000", "$5.00 / $10.00")]
         for i, (name, blinds) in enumerate(rates):
             card = tk.Frame(rush_wrap, bg=COLORS["panel"], highlightbackground=COLORS["border"], highlightthickness=1)
             card.grid(row=i // 3, column=i % 3, padx=9, pady=9, sticky="nsew")
@@ -968,7 +985,7 @@ class PigeonPokerApp(tk.Tk):
         rates = {
             "NL2": (1, 2), "NL5": (2, 5), "NL10": (5, 10),
             "NL25": (10, 25), "NL50": (25, 50), "NL100": (50, 100),
-            "NL200": (100, 200),
+            "NL200": (100, 200), "NL500": (250, 500), "NL1000": (500, 1000),
             VIP_STAKE_KEY: (VIP_SMALL_BLIND_CENTS, VIP_BIG_BLIND_CENTS),
         }
         if rate not in rates or (is_vip_mode(table_mode) and rate != VIP_STAKE_KEY):
@@ -1160,6 +1177,340 @@ class PigeonPokerApp(tk.Tk):
                                              fg=COLORS["muted"], font=("Segoe UI", 8))
         self.cashier_status_label.pack(anchor="w", padx=24, pady=(0, 8))
         self._refresh_cashier()
+
+    # ---------- Casino ----------
+    def _build_casino_page(self):
+        page = self._new_page("casino")
+        self._page_header(
+            page, "Casino",
+            "Blackjack & Punto Banco Baccarat • play chips only • shares the simulated wallet",
+        )
+        summary = tk.Frame(page, bg=COLORS["panel2"],
+                           highlightbackground=COLORS["border"], highlightthickness=1)
+        summary.pack(fill="x", padx=22, pady=(0, 12))
+        self.casino_wallet_var = tk.StringVar(value=self.balance_var.get())
+        self.casino_pnl_var = tk.StringVar(value="CASINO ALL-TIME P/L  $0.00")
+        tk.Label(summary, text="SHARED WALLET", bg=COLORS["panel2"], fg=COLORS["muted"],
+                 font=("Segoe UI", 8, "bold")).pack(side="left", padx=(16, 8), pady=13)
+        tk.Label(summary, textvariable=self.casino_wallet_var, bg=COLORS["panel2"],
+                 fg=COLORS["text"], font=("Segoe UI", 16, "bold")).pack(side="left", pady=10)
+        tk.Label(summary, textvariable=self.casino_pnl_var, bg=COLORS["panel2"],
+                 fg=COLORS["gold"], font=("Segoe UI", 10, "bold")).pack(side="right", padx=16)
+
+        notebook = ttk.Notebook(page)
+        notebook.pack(fill="both", expand=True, padx=22, pady=(0, 12))
+        _, blackjack = self._make_scrollable_tab(notebook, "  BLACKJACK  ", COLORS["bg"])
+        _, baccarat = self._make_scrollable_tab(notebook, "  BACCARAT  ", COLORS["bg"])
+
+        bj_panel, bj = self._panel(blackjack, "BLACKJACK  •  6 DECKS")
+        bj_panel.pack(fill="x", pady=(2, 10))
+        tk.Label(bj, text="Dealer stands on soft 17  •  Natural blackjack pays 3:2  •  Double down available  •  No split",
+                 bg=COLORS["panel"], fg=COLORS["muted"], font=("Segoe UI", 9),
+                 wraplength=980, justify="left").pack(anchor="w", pady=(0, 14))
+        bj_bet_row = tk.Frame(bj, bg=COLORS["panel"])
+        bj_bet_row.pack(fill="x", pady=(0, 12))
+        tk.Label(bj_bet_row, text="BET (USD)", bg=COLORS["panel"], fg=COLORS["muted"],
+                 font=("Segoe UI", 9, "bold")).pack(side="left")
+        self.blackjack_bet_var = tk.StringVar(value="10.00")
+        ttk.Entry(bj_bet_row, textvariable=self.blackjack_bet_var, width=14).pack(side="left", padx=(8, 10))
+        self.blackjack_deal_button = ttk.Button(
+            bj_bet_row, text="DEAL / NEW HAND", style="Accent.TButton",
+            command=self._casino_start_blackjack,
+        )
+        self.blackjack_deal_button.pack(side="left")
+        self.blackjack_status_var = tk.StringVar(value="Place your bet to start")
+        tk.Label(bj, textvariable=self.blackjack_status_var, bg=COLORS["panel"],
+                 fg=COLORS["gold"], font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(2, 10))
+        self.blackjack_dealer_var = tk.StringVar(value="DEALER  •  —")
+        self.blackjack_player_var = tk.StringVar(value="YOU  •  —")
+        tk.Label(bj, textvariable=self.blackjack_dealer_var, bg="#0b1727",
+                 fg=COLORS["text"], font=("Segoe UI", 15, "bold"),
+                 padx=14, pady=14, anchor="w").pack(fill="x", pady=4)
+        tk.Label(bj, textvariable=self.blackjack_player_var, bg="#0b2a21",
+                 fg="#d8f4e8", font=("Segoe UI", 15, "bold"),
+                 padx=14, pady=14, anchor="w").pack(fill="x", pady=4)
+        action_row = tk.Frame(bj, bg=COLORS["panel"])
+        action_row.pack(fill="x", pady=(12, 3))
+        self.blackjack_hit_button = ttk.Button(
+            action_row, text="HIT", command=lambda: self._casino_blackjack_action("hit"))
+        self.blackjack_hit_button.pack(side="left", padx=(0, 7))
+        self.blackjack_stand_button = ttk.Button(
+            action_row, text="STAND", command=lambda: self._casino_blackjack_action("stand"))
+        self.blackjack_stand_button.pack(side="left", padx=7)
+        self.blackjack_double_button = ttk.Button(
+            action_row, text="DOUBLE DOWN", command=lambda: self._casino_blackjack_action("double"))
+        self.blackjack_double_button.pack(side="left", padx=7)
+
+        bc_panel, bc = self._panel(baccarat, "PUNTO BANCO BACCARAT")
+        bc_panel.pack(fill="x", pady=(2, 10))
+        tk.Label(bc, text="Player pays 1:1  •  Banker pays 0.95:1 after 5% commission  •  Tie pays 8:1",
+                 bg=COLORS["panel"], fg=COLORS["muted"], font=("Segoe UI", 9),
+                 wraplength=980, justify="left").pack(anchor="w", pady=(0, 12))
+        bc_bet_row = tk.Frame(bc, bg=COLORS["panel"])
+        bc_bet_row.pack(fill="x", pady=(0, 12))
+        tk.Label(bc_bet_row, text="BET (USD)", bg=COLORS["panel"], fg=COLORS["muted"],
+                 font=("Segoe UI", 9, "bold")).pack(side="left")
+        self.baccarat_bet_var = tk.StringVar(value="10.00")
+        ttk.Entry(bc_bet_row, textvariable=self.baccarat_bet_var, width=14).pack(side="left", padx=(8, 10))
+        self.baccarat_status_var = tk.StringVar(value="Choose Player, Banker or Tie")
+        tk.Label(bc, textvariable=self.baccarat_status_var, bg=COLORS["panel"],
+                 fg=COLORS["gold"], font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(2, 10))
+        self.baccarat_player_var = tk.StringVar(value="PLAYER  •  —")
+        self.baccarat_banker_var = tk.StringVar(value="BANKER  •  —")
+        tk.Label(bc, textvariable=self.baccarat_player_var, bg="#0b2a21",
+                 fg="#d8f4e8", font=("Segoe UI", 14, "bold"),
+                 padx=14, pady=14, anchor="w").pack(fill="x", pady=4)
+        tk.Label(bc, textvariable=self.baccarat_banker_var, bg="#0b1727",
+                 fg=COLORS["text"], font=("Segoe UI", 14, "bold"),
+                 padx=14, pady=14, anchor="w").pack(fill="x", pady=4)
+        bc_buttons = tk.Frame(bc, bg=COLORS["panel"])
+        bc_buttons.pack(fill="x", pady=(12, 3))
+        ttk.Button(bc_buttons, text="BET PLAYER", style="Accent.TButton",
+                   command=lambda: self._casino_play_baccarat("player")).pack(side="left", padx=(0, 7))
+        ttk.Button(bc_buttons, text="BET BANKER",
+                   command=lambda: self._casino_play_baccarat("banker")).pack(side="left", padx=7)
+        ttk.Button(bc_buttons, text="BET TIE",
+                   command=lambda: self._casino_play_baccarat("tie")).pack(side="left", padx=7)
+
+        history_panel, history = self._panel(page, "CASINO HISTORY  •  RECENT ROUNDS")
+        history_panel.pack(fill="both", expand=True, padx=22, pady=(0, 14))
+        columns = ("time", "game", "wager", "result", "net")
+        self.casino_history_tree = ttk.Treeview(history, columns=columns, show="headings", height=8)
+        headings = {"time": "TIME", "game": "GAME", "wager": "WAGER",
+                    "result": "RESULT", "net": "NET"}
+        widths = {"time": 140, "game": 105, "wager": 105, "result": 230, "net": 110}
+        for column in columns:
+            self.casino_history_tree.heading(column, text=headings[column])
+            self.casino_history_tree.column(column, width=widths[column],
+                                            anchor="center", stretch=(column == "result"))
+        self.casino_history_tree.pack(fill="both", expand=True)
+        if self.blackjack_state and self.blackjack_state.get("status") == "settled":
+            self._casino_finish_blackjack()
+        self._refresh_casino_display()
+
+    def _casino_save_blackjack_state(self):
+        self.config_data["casino_blackjack_state"] = serialize_blackjack_state(self.blackjack_state)
+        save_config(self.config_data)
+
+    @staticmethod
+    def _parse_casino_bet(text: str) -> int:
+        from decimal import Decimal, InvalidOperation
+        raw = str(text).strip().replace(",", "").replace("$", "")
+        try:
+            amount = Decimal(raw)
+        except InvalidOperation as exc:
+            raise ValueError("賭け金はドルで入力してください（例：10.00）。") from exc
+        if not amount.is_finite() or amount <= 0 or amount > Decimal("1000000"):
+            raise ValueError("賭け金は$0.01〜$1,000,000.00の範囲で入力してください。")
+        cents = amount * 100
+        if cents != cents.to_integral_value():
+            raise ValueError("賭け金は1セント単位で入力してください。")
+        result = int(cents)
+        if result < 100:
+            raise ValueError("カジノの最低賭け金は$1.00です。")
+        return result
+
+    def _casino_debit_wager(self, amount_cents: int, note: str) -> bool:
+        self._sync_external_wallet_balance()
+        amount = int(amount_cents)
+        if amount <= 0:
+            return False
+        if self.cash_balance_cents < amount:
+            messagebox.showwarning(
+                "Casino wallet", "ウォレット残高が不足しています。Cashierでシミュレーション入金してください。"
+            )
+            return False
+        self.cash_balance_cents -= amount
+        self._update_cash_balance()
+        self._record_cash_transaction("casino-wager", -amount, note=note)
+        return True
+
+    def _casino_credit_payout(self, amount_cents: int, note: str) -> None:
+        amount = max(0, int(amount_cents))
+        if amount <= 0:
+            return
+        self.cash_balance_cents += amount
+        self._update_cash_balance()
+        self._record_cash_transaction("casino-payout", amount, note=note)
+
+    def _casino_add_history(self, game: str, wager: int, payout: int,
+                            result: str, detail: str = ""):
+        net = int(payout) - int(wager)
+        self.casino_pnl_cents += net
+        item = {
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "game": str(game), "wager": int(wager), "payout": int(payout),
+            "result": str(result), "net": net, "detail": str(detail),
+        }
+        self.casino_history.insert(0, item)
+        self.casino_history = self.casino_history[:100]
+        if hasattr(self, "casino_history_tree"):
+            self.casino_history_tree.insert(
+                "", 0, values=(item["time"], item["game"],
+                               f"${item['wager']/100:,.2f}", item["result"],
+                               f"${item['net']/100:+,.2f}"),
+            )
+            children = self.casino_history_tree.get_children()
+            for child in children[100:]:
+                self.casino_history_tree.delete(child)
+        self._refresh_casino_display()
+
+    def _casino_finish_blackjack(self):
+        state = self.blackjack_state
+        if not state or state.get("status") != "settled" or state.get("payout_recorded"):
+            return
+        payout = max(0, int(state.get("payout_cents", 0)))
+        wager = int(state.get("bet_cents", 0))
+        result = str(state.get("result", "SETTLED"))
+        state["payout_recorded"] = True
+        self._casino_credit_payout(payout, f"Blackjack payout • {result}")
+        self._casino_add_history("BLACKJACK", wager, payout, result,
+                                 " / ".join(card_label(card) for card in state["player_cards"]))
+        self._casino_save_blackjack_state()
+
+    def _casino_start_blackjack(self):
+        if self.blackjack_state and self.blackjack_state.get("status") == "playing":
+            return
+        try:
+            wager = self._parse_casino_bet(self.blackjack_bet_var.get())
+        except ValueError as exc:
+            messagebox.showwarning("Blackjack bet", str(exc))
+            return
+        if not self._casino_debit_wager(wager, "Blackjack wager"):
+            return
+        try:
+            self.blackjack_state = new_blackjack_round(wager, rng=self.casino_random)
+            self.blackjack_state["payout_recorded"] = False
+            self._casino_save_blackjack_state()
+            if self.blackjack_state.get("status") == "settled":
+                self._casino_finish_blackjack()
+        except Exception as exc:
+            # A failed deal must never consume the player's wager.
+            self.cash_balance_cents += wager
+            self._update_cash_balance()
+            self._record_cash_transaction("casino-refund", wager, note="Blackjack deal error refund")
+            messagebox.showerror("Blackjack", str(exc))
+        self._refresh_casino_display()
+
+    def _casino_blackjack_action(self, action: str):
+        state = self.blackjack_state
+        if not state or state.get("status") != "playing":
+            return
+        try:
+            if action == "hit":
+                blackjack_hit(state)
+            elif action == "stand":
+                blackjack_stand(state)
+            elif action == "double":
+                extra = int(state["bet_cents"])
+                if not self._casino_debit_wager(extra, "Blackjack double-down wager"):
+                    return
+                blackjack_double(state)
+            else:
+                raise ValueError("Unknown blackjack action")
+            if state.get("status") == "settled":
+                self._casino_finish_blackjack()
+            else:
+                self._casino_save_blackjack_state()
+        except Exception as exc:
+            messagebox.showerror("Blackjack", str(exc))
+        self._refresh_casino_display()
+
+    def _casino_play_baccarat(self, side: str):
+        try:
+            wager = self._parse_casino_bet(self.baccarat_bet_var.get())
+        except ValueError as exc:
+            messagebox.showwarning("Baccarat bet", str(exc))
+            return
+        if not self._casino_debit_wager(wager, f"Baccarat {side} wager"):
+            return
+        try:
+            self.baccarat_state = new_baccarat_round(wager, side, rng=self.casino_random)
+        except Exception as exc:
+            self.cash_balance_cents += wager
+            self._update_cash_balance()
+            self._record_cash_transaction("casino-refund", wager, note="Baccarat deal error refund")
+            messagebox.showerror("Baccarat", str(exc))
+            self._refresh_casino_display()
+            return
+        state = self.baccarat_state
+        payout = int(state["payout_cents"])
+        result = str(state["result"])
+        self._casino_credit_payout(payout, f"Baccarat {side} payout • {result}")
+        detail = (
+            f"P: {' '.join(card_label(card) for card in state['player_cards'])} "
+            f"({state['player_total']}) / "
+            f"B: {' '.join(card_label(card) for card in state['banker_cards'])} "
+            f"({state['banker_total']})"
+        )
+        self._casino_add_history("BACCARAT", wager, payout,
+                                 f"{side.upper()} BET • {result}", detail)
+        self._refresh_casino_display()
+
+    def _refresh_casino_display(self):
+        if not hasattr(self, "casino_wallet_var"):
+            return
+        self.casino_wallet_var.set(self.balance_var.get())
+        try:
+            all_time = int(self.cashier_ledger.sum_delta_for_kinds(("casino-wager", "casino-payout")))
+        except Exception:
+            all_time = int(self.casino_pnl_cents)
+        self.casino_pnl_var.set(
+            f"CASINO ALL-TIME P/L  ${all_time/100:+,.2f}  •  SESSION ${self.casino_pnl_cents/100:+,.2f}"
+        )
+
+        state = self.blackjack_state
+        active = bool(state and state.get("status") == "playing")
+        if not state:
+            self.blackjack_status_var.set("Place your bet to start")
+            self.blackjack_dealer_var.set("DEALER  •  —")
+            self.blackjack_player_var.set("YOU  •  —")
+        else:
+            dealer_cards = list(state["dealer_cards"])
+            player_cards = list(state["player_cards"])
+            if not bool(state.get("dealer_hole_revealed", False)):
+                dealer_text = f"{card_label(dealer_cards[0])}  [HIDDEN]"
+                dealer_total = "?"
+            else:
+                dealer_text = "  ".join(card_label(card) for card in dealer_cards)
+                dealer_total = str(blackjack_total(dealer_cards)[0])
+            player_text = "  ".join(card_label(card) for card in player_cards)
+            player_total = blackjack_total(player_cards)[0]
+            self.blackjack_dealer_var.set(f"DEALER  •  {dealer_text}   TOTAL {dealer_total}")
+            self.blackjack_player_var.set(
+                f"YOU  •  {player_text}   TOTAL {player_total}   BET ${int(state['bet_cents'])/100:,.2f}"
+            )
+            if active:
+                self.blackjack_status_var.set("YOUR TURN • Hit, Stand or Double Down")
+            else:
+                self.blackjack_status_var.set(
+                    f"{state.get('result', 'HAND COMPLETE')}  •  PAYOUT ${int(state.get('payout_cents', 0))/100:,.2f}"
+                )
+        self.blackjack_deal_button.configure(state=("disabled" if active else "normal"))
+        self.blackjack_hit_button.configure(state=("normal" if active else "disabled"))
+        self.blackjack_stand_button.configure(state=("normal" if active else "disabled"))
+        double_ready = bool(active and len(state["player_cards"]) == 2
+                            and self.cash_balance_cents >= int(state["bet_cents"]))
+        self.blackjack_double_button.configure(state=("normal" if double_ready else "disabled"))
+
+        baccarat = self.baccarat_state
+        if not baccarat:
+            self.baccarat_status_var.set("Choose Player, Banker or Tie")
+            self.baccarat_player_var.set("PLAYER  •  —")
+            self.baccarat_banker_var.set("BANKER  •  —")
+        else:
+            player_cards = "  ".join(card_label(card) for card in baccarat["player_cards"])
+            banker_cards = "  ".join(card_label(card) for card in baccarat["banker_cards"])
+            self.baccarat_player_var.set(
+                f"PLAYER  •  {player_cards}   TOTAL {baccarat['player_total']}"
+            )
+            self.baccarat_banker_var.set(
+                f"BANKER  •  {banker_cards}   TOTAL {baccarat['banker_total']}"
+            )
+            self.baccarat_status_var.set(
+                f"{baccarat['result']}  •  YOU BET {baccarat['bet_side'].upper()}  •  "
+                f"PAYOUT ${int(baccarat['payout_cents'])/100:,.2f}"
+            )
 
     def _cashier_form(self, parent, title: str, amount_var: tk.StringVar,
                       description: str, command, button_text: str, recipient: bool = False):
@@ -1639,7 +1990,8 @@ class PigeonPokerApp(tk.Tk):
             ("NL2", "$0.01 / $0.02"), ("NL5", "$0.02 / $0.05"),
             ("NL10", "$0.05 / $0.10"), ("NL25", "$0.10 / $0.25"),
             ("NL50", "$0.25 / $0.50"), ("NL100", "$0.50 / $1.00"),
-            ("NL200", "$1.00 / $2.00"),
+            ("NL200", "$1.00 / $2.00"), ("NL500", "$2.50 / $5.00"),
+            ("NL1000", "$5.00 / $10.00"),
         ]
         dialog = tk.Toplevel(self)
         dialog.title("OPEN RUSH & CASH TABLE")
@@ -9805,7 +10157,7 @@ class PigeonPokerApp(tk.Tk):
         tk.Label(session_filters, text="BLINDS", bg=COLORS["panel"], fg=COLORS["muted"],
                  font=("Segoe UI", 8, "bold")).pack(side="left", padx=(0, 3))
         ttk.Combobox(session_filters, textvariable=self.poker_session_stake_var,
-                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200", "VIP25/50"],
+                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200", "NL500", "NL1000", "VIP25/50"],
                      state="readonly", width=9).pack(side="left", padx=(0, 8))
         ttk.Button(session_filters, text="SHOW", style="Accent.TButton",
                    command=self._refresh_pokercraft).pack(side="left", padx=(0, 8))
@@ -9881,7 +10233,7 @@ class PigeonPokerApp(tk.Tk):
         self.poker_include_rake_var = tk.BooleanVar(value=True)
         tk.Label(row1, text="Stake", bg=COLORS["panel"], fg=COLORS["muted"]).pack(side="left")
         ttk.Combobox(row1, textvariable=self.poker_filter_stake_var,
-                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200", "VIP25/50"],
+                     values=["ALL", "NL2", "NL5", "NL10", "NL25", "NL50", "NL100", "NL200", "NL500", "NL1000", "VIP25/50"],
                      state="readonly", width=8).pack(side="left", padx=(4, 12))
         tk.Label(row1, text="Sort", bg=COLORS["panel"], fg=COLORS["muted"]).pack(side="left")
         ttk.Combobox(row1, textvariable=self.poker_sort_var,
@@ -10048,7 +10400,8 @@ class PigeonPokerApp(tk.Tk):
             "NL2": "$0.01 / $0.02", "NL5": "$0.02 / $0.05",
             "NL10": "$0.05 / $0.10", "NL25": "$0.10 / $0.25",
             "NL50": "$0.25 / $0.50", "NL100": "$0.50 / $1",
-            "NL200": "$1 / $2", "VIP25/50": "$25 / $50",
+            "NL200": "$1 / $2", "NL500": "$2.50 / $5", "NL1000": "$5 / $10",
+            "VIP25/50": "$25 / $50",
         }.get(str(rate), str(rate))
 
     def _session_duration_sort_value(self, item: dict[str, Any]) -> int:
@@ -10423,7 +10776,7 @@ class PigeonPokerApp(tk.Tk):
                 stat["hands"] += 1
                 stat["net"] += row_net
                 bb_cents_for_hand = {"NL2": 2, "NL5": 5, "NL10": 10, "NL25": 25,
-                                     "NL50": 50, "NL100": 100, "NL200": 200, "VIP25/50": 5000}.get(str(row.get("table_rate", "")), 0)
+                                     "NL50": 50, "NL100": 100, "NL200": 200, "NL500": 500, "NL1000": 1000, "VIP25/50": 5000}.get(str(row.get("table_rate", "")), 0)
                 if bb_cents_for_hand:
                     stat["bb_units"] += row_net / bb_cents_for_hand
                 if row_net > 0:
@@ -10992,7 +11345,7 @@ class PigeonPokerApp(tk.Tk):
             rate = str(row.get("table_rate", ""))
             bb_cents = {
                 "NL2": 2, "NL5": 5, "NL10": 10, "NL25": 25,
-                "NL50": 50, "NL100": 100, "NL200": 200, "VIP25/50": 5000,
+                "NL50": 50, "NL100": 100, "NL200": 200, "NL500": 500, "NL1000": 1000, "VIP25/50": 5000,
             }.get(rate)
             if not bb_cents:
                 return None

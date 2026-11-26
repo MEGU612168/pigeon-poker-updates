@@ -1,0 +1,52 @@
+name: Verify Pigeon Poker casino games and high stakes
+
+on:
+  pull_request:
+    paths:
+      - "staging/source_1_3_101/PigeonPoker.pyw"
+      - "staging/source_1_3_101/pigeon_poker/casino_games.py"
+      - "staging/test_casino_games.py"
+      - "staging/test_casino_ui_and_stakes.py"
+      - ".github/workflows/verify-casino-games.yml"
+  push:
+    paths:
+      - "staging/source_1_3_101/PigeonPoker.pyw"
+      - "staging/source_1_3_101/pigeon_poker/casino_games.py"
+      - "staging/test_casino_games.py"
+      - "staging/test_casino_ui_and_stakes.py"
+      - ".github/workflows/verify-casino-games.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile application and casino engine
+        run: |
+          python -m py_compile staging/source_1_3_101/PigeonPoker.pyw
+          python -m py_compile staging/source_1_3_101/pigeon_poker/casino_games.py
+      - name: Test blackjack and baccarat rules and payouts
+        run: python staging/test_casino_games.py
+      - name: Test new stakes, casino UI and shared wallet integration
+        run: python staging/test_casino_ui_and_stakes.py
+      - name: Protect existing table and PokerCraft features
+        run: |
+          python staging/test_pokercraft_features.py
+          python staging/test_postflop_controls.py
+          python staging/test_allin_runout_presentation.py
+      - name: Protect immutable 174-scenario preflop policy
+        run: |
+          python staging/test_preflop_legacy_cleanup.py
+          python staging/test_preflop_policy_removed.py
+          python staging/test_preflop_174_policy.py
+          python staging/test_preflop_size_controls.py
+      - name: Protect CPU reasoning and learning
+        run: |
+          python staging/test_poker_reasoning.py
+          python staging/test_cpu_learning.py
