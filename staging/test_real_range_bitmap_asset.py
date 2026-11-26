@@ -4,6 +4,7 @@ import base64
 import hashlib
 import struct
 import sys
+import tempfile
 import types
 import zlib
 from pathlib import Path
