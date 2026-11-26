@@ -302,9 +302,16 @@ def test_all_174_paid_ranges_survive_missing_live_raise_amounts_without_strategy
     from pigeon_poker.range_scenario_resolver import resolve_range_image_for_hand
     from pigeon_poker.range_chart_canvas import build_range_chart_model
 
+    from pigeon_poker.range_scenario_resolver import (
+        _history_matches_when_live_raise_size_is_missing,
+        _scenario_signature,
+    )
+    from pigeon_poker.preflop_174_policy import _actual_history, _position_map
+
     failures = []
     action_only_matches = 0
-    for scenario in _scenarios():
+    all_scenarios = _scenarios()
+    for scenario in all_scenarios:
         table, hand, actor_id = _live_fixture_for_scenario(scenario)
         for event in hand.events:
             if str(event.get("action", "")).lower() == "raise":
@@ -312,7 +319,39 @@ def test_all_174_paid_ranges_survive_missing_live_raise_amounts_without_strategy
 
         chart = resolve_range_image_for_hand(table, hand, actor_id)
         if chart is None:
-            failures.append((int(scenario["id"]), "no chart returned"))
+            actor_position, positions, _strict = (
+                __import__("pigeon_poker.preflop_174_policy", fromlist=["exact_preflop_174_source_candidates"])
+                .exact_preflop_174_source_candidates(table, hand, actor_id)
+            )
+            actual = _actual_history(table, hand, actor_id, positions)
+            candidates = [
+                item for item in all_scenarios
+                if str(item.get("position", "")).upper() == str(actor_position or "").upper()
+                and _history_matches_when_live_raise_size_is_missing(
+                    list(item.get("history", []) or []), actual
+                )
+            ]
+            details = []
+            for item in candidates:
+                model = build_range_chart_model(int(item["id"]))
+                model.pop("source_id", None)
+                details.append({
+                    "id": int(item["id"]),
+                    "action_options": item.get("action_options"),
+                    "all_in_required": list(__import__(
+                        "pigeon_poker.range_scenario_resolver",
+                        fromlist=["PAID_RANGE_ALL_IN_POSITION_REQUIREMENTS"]
+                    ).PAID_RANGE_ALL_IN_POSITION_REQUIREMENTS.get(int(item["id"]), ())),
+                    "strategy_sha": hashlib.sha256(
+                        json.dumps(model, sort_keys=True).encode("utf-8")
+                    ).hexdigest()[:12],
+                })
+            failures.append({
+                "id": int(scenario["id"]),
+                "history": actual,
+                "legal_actions": hand.legal_actions(actor_id).get("actions"),
+                "candidates": details,
+            })
             continue
         actual_id = int(chart["source_id"])
         expected_model = build_range_chart_model(int(scenario["id"]))
