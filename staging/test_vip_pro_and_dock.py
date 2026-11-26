@@ -136,6 +136,39 @@ def test_vip_auto_rebuy_is_wired_before_new_hand() -> None:
     assert '"auto-rebuy"' in start
     assert "VIP auto-rebuy needs more wallet funds" in start
 
+
+def test_six_max_seat_order_is_randomized_for_each_table() -> None:
+    import random
+    namespace: dict[str, object] = {}
+    exec(compile(VIP_SOURCE.read_text(encoding="utf-8"), str(VIP_SOURCE), "exec"), namespace)
+    seats = [
+        (f"cpu-{index}", "PRO", 10000) for index in range(5)
+    ] + [("hero", "YOU", 10000)]
+    first = namespace["randomize_cash_seating"](seats, rng=random.Random(17))
+    second = namespace["randomize_cash_seating"](seats, rng=random.Random(29))
+    assert first != seats
+    assert second != seats
+    assert first != second
+    assert set(player[0] for player in first) == set(player[0] for player in seats)
+    assert set(player[0] for player in second) == set(player[0] for player in seats)
+    assert sum(player[0] == "hero" for player in first) == 1
+    join = source_of("_join_table")
+    assert "randomize_cash_seating(" in join
+    assert "rng=self.cash_random" in join
+
+
+def test_shutdown_cashout_is_committed_before_application_exits() -> None:
+    close = source_of("_on_close")
+    update = source_of("_begin_app_update")
+    assert "BEGIN IMMEDIATE" in close
+    assert "wallet_account" in close
+    assert "cashier_transactions" in close
+    assert "pigeon-poker-shutdown-cashout-" in close
+    assert "Shutdown cash-out failed" in close
+    assert "return" in close
+    assert close.index("self.wallet_store.set_live_poker_stack(0)") < close.index("self.destroy()")
+    assert "self.after(500, self._on_close)" in update
+
 def run_tests() -> None:
     tests = [
         test_empty_bet_and_174_range_rows_are_removed_from_action_dock,
@@ -145,11 +178,13 @@ def run_tests() -> None:
         test_vip_auto_rebuy_is_wired_before_new_hand,
         test_vip_has_distinct_private_club_window_and_table_surface,
         test_normal_rush_cpu_settings_remain_unchanged,
+        test_six_max_seat_order_is_randomized_for_each_table,
+        test_shutdown_cashout_is_committed_before_application_exits,
     ]
     for test in tests:
         test()
         print("PASS", test.__name__)
-    print("ALL PASS", len(tests), "VIP lineup, auto-rebuy, CPU tier, and action dock tests")
+    print("ALL PASS", len(tests), "VIP lineup, auto-rebuy, randomized seats, safe cash-out, and action dock tests")
 
 
 if __name__ == "__main__":
