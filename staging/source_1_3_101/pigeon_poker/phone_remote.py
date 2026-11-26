@@ -256,6 +256,20 @@ class PhoneRemoteServer:
         if not port:
             return []
         ips: list[str] = []
+        # A UDP route probe discovers the active Wi-Fi/Ethernet interface
+        # without sending application data to the external destination.
+        try:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                probe.connect(("192.0.2.1", 9))
+                route_ip = str(probe.getsockname()[0])
+                parsed_route_ip = ipaddress.ip_address(route_ip)
+                if parsed_route_ip.is_private and not parsed_route_ip.is_loopback and not parsed_route_ip.is_link_local:
+                    ips.append(route_ip)
+            finally:
+                probe.close()
+        except OSError:
+            pass
         try:
             for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_STREAM):
                 address = str(info[4][0])
