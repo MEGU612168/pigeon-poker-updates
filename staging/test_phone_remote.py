@@ -67,7 +67,8 @@ def test_phone_remote_requires_pairing_and_accepts_authenticated_actions() -> No
     server = PhoneRemoteServer(enqueue, host="127.0.0.1", port=0)
     server.start()
     try:
-        url = server.urls[0]
+        # Bind the test client to the explicit loopback interface used by this test server.
+        url = f"http://127.0.0.1:{server.port}/"
         status, _ = _request(url.rstrip("/") + "/api/state")
         assert status == 401
 
@@ -113,7 +114,7 @@ def test_phone_remote_rejects_invalid_commands_and_bet_amounts() -> None:
     server = PhoneRemoteServer(lambda item: received.append(item) or True, host="127.0.0.1", port=0)
     server.start()
     try:
-        url = server.urls[0].rstrip("/")
+        url = f"http://127.0.0.1:{server.port}"
         status, paired = _request(url + "/api/pair", method="POST", body={"code": server.pairing_code})
         assert status == 200
         token = paired["token"]
