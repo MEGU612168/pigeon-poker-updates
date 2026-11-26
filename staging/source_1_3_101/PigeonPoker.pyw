@@ -123,6 +123,36 @@ COLORS = {
 RUNOUT_REVEAL_STAGES = (("FLOP", 0, 3), ("TURN", 3, 4), ("RIVER", 4, 5))
 
 
+def calculate_table_pot_layout(width: int, height: int) -> dict[str, float | None]:
+    """Calculate collision-free pot, chip, board and street-label positions.
+
+    The upper-centre seat panel extends 43 px below its anchor. Keep the
+    pot plaque below that panel, then reserve a separate chip lane before
+    the community cards. At compact heights, omit the street label rather
+    than drawing it over the hero seat.
+    """
+    w = max(320.0, float(width))
+    h = max(260.0, float(height))
+    top_seat_panel_bottom = h * 0.25 + 43.0
+    pot_label_y = max(h * 0.315, top_seat_panel_bottom + 14.0)
+    pot_chips_y = pot_label_y + 34.0
+    card_width = max(42, min(54, int(w * 0.043)))
+    card_height = int(card_width * 1.38)
+    board_y = max(h * 0.395, pot_chips_y + 32.0)
+    street_candidate_y = max(h * 0.53, board_y + card_height + 14.0)
+    hero_panel_top = h * 0.75 - 41.0
+    street_label_y = (
+        street_candidate_y if street_candidate_y + 8.0 < hero_panel_top else None
+    )
+    return {
+        "pot_label_y": pot_label_y,
+        "pot_chips_y": pot_chips_y,
+        "board_y": board_y,
+        "card_height": float(card_height),
+        "street_label_y": street_label_y,
+    }
+
+
 def load_config() -> dict[str, Any]:
     data = {
         "gto_plus_executable": str(DEFAULT_GTO), "gto_plus_port": 55143,
@@ -8540,7 +8570,17 @@ class PigeonPokerApp(tk.Tk):
         # not beneath the top player's cards or in the bottom action strip.
         pot_text = ("POT PAID" if hand.finished and hand.winner_reason in {"showdown", "fold"}
                     else f"POT  {self._format_table_chips(hand.pot, table.big_blind)}")
-        pot_label_y = h*.145 if multi_runout_display else h*.315
+        if multi_runout_display:
+            pot_label_y = h*.145
+            pot_chips_y = h*.351
+            board_y = h*.395
+            street_label_y = h*.53
+        else:
+            pot_layout = calculate_table_pot_layout(w, h)
+            pot_label_y = pot_layout["pot_label_y"]
+            pot_chips_y = pot_layout["pot_chips_y"]
+            board_y = pot_layout["board_y"]
+            street_label_y = pot_layout["street_label_y"]
         pot_plaque_w = max(112, min(206, len(pot_text) * 8.2 + 30))
         canvas.create_rectangle(w/2-pot_plaque_w/2, pot_label_y-13,
                                 w/2+pot_plaque_w/2, pot_label_y+13,
@@ -8580,15 +8620,16 @@ class PigeonPokerApp(tk.Tk):
         if (not multi_runout_display
                 and not (hand.finished and hand.winner_reason in {"showdown", "fold"} and anim_active)
                 and int(hand.pot) > 0):
-            draw_chip_cluster(canvas, w*.50, h*.351, int(hand.pot), int(table.big_blind),
+            draw_chip_cluster(canvas, w*.50, pot_chips_y, int(hand.pot), int(table.big_blind),
                               scale=.84, max_width=128, tags=("pot_chips",),
                               max_visible_layers=8)
         board = list(hand.board)
         rabbit_board = special_state.get("cash_rabbit_hunt_board") if hand.finished else None
         rabbit_board = list(rabbit_board) if rabbit_board else None
         if rabbit_board and len(rabbit_board) == 5:
-            canvas.create_text(w/2, h*.365, text="RABBIT HUNT  •  HYPOTHETICAL RUNOUT",
-                               fill="#e2b96d", font=("Segoe UI", 8, "bold"), tags=("rabbit_hunt_label",))
+            if street_label_y is not None:
+                canvas.create_text(w/2, street_label_y, text="RABBIT HUNT  •  HYPOTHETICAL RUNOUT",
+                                   fill="#e2b96d", font=("Segoe UI", 8, "bold"), tags=("rabbit_hunt_label",))
         else:
             runout_boards_for_display = [list(row) for row in (getattr(hand, "runout_boards", []) or [])]
             if hand.finished and len(runout_boards_for_display) > 1:
@@ -8597,8 +8638,8 @@ class PigeonPokerApp(tk.Tk):
                 canvas.create_text(w/2, h*.255, text=label,
                                    fill="#f0cf82", font=("Segoe UI", 9, "bold"),
                                    tags=("street_label",))
-            else:
-                canvas.create_text(w/2, h*.53, text=hand.street.upper(), fill="#c7e7d9",
+            elif street_label_y is not None:
+                canvas.create_text(w/2, street_label_y, text=hand.street.upper(), fill="#c7e7d9",
                                    font=("Segoe UI", 8, "bold"), tags=("street_label",))
         # Multi-runout showdowns display one compact, clearly labelled row per
         # completed board. The normal one-board path retains its reveal animation.
@@ -8651,7 +8692,6 @@ class PigeonPokerApp(tk.Tk):
         card_w = max(42, min(54, int(w * .043)))
         card_h = int(card_w * 1.38)
         card_gap = max(6, int(card_w * .15))
-        board_y = h*.395
         start_x = w/2 - (len(board_layout)*card_w + max(0, len(board_layout)-1)*card_gap)/2
         ordered_board_anim_indices = sorted(board_anim_set)
         for i, card in enumerate(board_layout):

@@ -121,6 +121,35 @@ def test_hero_stack_row_is_clear_of_its_hole_cards_and_status_line() -> None:
     assert 'text=stack_label, anchor="w"' in draw
     assert 'panel_y+25, text=state' in draw
 
+
+
+def test_pot_display_avoids_seat_chips_and_board_at_multiple_table_heights() -> None:
+    helper_node = next(
+        node for node in TREE.body
+        if isinstance(node, ast.FunctionDef) and node.name == "calculate_table_pot_layout"
+    )
+    isolated = ast.Module(body=[helper_node], type_ignores=[])
+    namespace: dict[str, object] = {}
+    exec(compile(isolated, str(SOURCE), "exec"), namespace)
+    layout_fn = namespace["calculate_table_pot_layout"]
+    for height in (470, 520, 550, 640, 720, 860, 1080):
+        layout = layout_fn(1280, height)
+        top_panel_bottom = height * .25 + 43
+        assert layout["pot_label_y"] - 13 >= top_panel_bottom
+        assert layout["pot_chips_y"] - 14 >= layout["pot_label_y"] + 13 + 4
+        assert layout["board_y"] >= layout["pot_chips_y"] + 32
+        street_y = layout["street_label_y"]
+        if street_y is not None:
+            assert street_y >= layout["board_y"] + layout["card_height"] + 14
+            assert street_y + 8 < height * .75 - 41
+
+    draw = source_of("_draw_table")
+    assert "calculate_table_pot_layout(w, h)" in draw
+    assert "draw_chip_cluster(canvas, w*.50, pot_chips_y" in draw
+    assert 'board_y = pot_layout["board_y"]' in draw
+    assert "street_label_y" in draw
+
+
 def run_tests() -> None:
     tests = [
         test_nl500_and_nl1000_are_added_with_correct_blinds_and_buyins,
@@ -133,6 +162,7 @@ def run_tests() -> None:
         test_casino_rejects_sub_minimum_or_fractional_cent_wagers,
         test_every_seat_stack_is_clickable_to_toggle_usd_and_bb,
         test_hero_stack_row_is_clear_of_its_hole_cards_and_status_line,
+        test_pot_display_avoids_seat_chips_and_board_at_multiple_table_heights,
     ]
     for test in tests:
         test()
