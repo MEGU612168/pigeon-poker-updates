@@ -3355,6 +3355,12 @@ def _choose_range_aware_action_impl(
     if best_action == "allin":
         best_amount = None
 
+    selected_size_note = (
+        f"selected-size={_postflop_size_fraction(pot, best_amount - street_contribution, to_call):.0%}"
+        f"{' of post-call pot' if to_call else ' of pot'}; "
+        if best_amount is not None and best_action in {"bet", "raise"}
+        else "selected-size=none; "
+    )
     note = (
         f"{decision_name}; equity {equity:.1%}; required call {required_call:.1%}; "
         f"pure-bluff required folds {required_bluff:.1%}; estimated all-fold {fold_probability:.1%}; "
@@ -3392,14 +3398,9 @@ def _choose_range_aware_action_impl(
         f"hero-made-category={hero_hand_category}; "
         f"structural-draw={hero_draw_strength:.2f}; "
         f"range-conditioned-draw={candidate_draw_strength:.2f}; "
-        + (
-            f"selected-size={_postflop_size_fraction(pot, best_amount - street_contribution, to_call):.0%}"
-            f"{' of post-call pot' if to_call else ' of pot'}; "
-            if best_amount is not None and best_action in {"bet", "raise"}
-            else "selected-size=none; "
-        )
+        f"{selected_size_note}"
         f"polar-role={selected_polar_role}; "
-        + "source=range-aware multiway response model with GTO-style sizing and polarized-range constraints (not solver exact)"
+        "source=range-aware multiway response model with GTO-style sizing and polarized-range constraints (not solver exact)"
     )
     return CPUAction(
         player_id=str(player_id),
