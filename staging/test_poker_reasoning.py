@@ -149,6 +149,39 @@ class FakeTable:
     dealer_index = 0
 
 
+def test_vip_sample_counts_match_the_advertised_actual_loop_budgets():
+    hand = FakeHand(
+        [FakePlayer("hero", ("As", "Ah")), FakePlayer("villain")],
+        board=("2c", "3d", "4h", "5s", "8c"),
+        street="river", to_call=0, actions=("check",),
+    )
+    opponent = module.OpponentRange(
+        player_id="villain",
+        combos=((("Ks", "Kh"), 1.0),),
+        source="test-fixed-range",
+        confidence=1.0,
+    )
+    ranges = {"villain": opponent}
+    original_evaluate = module.evaluate_seven
+    original_sample = module._sample_joint_opponent_hands
+    module.evaluate_seven = lambda cards: (1,)
+    module._sample_joint_opponent_hands = lambda opponents, blocked, deck, rng: [("Ks", "Kh")]
+    try:
+        for flag, expected in (("_vip_pro_mode", 1024), ("_vip_top_pro_mode", 4096)):
+            cpu = FakeCPU()
+            setattr(cpu, "_vip_pro_mode", flag == "_vip_pro_mode")
+            setattr(cpu, "_vip_top_pro_mode", flag == "_vip_top_pro_mode")
+            _, equity_samples = module._equity_vs_ranges(hand, "hero", ranges, cpu)
+            _, made_samples = module._current_showdown_equity(
+                hand, "hero", ranges, cpu, simulation_multiplier=1.0
+            )
+            assert equity_samples == expected
+            assert made_samples == expected
+    finally:
+        module.evaluate_seven = original_evaluate
+        module._sample_joint_opponent_hands = original_sample
+
+
 def sample_estimator(*, table, hand, exclude_player_id):
     rows = {
         "UTG": {
